@@ -104,6 +104,9 @@ You need an approved OAuth "script" app and you're rate limited. Pushshift is go
 
 ## Web (Web workstream)
 
-- `react-globe.gl` layers: `pointsData` or `hexBinPointsData` for stories, `ringsData` for "growing" pulses, `polygonsData` for country outlines (`world-atlas` + `topojson-client`), and `labelsData` for the top stories.
+- `react-globe.gl` layers: `pointsData` or `hexBinPointsData` for stories, `ringsData` for "growing" pulses, and `labelsData` for the top stories.
+- **Don't use `polygonsData` for the countries.** The land is one merged mesh plus one set of border lines, built in `web/src/globe/land.ts` and added as a custom layer: 2 draw calls and about 60 ms to build. Through `polygonsData`, the 1,616 polygons at 1:50m cost about 4,800 draw calls per frame and 3.7 s of blocking work at load. `polygonsData` is fine for a handful of highlighted countries.
+- **Keep `<Globe>` props stable.** Accessor functions, materials and config go at module scope, and data arrays are memoised. react-globe.gl re-processes a whole layer whenever a prop changes identity, and inline arrow functions change on every render.
+- With 1,000+ stories, set `pointsMerge` (one draw call, but no per-point hover) or switch to `hexBinPointsData`.
 - All server data goes through `web/src/api/client.ts` (react-query). UI state (selected story, current date, replay mode) lives in a zustand store.
 - The production bundle is about 2 MB because of three.js. That's fine for the demo, so don't optimise it.
