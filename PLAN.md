@@ -4,7 +4,7 @@ This is a living document. Each workstream owner, and their agent, edits **only 
 
 ## The pitch (30 seconds)
 
-> Big geopolitical stories don't appear out of nowhere. They build up across local news, social media and Wikipedia before the mainstream notices. **Undercurrent** links all of that into stories, maps them on a globe, and predicts which ones are about to break. We backtested it against a momentum baseline, and here's a story it flagged a week early.
+> Big geopolitical stories don't appear out of nowhere. They build up across local news, social media and Wikipedia before the mainstream notices. **Undercurrent** links all of that into stories, maps them on a globe, and projects how big each one will be over the coming days, so you can scrub the globe back through time and forward into it. We backtested the projections against a "nothing changes" baseline, and here's a story whose surge it saw a week early.
 
 - **HRT** (*predictions and decision making*): an honest forecast with a baseline, calibration and no lookahead.
 - **G-Research** (*make the invisible visible*): the build-up before a story breaks, shown on a globe.
@@ -49,7 +49,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 |---|---|---|
 | H+2 | **M0: everyone running** | The mock globe works on all 4 laptops, and 1 day of GDELT has been downloaded and parsed |
 | H+8 | **M1: real stories on the globe** | The last 7 days of GDELT are clustered into stories, exported, and visible on the globe |
-| H+16 | **M2: forecast backtest** | About 60 days of history; model vs momentum baseline (AUC, Brier, calibration) is written to `meta.json` |
+| H+16 | **M2: forecast backtest** | About 60 days of history; model vs persistence baseline (error and range coverage per horizon) is written to `meta.json` |
 | H+20 | **M3: replay and live** | The time slider shows predicted vs actual; live Bluesky posts attach to stories |
 | H+20 to the end | **Feature freeze** | Bug fixes, polish, demo script, Devpost write-up and two rehearsals only |
 
@@ -129,20 +129,20 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 ### C: Forecast (owner: ____)
 
-**Goal:** P(story volume doubles over the next 7 days), backtested honestly against momentum.
+**Goal:** project each story's `article_count_7d` at 1, 3, 7 and 14 days ahead (`config.HORIZONS`) with an 80% range, so the globe can look into the future; backtested honestly against "it stays as it is". The contract is done: `Forecast.horizons`, `Outcome.horizons`, `ModelMetrics.horizons`, `Meta.horizons`.
 **Reads:** B's stories, A's Wikipedia tables. **Writes:** `forecast` and `outcome` in the snapshots, and `model` in `meta.json`
 
-- [ ] Fix the label: `grew = volume(t+1..t+7) >= 2 × volume(t-6..t)` (`config.GROWTH_RATIO`), with a minimum-volume filter (for example ≥ 20 articles in the previous 7 days). Write the final definition in Notes
-- [ ] Build labels with no lookahead: take the story's centroid at day t, and count future articles as the ones closest to that centroid
-- [ ] Momentum baseline (`growth_7d`): AUC and Brier score
+- [ ] Fix the target and write the final definition in Notes: `article_count_7d` on day t+h, modelled as `log2((future + 1) / (now + 1))` (see `docs/ARCHITECTURE.md`). Decide which stories get a forecast (for example ≥ 20 articles in the previous 7 days); the rest have `forecast = None` and are drawn unchanged
+- [ ] Build targets with no lookahead: take the story's centroid at day t, and count future articles as the ones closest to that centroid
+- [ ] Baselines: persistence, and momentum (persistence scaled by `growth_7d`). Report the typical miss (`mae_log2`) per horizon
 - [ ] Features:
   - volume, growth and acceleration
   - number of distinct domains and countries
   - tone, and change in tone
   - Wikipedia pageview and edit growth for the story's entities
-- [ ] Models: logistic regression first, then `HistGradientBoostingClassifier`. Use a time-based split (train on the early weeks, test on the last 2 weeks)
-- [ ] Calibration plot, plus `ModelMetrics` written to `meta.json`; per-story `forecast` (with top `factors`) and `outcome` written to the snapshots
-- [ ] Find 2 or 3 strong examples for the pitch (stories flagged early that then blew up)
+- [ ] Models: ridge regression first, then `HistGradientBoostingRegressor` (quantile loss for the range). One model per horizon. Use a time-based split (train on the early weeks, test on the last 2 weeks)
+- [ ] Range coverage per horizon (should be near 80%), plus `ModelMetrics` written to `meta.json`; per-story `forecast` (with top `factors` per horizon) and `outcome` (horizons that have already happened) written to the snapshots
+- [ ] Find 2 or 3 strong examples for the pitch (stories whose surge was projected early)
 - [ ] **Unblock yourself:** until B has stories, build the label/feature/backtest code on proxy stories (for example GKG theme × country counts), then switch to B's stories
 
 **Needs from others:** B: point-in-time story centroids per day. V: vectors and the news–news threshold. A: entity → Wikipedia title mapping.
@@ -153,14 +153,14 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Goal:** the demo. Build against mock data (`npm run dev:mock`) until B exports real data.
 
 - [x] Globe: vector countries, heatmap of story footprints, flat markers coloured by forecast, hover labels (done in setup)
-- [ ] Click a marker to select a story; rings for stories about to break
+- [ ] Click a marker to select a story; rings for stories projected to surge
 - [ ] Story panel showing:
   - title and timeline chart (articles, posts, pageviews)
   - items grouped by source
   - entities
   - forecast and its top factors
-- [ ] Time slider over `meta.dates`. Replay mode shows the prediction first, then reveals the outcome (predicted vs actual)
-- [ ] Model card: AUC and Brier vs baseline, plus a calibration chart. HRT judges will look for this
+- [ ] Time slider over `meta.dates`, continuing past `meta.latest` by `meta.horizons` to look ahead: for a future day, draw the latest snapshot with each story's `article_count_7d` replaced by that horizon's `articles_7d`. Replay mode shows the prediction first, then reveals the outcome (predicted vs actual)
+- [ ] Model card: typical miss vs baseline per horizon, plus range coverage. Show only the horizons where the model beats the baseline as forecasts. HRT judges will look for this
 - [ ] `/api/live` websocket (with A) → live posts ticker, and a pulse on the matching story's location
 - [ ] Polish: loading and empty states, intro overlay, keyboard shortcuts for the demo
 - [ ] Offline fallback: the demo must run from exported files with no wifi
@@ -200,11 +200,13 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Heatmap of story footprints instead of one tower per story; custom heat layer instead of `heatmapsData` | Stories happen across regions, not at single points. The built-in heatmap layer is too slow to update for a time slider |
 | Countries as one custom merged mesh, not `polygonsData` | 1,616 polygons meant ~4,800 draw calls per frame and a 3.7 s freeze at load; the merged mesh is 2 draw calls and builds in 60 ms |
 | Ingest both English and translated GKG feeds from the start | English-only would bias stories towards Anglophone sources; same sampling rate on both keeps growth ratios comparable |
+| The forecast is a projection of `article_count_7d` at several horizons with a range, not a yes/no "will it double" probability | The future globe needs a size to draw. `article_count_7d` is exactly what the heat is drawn from, so a projected day draws like a real snapshot, and the outcome is the later snapshot's own number |
+| Forecast error is judged in log2 units against a persistence baseline, per horizon | Counts span orders of magnitude; "it stays the same" is the honest bar for news attention, and per-horizon results say how far ahead the model can be trusted |
 
 ## Open questions
 
 - Hackathon schedule, and the rules on code prepared beforehand
 - Who owns which workstream: Cooper owns V. B (Stories) needs an owner
-- **What do we predict?** `Humans.md` says "Wikipedia views, edits and new articles in the cluster"; this plan and `docs/WORKPLAN.md` say "the story's news volume doubles in 7 days", with Wikipedia as features. Pick one before C starts: the label code, the model card and the pitch all depend on it. News volume has the most history to backtest on; a Wikipedia pageview spike is closer to "the public notices"
+- **What do we predict?** `Humans.md` says "Wikipedia views, edits and new articles in the cluster"; this plan and `docs/WORKPLAN.md` say "the story's news volume (`article_count_7d`) over the next 1–14 days", with Wikipedia as features. The contract now follows the news-volume version, because the future globe draws that number. Confirm it before C starts: the target code, the model card and the pitch all depend on it. News volume has the most history to backtest on; a Wikipedia pageview spike is closer to "the public notices"
 - How many days of GDELT to backfill. Measure the size of a single day of GKG first, for both feeds (see `docs/ARCHITECTURE.md`)
 - Is `<PAGE_TITLE>` original-language or English in the translated feed? (A to check)

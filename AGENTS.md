@@ -8,7 +8,7 @@ Undercurrent is a hackathon project (Hack the Burgh). It does three things:
 
 1. Groups GDELT news, Bluesky/Reddit posts and Wikipedia activity into **stories**, using cosine similarity of text embeddings.
 2. Shows the stories on a 3D globe.
-3. **Forecasts** which stories will grow next week (HRT track), and makes that early signal visible (G-Research track).
+3. **Forecasts** how big each story will be over the next days (HRT track), so the globe can be scrubbed into the future as well as the past, and makes that early signal visible (G-Research track).
 
 - Plan, owners and status: `PLAN.md`
 - Design, data sources and known pitfalls: `docs/ARCHITECTURE.md`. Read the section for your area before writing code.
@@ -78,7 +78,7 @@ Rules:
   - `numpy`
   - `sentence-transformers` for embeddings; the model name is `config.EMBEDDING_MODEL`
   - `faiss-cpu` for nearest-neighbour search
-  - `scikit-learn` for HDBSCAN, logistic regression, `HistGradientBoostingClassifier`, metrics and calibration
+  - `scikit-learn` for HDBSCAN, ridge regression, `HistGradientBoostingRegressor` (quantile loss), metrics and calibration
   - `fastapi` and `uvicorn`
   - `pydantic`, `python-dotenv`, `tqdm`
   - Dev: `pytest`, `ruff`, `ipykernel`, `matplotlib`

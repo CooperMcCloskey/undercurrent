@@ -133,12 +133,17 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
 
 ## Forecast (Forecast workstream)
 
-- **Target:** for each (story, day t), `grew = volume(t+1..t+7) >= GROWTH_RATIO × volume(t-6..t)`. Only include stories above a minimum volume, so noise isn't counted as growth.
+- **Target:** for each (story, day t) and each horizon h in `config.HORIZONS`, the story's `article_count_7d` on day t+h: the articles published in the 7 days ending that day. This is the number the globe draws a story's heat from, so a projection for day t+h is drawn by the same code as the real snapshot of day t+h, and the model is graded on the number that snapshot will contain. The contract shape is `Forecast.horizons` (`HorizonForecast` in `contracts.py`).
+  - **Model the change, not the count.** Fit `y = log2((articles_7d(t+h) + 1) / (articles_7d(t) + 1))` and convert back to articles. Counts span orders of magnitude and zeros are common, so the +1 and the log keep the error comparable between a 5-article story and a 500-article one.
+  - **Output per horizon:** the median `articles_7d`, plus a `low`–`high` range that should hold `config.FORECAST_INTERVAL` (80%) of outcomes. One way: `HistGradientBoostingRegressor` with quantile loss at 0.1, 0.5 and 0.9. Cheaper with little data: one point model, plus residual quantiles from a validation block.
+  - **The future globe** is the snapshot of the latest day with every story's `article_count_7d` swapped for the chosen horizon's `articles_7d`, drawn by the usual heat code (the `low`/`high` give the uncertainty). Scrubbing back to day t and stepping forward shows the same projections next to the `outcome`. A story with no forecast is drawn unchanged.
+  - **What it can't show:** stories that don't exist yet. The future view is today's stories continuing or fading in their current footprint.
+  - **Horizons:** 1, 3, 7 and 14 days to start. Single stories a month out mostly just end, so add 30 only with months of history, or forecast an aggregate (category × region) instead. A 60-day backfill gives about 40 usable label days at 7 days and about 33 at 14 (the features need 13 days of history, and the target needs h days of future), and a 30-day horizon leaves about 17.
 - **No lookahead.** Features at day t use only data from day t or earlier. Story membership must be point-in-time too. If you cluster all of history at once and then backtest, the future leaks into which story an article belongs to.
   - Clean method: freeze each story's centroid at day t, then count future articles as the ones whose nearest centroid is that story.
-- **Baseline:** momentum (`growth_7d`) alone. If the model doesn't beat it, report that honestly; HRT judges will respect that more than an unexplained score.
+- **Baseline:** persistence (`articles_7d(t+h) = articles_7d(t)`), and also momentum (persistence scaled by `growth_7d`). News attention fades fast, so persistence is harder to beat than it looks. If the model doesn't beat the baseline at a horizon, report that honestly and don't present that horizon as a forecast; HRT judges will respect that more than an unexplained score.
 - **Split by time:** train on the earlier weeks and test on the last 2 weeks. Never use a random split.
-- **Report:** AUC, Brier score and a calibration curve (`sklearn.calibration.calibration_curve`) in `ModelMetrics`. Give each story the top `factors` behind its forecast: logistic regression coefficients × feature values, or permutation importance.
+- **Report:** per horizon, in `ModelMetrics.horizons`: the typical miss (`mae_log2`, as a factor of 2^x) for the model and the baseline, and `coverage` of the range (near 80% means the ranges are honest). Give each story the top `factors` behind its projection: ridge coefficients × feature values, or permutation importance.
 
 ## Web (Web workstream)
 
