@@ -9,7 +9,7 @@
 
 The vector store (`vectors.store`), the story tracker (`stories.track`) and the forecast proxy (`forecast.run --source proxy`) read these files as they are. `pipeline/tests/test_ingest_gdelt.py` checks that.
 
-**No BigQuery?** `python -m undercurrent.ingest.gdelt_zip` writes the same files from GDELT's 15-minute zip files, through the same `gkg.py`. It's described in "From the zip files" below, and it's what `docs/ONE_YEAR_EACH.md` uses.
+**No BigQuery?** `python -m undercurrent.ingest.gdelt_zip` (ControlThePancake's; **not on `main` yet**) writes the same files from GDELT's 15-minute zip files, through the same `gkg.py`. It's described in "From the zip files" below, and it's what `docs/ONE_YEAR_EACH.md` uses.
 
 ## One-time setup
 

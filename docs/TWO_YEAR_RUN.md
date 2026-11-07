@@ -1,6 +1,13 @@
 # Two years of GDELT, split across 3–4 Google Cloud accounts
 
-> **Update:** the pull and embed now follow `docs/ONE_YEAR_EACH.md`: one year per person (four years in all), pulled from GDELT's zip files on a separate CPU VM, then embedded on your L4 from the bucket. Its block table replaces "The split" below, and the quick start's `create_vm.sh` doesn't apply (it pulls the old six-month blocks from BigQuery on the GPU VM). Steps 7–9 here (track, upload your own days, stop the VM) and "Cooper only" are unchanged, with your block's dates from that file.
+> **Status, 2026-11-07 23:23 UTC: block 1 (Cooper) is running exactly as this file describes.**
+> - **VM:** `uc-gpu`, a `g2-standard-4` (1× L4, 4 vCPU, 16 GB RAM, 400 GB disk) in `us-central1-c`, created with the quick start below (`create_vm.sh 1`).
+> - **Pull:** from BigQuery, 2026-04-10 → 2026-11-06. Block 1 owns 2026-05-08 → 2026-11-06.
+> - **Bucket:** `gs://undercurrent-data-cooper`.
+>
+> **Still to settle for blocks 2–4:** ControlThePancake is preparing an alternative: one year per person, pulled from GDELT's zip files on a separate CPU VM (`docs/ONE_YEAR_EACH.md` and `ingest/gdelt_zip.py`; **neither is on `main` yet**). Both pulls write identical files, so blocks can be pulled either way. Whichever split the others use:
+> - its newest block must **own the days up to 2026-05-07** and stop there, because block 1 owns everything after;
+> - every block keeps the rules below: same `UC_HALF=1`, same cutoffs, and only its own days of story tables uploaded.
 
 **Goal:** by the end of the hackathon, one shared bucket holds two years of news (**2024-11-07 → 2026-11-06**, 730 days) turned into stories, ready for the forecast to train on, plus the forecast and the globe export built from them.
 
@@ -12,13 +19,13 @@ Background: `docs/CLOUD_RUN.md` (the one-account version, which has more detail 
 
 ## What we produce
 
-Everything goes to Cooper's bucket, `gs://$BUCKET` (the name is in the team chat):
+Everything goes to Cooper's bucket, **`gs://undercurrent-data-cooper`** (`create_vm.sh` uses it by default):
 
 | Path in the bucket | What | Written by | Rough size for 2 years* |
 |---|---|---|---|
-| `processed/articles/day=YYYY-MM-DD/part.parquet` | One row per distinct headline: url, domain, title, places, persons, orgs, themes, tone, language (`docs/WORKPLAN.md` 3.1) | every block | 40–110 GB |
+| `processed/articles/day=YYYY-MM-DD/part.parquet` | One row per distinct headline: url, domain, title, places, persons, orgs, themes, tone, language (`docs/WORKPLAN.md` 3.1) | every block | ~40 GB |
 | `processed/gdelt_totals/day=YYYY-MM-DD/part.parquet` | GKG rows per feed and country before filtering (for normalising volume) | every block | < 1 GB |
-| `processed/vectors/news/YYYY-MM-DD.npy` + `.parquet`, `manifest.json` | One 384-d float16 vector per headline, plus the text that was embedded | every block | 60–110 GB |
+| `processed/vectors/news/YYYY-MM-DD.npy` + `.parquet`, `manifest.json` | One 384-d float16 vector per headline, plus the text that was embedded | every block | ~150–200 GB |
 | `processed/story_assignments/YYYY-MM-DD.parquet` | Which story each article belongs to, and its similarity to the story | every block, **own days only** | 2–5 GB |
 | `processed/stories_daily/YYYY-MM-DD.parquet` | Per story and day: size, first seen, label, category | every block, **own days only** | < 1 GB |
 | `processed/story_lineage/YYYY-MM-DD.parquet` | Merges: old story id → surviving id | every block, **own days only** | tiny |
@@ -26,7 +33,7 @@ Everything goes to Cooper's bucket, `gs://$BUCKET` (the name is in the team chat
 | `merged/forecasts.parquet`, `model_metrics.json`, `forecast_report.json` | The forecast trained on all blocks | Cooper | < 1 GB |
 | `export/` | The globe's JSON (`meta.json`, `snapshots/`, `stories/`) | Cooper | ~200 MB |
 
-\*Guesses from 100–200k headlines a day. The dry run and the first pulled days give the real numbers.
+\*From ControlThePancake's measurement of 2026-11-01..05 (zip files, both feeds): 248–281k articles a day on weekdays and 156k on a Sunday, after dedupe, with 50–57 MB of articles Parquet a day. About 73% of articles come from the translated feed, with titles in the original language. The vectors are 768 bytes a headline plus the text.
 
 **"Ready for training"** means `uv run python -m undercurrent.forecast.run --source stories --processed data/merged` runs on the merged tables (the last section).
 
@@ -36,7 +43,7 @@ Everything goes to Cooper's bucket, `gs://$BUCKET` (the name is in the team chat
 
 | Block | Owner | Owns (its own days) | Pulls, embeds and tracks from (28-day warm-up) | Days |
 |---|---|---|---|---|
-| 1 | **Cooper** (2× L4) | 2026-05-08 → 2026-11-06 | 2026-04-10 | 183 + 28 |
+| 1 | **Cooper** (1× L4, **running**) | 2026-05-08 → 2026-11-06 | 2026-04-10 | 183 + 28 |
 | 2 | ____ | 2025-11-07 → 2026-05-07 | 2025-10-10 | 182 + 28 |
 | 3 | ____ | 2025-05-08 → 2025-11-06 | 2025-04-10 | 183 + 28 |
 | 4 | ____ | 2024-11-07 → 2025-05-07 | 2024-10-10 | 182 + 28 |
@@ -69,15 +76,17 @@ Everything goes to Cooper's bucket, `gs://$BUCKET` (the name is in the team chat
 
 ## Timeline (from when your VM is up; estimates)
 
+Block 1 started at 2026-11-07 23:23 UTC. The times below are for a block of about 210 days at about 250k headlines a day, so roughly 50 million headlines. Redo them with the embed log's titles-a-second number.
+
 | Time | What | Notes |
 |---|---|---|
-| 0:00–0:30 | Create the VM, set it up, dry-run your block | The dry run is free and gives the exact BigQuery bill |
-| 0:30–~3:00 | Pull your block (2–3 processes) | Embedding runs alongside it on the GPU |
-| ~3:00–~4:00 | Embedding finishes | Check the count of embedded days (step 5) |
+| 0:00–0:20 | The VM sets itself up and dry-runs the block | `create_vm.sh` does all of it. The dry run is free and gives the exact BigQuery bill |
+| 0:20–~3:00 | Pull the block (2–3 processes) | Embedding runs alongside it on the GPU |
+| until ~3:00–5:30 | Embedding finishes | 2–3 hours of GPU time with 2 L4s, 3–5 hours with 1 L4 (block 1's VM has 1 L4 and 4 vCPUs). Embedding stops by itself when every day is done |
 | by **4:00** | **Deadline:** Cooper posts "cutoffs pushed" | Otherwise track with what is on `main` |
-| ~4:00–~6:00 | Track your block | About 25 seconds a day, measured on synthetic data |
-| ~6:00 | Upload, mark the block done, stop the VM | |
-| ~6:00–~7:00 | Cooper: merge, forecast, export | |
+| after embedding, ~1.5–3 h | Track the block | 13–37 seconds a day for 200k items, measured on synthetic data, so more at 250k and on 4 vCPUs |
+| then | `finish` (uploads your own days and marks the block done), then stop the VM | |
+| when every block is done, ~1 h | Cooper: merge, forecast, export | |
 
 ## Quick start: one command per account (recommended)
 
@@ -124,7 +133,7 @@ gcloud services enable bigquery.googleapis.com bigquerystorage.googleapis.com co
 
 ### 1. Laptop: create the VM
 
-Pick the machine for the GPUs you were granted: 1 L4 → `g2-standard-8` (8 vCPU, 32 GB) with a 250 GB disk; 2 L4 → `g2-standard-24` (24 vCPU, 96 GB). Cooper uses `g2-standard-24` with 400 GB, since the merge also lands on his disk.
+Pick the machine for the GPUs you were granted: 1 L4 → `g2-standard-8` (8 vCPU, 32 GB) with a 250 GB disk; 2 L4 → `g2-standard-24` (24 vCPU, 96 GB). Cooper's VM is a `g2-standard-4` (1 L4, 4 vCPU, 16 GB; the bigger ones weren't available) with 400 GB, since the merge also lands on that disk. `create_vm.sh` picks the biggest of the three your quota and stock allow, and sizes the settings to it.
 
 ```bash
 export PROJECT=your-project-id ZONE=us-central1-a MACHINE=g2-standard-8 DISK=250GB
