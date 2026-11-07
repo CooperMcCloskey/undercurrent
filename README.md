@@ -21,6 +21,9 @@ npm run dev            # API on :8000 + web on :5173
 - **The globe:** every story is a marker coloured by its category (politics, conflict, economy...), over a heatmap of the places it is happening. Click a category in the legend to hide or show it.
 - **Hover a story** to outline its area and burst out a small dot for every place each of its articles mentions, with each place named. That is why the heat is where it is. The big dots are stories; the small ones are their articles (circles) and posts (diamonds), all one size.
 - **Click a story** to fly to it and open a panel with every article, post and Wikipedia page in it, linked. Filter by source, sort by importance or date. Hovering a row lights its dots on the globe, and clicking a dot jumps to its row.
+- **A story's forecast**, when the pipeline has one, shows in its hover tooltip and in the panel: how many articles a week it should have in 7 days, with an 80% range, such as "~340 articles a week in 7 days (80% range 220–510)". The model projects 1, 3, 7 and 14 days ahead (`pipeline/undercurrent/forecast/README.md`); the web app quotes the 7-day one.
+
+**Not built yet:** the time slider, and with it scrubbing the globe into the past or the future. The exports already list the days (`Meta.dates`) and horizons (`Meta.horizons`) it will need; see the Web section of `PLAN.md`.
 
 Until the real pipeline exports, the globe shows the mock data (`npm run dev:mock`) or the hand-written demo (`undercurrent.demo`). Neither is real news.
 
@@ -35,6 +38,7 @@ Until the real pipeline exports, the globe shows the mock data (`npm run dev:moc
 | `npm run check` | Typecheck + ruff + pytest |
 | `npm run format` | Prettier + ruff format |
 | `uv run python -m undercurrent.<area>.<module>` | Run a pipeline step |
+| `uv run python -m undercurrent.forecast.run --source synthetic` | Train, backtest and forecast on made-up stories (no data needed). `--source proxy` uses A's `articles.parquet`; `--source stories` uses B's stories. See `pipeline/undercurrent/forecast/README.md` |
 | `uv run python -m undercurrent.demo` | Embed + cluster the hand-written demo items, score them, export to `data/export/` (then `npm run dev` shows them) |
 
 ## Scaling up: the plan to maximise performance
@@ -187,13 +191,13 @@ pipeline/undercurrent/
   ingest/          A: GDELT, Bluesky, Wikipedia, Reddit -> data/raw, data/processed
   vectors/         V: text cleaning + embeddings for every source -> data/processed/vectors
   stories/         B: clustering, story tracking, footprints -> data/export
-  forecast/        C: labels, features, model, backtest
+  forecast/        C: story-size forecast: panel, features, quantile model, walk-forward backtest, export (see forecast/README.md)
   api/             D: FastAPI over data/export
   demo/            hand-written items -> embed -> cluster -> export (python -m undercurrent.demo)
 pipeline/tests/    pytest
 web/               D: Vite + React + react-globe.gl
   src/globe/       the globe: land, heatmap, category colours, article dots
-  src/story/       story panel, article ranking and dot layout
+  src/story/       story panel, article ranking, dot layout, forecast wording
 data/              gitignored; see data/README.md
 notebooks/         exploration, one folder per person
 docs/ARCHITECTURE.md   design, data sources, gotchas
