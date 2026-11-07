@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# data is big and regenerable: commit nothing under data/ except its README
+data/*
+!data/README.md
+
+# secrets / local env
+.env
+.env.*
+!.env.example
+
+# notebooks
+.ipynb_checkpoints/
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# per-person agent settings
+.claude/settings.local.json

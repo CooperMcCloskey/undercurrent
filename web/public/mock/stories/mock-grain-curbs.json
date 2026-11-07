@@ -1,0 +1,235 @@
+{
+  "id": "mock-grain-curbs",
+  "title": "Drought prompts grain export curbs",
+  "summary": "MOCK DATA: invented for UI development.",
+  "first_seen": "2026-10-10",
+  "locations": [
+    {
+      "name": "Odesa",
+      "country": "UA",
+      "lat": 46.48,
+      "lon": 30.72
+    }
+  ],
+  "entities": [
+    {
+      "name": "Odesa",
+      "kind": "location",
+      "wikipedia_title": "Odesa",
+      "pageviews_7d": 8600,
+      "edits_7d": 17
+    }
+  ],
+  "timeline": [
+    {
+      "day": "2026-10-10",
+      "articles": 41,
+      "posts": 123,
+      "wiki_pageviews": 1640
+    },
+    {
+      "day": "2026-10-11",
+      "articles": 38,
+      "posts": 114,
+      "wiki_pageviews": 1520
+    },
+    {
+      "day": "2026-10-12",
+      "articles": 32,
+      "posts": 96,
+      "wiki_pageviews": 1280
+    },
+    {
+      "day": "2026-10-13",
+      "articles": 42,
+      "posts": 126,
+      "wiki_pageviews": 1680
+    },
+    {
+      "day": "2026-10-14",
+      "articles": 33,
+      "posts": 99,
+      "wiki_pageviews": 1320
+    },
+    {
+      "day": "2026-10-15",
+      "articles": 52,
+      "posts": 156,
+      "wiki_pageviews": 2080
+    },
+    {
+      "day": "2026-10-16",
+      "articles": 31,
+      "posts": 93,
+      "wiki_pageviews": 1240
+    },
+    {
+      "day": "2026-10-17",
+      "articles": 35,
+      "posts": 105,
+      "wiki_pageviews": 1400
+    },
+    {
+      "day": "2026-10-18",
+      "articles": 43,
+      "posts": 129,
+      "wiki_pageviews": 1720
+    },
+    {
+      "day": "2026-10-19",
+      "articles": 48,
+      "posts": 144,
+      "wiki_pageviews": 1920
+    },
+    {
+      "day": "2026-10-20",
+      "articles": 35,
+      "posts": 105,
+      "wiki_pageviews": 1400
+    },
+    {
+      "day": "2026-10-21",
+      "articles": 31,
+      "posts": 93,
+      "wiki_pageviews": 1240
+    },
+    {
+      "day": "2026-10-22",
+      "articles": 28,
+      "posts": 84,
+      "wiki_pageviews": 1120
+    },
+    {
+      "day": "2026-10-23",
+      "articles": 41,
+      "posts": 123,
+      "wiki_pageviews": 1640
+    },
+    {
+      "day": "2026-10-24",
+      "articles": 42,
+      "posts": 126,
+      "wiki_pageviews": 1680
+    },
+    {
+      "day": "2026-10-25",
+      "articles": 46,
+      "posts": 138,
+      "wiki_pageviews": 1840
+    },
+    {
+      "day": "2026-10-26",
+      "articles": 43,
+      "posts": 129,
+      "wiki_pageviews": 1720
+    },
+    {
+      "day": "2026-10-27",
+      "articles": 43,
+      "posts": 129,
+      "wiki_pageviews": 1720
+    },
+    {
+      "day": "2026-10-28",
+      "articles": 32,
+      "posts": 96,
+      "wiki_pageviews": 1280
+    },
+    {
+      "day": "2026-10-29",
+      "articles": 33,
+      "posts": 99,
+      "wiki_pageviews": 1320
+    },
+    {
+      "day": "2026-10-30",
+      "articles": 40,
+      "posts": 120,
+      "wiki_pageviews": 1600
+    },
+    {
+      "day": "2026-10-31",
+      "articles": 26,
+      "posts": 78,
+      "wiki_pageviews": 1040
+    },
+    {
+      "day": "2026-11-01",
+      "articles": 30,
+      "posts": 90,
+      "wiki_pageviews": 1200
+    },
+    {
+      "day": "2026-11-02",
+      "articles": 35,
+      "posts": 105,
+      "wiki_pageviews": 1400
+    },
+    {
+      "day": "2026-11-03",
+      "articles": 35,
+      "posts": 105,
+      "wiki_pageviews": 1400
+    },
+    {
+      "day": "2026-11-04",
+      "articles": 34,
+      "posts": 102,
+      "wiki_pageviews": 1360
+    },
+    {
+      "day": "2026-11-05",
+      "articles": 23,
+      "posts": 69,
+      "wiki_pageviews": 920
+    },
+    {
+      "day": "2026-11-06",
+      "articles": 32,
+      "posts": 96,
+      "wiki_pageviews": 1280
+    }
+  ],
+  "items": [
+    {
+      "id": "mock-grain-curbs-news-0",
+      "kind": "news",
+      "title": "Drought prompts grain export curbs (Odesa)",
+      "url": "https://example.com/mock-grain-curbs/0",
+      "published_at": "2026-11-06T09:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.9
+    },
+    {
+      "id": "mock-grain-curbs-news-1",
+      "kind": "news",
+      "title": "Drought prompts grain export curbs (Odesa)",
+      "url": "https://example.com/mock-grain-curbs/1",
+      "published_at": "2026-11-05T10:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.85
+    },
+    {
+      "id": "mock-grain-curbs-news-2",
+      "kind": "news",
+      "title": "Drought prompts grain export curbs (Odesa)",
+      "url": "https://example.com/mock-grain-curbs/2",
+      "published_at": "2026-11-04T11:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.8
+    },
+    {
+      "id": "mock-grain-curbs-bsky-0",
+      "kind": "bluesky",
+      "title": "Watching the Odesa situation closely. This is getting bigger.",
+      "url": "https://bsky.app/profile/example.bsky.social/post/mock",
+      "published_at": "2026-11-06T12:00:00",
+      "source": "example.bsky.social",
+      "language": "en",
+      "similarity": 0.71
+    }
+  ]
+}

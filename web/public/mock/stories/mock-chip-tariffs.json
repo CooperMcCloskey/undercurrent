@@ -1,0 +1,235 @@
+{
+  "id": "mock-chip-tariffs",
+  "title": "New tariffs announced on chip imports",
+  "summary": "MOCK DATA: invented for UI development.",
+  "first_seen": "2026-10-10",
+  "locations": [
+    {
+      "name": "Taipei",
+      "country": "TW",
+      "lat": 25.03,
+      "lon": 121.57
+    }
+  ],
+  "entities": [
+    {
+      "name": "Taipei",
+      "kind": "location",
+      "wikipedia_title": "Taipei",
+      "pageviews_7d": 20120,
+      "edits_7d": 16
+    }
+  ],
+  "timeline": [
+    {
+      "day": "2026-10-10",
+      "articles": 78,
+      "posts": 234,
+      "wiki_pageviews": 3120
+    },
+    {
+      "day": "2026-10-11",
+      "articles": 47,
+      "posts": 141,
+      "wiki_pageviews": 1880
+    },
+    {
+      "day": "2026-10-12",
+      "articles": 61,
+      "posts": 183,
+      "wiki_pageviews": 2440
+    },
+    {
+      "day": "2026-10-13",
+      "articles": 71,
+      "posts": 213,
+      "wiki_pageviews": 2840
+    },
+    {
+      "day": "2026-10-14",
+      "articles": 75,
+      "posts": 225,
+      "wiki_pageviews": 3000
+    },
+    {
+      "day": "2026-10-15",
+      "articles": 49,
+      "posts": 147,
+      "wiki_pageviews": 1960
+    },
+    {
+      "day": "2026-10-16",
+      "articles": 50,
+      "posts": 150,
+      "wiki_pageviews": 2000
+    },
+    {
+      "day": "2026-10-17",
+      "articles": 70,
+      "posts": 210,
+      "wiki_pageviews": 2800
+    },
+    {
+      "day": "2026-10-18",
+      "articles": 67,
+      "posts": 201,
+      "wiki_pageviews": 2680
+    },
+    {
+      "day": "2026-10-19",
+      "articles": 59,
+      "posts": 177,
+      "wiki_pageviews": 2360
+    },
+    {
+      "day": "2026-10-20",
+      "articles": 68,
+      "posts": 204,
+      "wiki_pageviews": 2720
+    },
+    {
+      "day": "2026-10-21",
+      "articles": 64,
+      "posts": 192,
+      "wiki_pageviews": 2560
+    },
+    {
+      "day": "2026-10-22",
+      "articles": 56,
+      "posts": 168,
+      "wiki_pageviews": 2240
+    },
+    {
+      "day": "2026-10-23",
+      "articles": 68,
+      "posts": 204,
+      "wiki_pageviews": 2720
+    },
+    {
+      "day": "2026-10-24",
+      "articles": 84,
+      "posts": 252,
+      "wiki_pageviews": 3360
+    },
+    {
+      "day": "2026-10-25",
+      "articles": 74,
+      "posts": 222,
+      "wiki_pageviews": 2960
+    },
+    {
+      "day": "2026-10-26",
+      "articles": 52,
+      "posts": 156,
+      "wiki_pageviews": 2080
+    },
+    {
+      "day": "2026-10-27",
+      "articles": 83,
+      "posts": 249,
+      "wiki_pageviews": 3320
+    },
+    {
+      "day": "2026-10-28",
+      "articles": 78,
+      "posts": 234,
+      "wiki_pageviews": 3120
+    },
+    {
+      "day": "2026-10-29",
+      "articles": 80,
+      "posts": 240,
+      "wiki_pageviews": 3200
+    },
+    {
+      "day": "2026-10-30",
+      "articles": 62,
+      "posts": 186,
+      "wiki_pageviews": 2480
+    },
+    {
+      "day": "2026-10-31",
+      "articles": 61,
+      "posts": 183,
+      "wiki_pageviews": 2440
+    },
+    {
+      "day": "2026-11-01",
+      "articles": 56,
+      "posts": 168,
+      "wiki_pageviews": 2240
+    },
+    {
+      "day": "2026-11-02",
+      "articles": 49,
+      "posts": 147,
+      "wiki_pageviews": 1960
+    },
+    {
+      "day": "2026-11-03",
+      "articles": 80,
+      "posts": 240,
+      "wiki_pageviews": 3200
+    },
+    {
+      "day": "2026-11-04",
+      "articles": 81,
+      "posts": 243,
+      "wiki_pageviews": 3240
+    },
+    {
+      "day": "2026-11-05",
+      "articles": 92,
+      "posts": 276,
+      "wiki_pageviews": 3680
+    },
+    {
+      "day": "2026-11-06",
+      "articles": 84,
+      "posts": 252,
+      "wiki_pageviews": 3360
+    }
+  ],
+  "items": [
+    {
+      "id": "mock-chip-tariffs-news-0",
+      "kind": "news",
+      "title": "New tariffs announced on chip imports (Taipei)",
+      "url": "https://example.com/mock-chip-tariffs/0",
+      "published_at": "2026-11-06T09:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.9
+    },
+    {
+      "id": "mock-chip-tariffs-news-1",
+      "kind": "news",
+      "title": "New tariffs announced on chip imports (Taipei)",
+      "url": "https://example.com/mock-chip-tariffs/1",
+      "published_at": "2026-11-05T10:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.85
+    },
+    {
+      "id": "mock-chip-tariffs-news-2",
+      "kind": "news",
+      "title": "New tariffs announced on chip imports (Taipei)",
+      "url": "https://example.com/mock-chip-tariffs/2",
+      "published_at": "2026-11-04T11:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.8
+    },
+    {
+      "id": "mock-chip-tariffs-bsky-0",
+      "kind": "bluesky",
+      "title": "Watching the Taipei situation closely. This is getting bigger.",
+      "url": "https://bsky.app/profile/example.bsky.social/post/mock",
+      "published_at": "2026-11-06T12:00:00",
+      "source": "example.bsky.social",
+      "language": "en",
+      "similarity": 0.71
+    }
+  ]
+}

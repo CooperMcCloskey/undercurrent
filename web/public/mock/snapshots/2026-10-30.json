@@ -1,0 +1,209 @@
+{
+  "as_of": "2026-10-30",
+  "stories": [
+    {
+      "id": "mock-port-strike",
+      "title": "Port workers' strike spreads to a second terminal",
+      "location": {
+        "name": "Rotterdam",
+        "country": "NL",
+        "lat": 51.92,
+        "lon": 4.48
+      },
+      "article_count_7d": 241,
+      "post_count_7d": 723,
+      "growth_7d": 0.665,
+      "tone": -2.69,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.676,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 0.66
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": 0.68
+          }
+        ]
+      },
+      "outcome": {
+        "growth_ratio": 1.187,
+        "grew": false
+      }
+    },
+    {
+      "id": "mock-grain-curbs",
+      "title": "Drought prompts grain export curbs",
+      "location": {
+        "name": "Odesa",
+        "country": "UA",
+        "lat": 46.48,
+        "lon": 30.72
+      },
+      "article_count_7d": 279,
+      "post_count_7d": 837,
+      "growth_7d": 0.096,
+      "tone": -4.67,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.389,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 0.1
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": -0.35
+          }
+        ]
+      },
+      "outcome": {
+        "growth_ratio": 0.771,
+        "grew": false
+      }
+    },
+    {
+      "id": "mock-vote-recount",
+      "title": "Disputed vote count triggers a recount",
+      "location": {
+        "name": "Nairobi",
+        "country": "KE",
+        "lat": -1.29,
+        "lon": 36.82
+      },
+      "article_count_7d": 334,
+      "post_count_7d": 1002,
+      "growth_7d": 1.0,
+      "tone": -3.03,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.807,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 1.0
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": 0.2
+          }
+        ]
+      },
+      "outcome": {
+        "growth_ratio": 1.548,
+        "grew": false
+      }
+    },
+    {
+      "id": "mock-chip-tariffs",
+      "title": "New tariffs announced on chip imports",
+      "location": {
+        "name": "Taipei",
+        "country": "TW",
+        "lat": 25.03,
+        "lon": 121.57
+      },
+      "article_count_7d": 513,
+      "post_count_7d": 1539,
+      "growth_7d": 0.183,
+      "tone": -1.29,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.422,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 0.18
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": 0.98
+          }
+        ]
+      },
+      "outcome": {
+        "growth_ratio": 0.981,
+        "grew": false
+      }
+    },
+    {
+      "id": "mock-glacier-flood",
+      "title": "Glacial lake flood warning issued",
+      "location": {
+        "name": "Kathmandu",
+        "country": "NP",
+        "lat": 27.72,
+        "lon": 85.32
+      },
+      "article_count_7d": 336,
+      "post_count_7d": 1008,
+      "growth_7d": 1.294,
+      "tone": -3.18,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.862,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 1.29
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": 0.01
+          }
+        ]
+      },
+      "outcome": {
+        "growth_ratio": 2.19,
+        "grew": true
+      }
+    },
+    {
+      "id": "mock-rate-hold",
+      "title": "Central bank holds rates despite inflation",
+      "location": {
+        "name": "Buenos Aires",
+        "country": "AR",
+        "lat": -34.6,
+        "lon": -58.38
+      },
+      "article_count_7d": 79,
+      "post_count_7d": 237,
+      "growth_7d": -0.478,
+      "tone": -4.26,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.138,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": -0.48
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": -0.21
+          }
+        ]
+      },
+      "outcome": {
+        "growth_ratio": 0.873,
+        "grew": false
+      }
+    }
+  ]
+}

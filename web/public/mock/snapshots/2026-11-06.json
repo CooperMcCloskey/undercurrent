@@ -1,0 +1,191 @@
+{
+  "as_of": "2026-11-06",
+  "stories": [
+    {
+      "id": "mock-port-strike",
+      "title": "Port workers' strike spreads to a second terminal",
+      "location": {
+        "name": "Rotterdam",
+        "country": "NL",
+        "lat": 51.92,
+        "lon": 4.48
+      },
+      "article_count_7d": 286,
+      "post_count_7d": 858,
+      "growth_7d": 0.247,
+      "tone": -3.05,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.393,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 0.25
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": -0.08
+          }
+        ]
+      },
+      "outcome": null
+    },
+    {
+      "id": "mock-grain-curbs",
+      "title": "Drought prompts grain export curbs",
+      "location": {
+        "name": "Odesa",
+        "country": "UA",
+        "lat": 46.48,
+        "lon": 30.72
+      },
+      "article_count_7d": 215,
+      "post_count_7d": 645,
+      "growth_7d": -0.376,
+      "tone": 0.46,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.101,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": -0.38
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": 0.16
+          }
+        ]
+      },
+      "outcome": null
+    },
+    {
+      "id": "mock-vote-recount",
+      "title": "Disputed vote count triggers a recount",
+      "location": {
+        "name": "Nairobi",
+        "country": "KE",
+        "lat": -1.29,
+        "lon": 36.82
+      },
+      "article_count_7d": 517,
+      "post_count_7d": 1551,
+      "growth_7d": 0.63,
+      "tone": -2.15,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.719,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 0.63
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": -0.42
+          }
+        ]
+      },
+      "outcome": null
+    },
+    {
+      "id": "mock-chip-tariffs",
+      "title": "New tariffs announced on chip imports",
+      "location": {
+        "name": "Taipei",
+        "country": "TW",
+        "lat": 25.03,
+        "lon": 121.57
+      },
+      "article_count_7d": 503,
+      "post_count_7d": 1509,
+      "growth_7d": -0.028,
+      "tone": -0.15,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.361,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": -0.03
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": 0.95
+          }
+        ]
+      },
+      "outcome": null
+    },
+    {
+      "id": "mock-glacier-flood",
+      "title": "Glacial lake flood warning issued",
+      "location": {
+        "name": "Kathmandu",
+        "country": "NP",
+        "lat": 27.72,
+        "lon": 85.32
+      },
+      "article_count_7d": 736,
+      "post_count_7d": 2208,
+      "growth_7d": 1.131,
+      "tone": -0.06,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.905,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": 1.13
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": -0.25
+          }
+        ]
+      },
+      "outcome": null
+    },
+    {
+      "id": "mock-rate-hold",
+      "title": "Central bank holds rates despite inflation",
+      "location": {
+        "name": "Buenos Aires",
+        "country": "AR",
+        "lat": -34.6,
+        "lon": -58.38
+      },
+      "article_count_7d": 69,
+      "post_count_7d": 207,
+      "growth_7d": -0.195,
+      "tone": -4.5,
+      "first_seen": "2026-10-10",
+      "forecast": {
+        "p_grow": 0.182,
+        "horizon_days": 7,
+        "model_version": "mock",
+        "factors": [
+          {
+            "name": "growth_7d",
+            "contribution": -0.2
+          },
+          {
+            "name": "wiki_pageview_growth",
+            "contribution": 0.1
+          }
+        ]
+      },
+      "outcome": null
+    }
+  ]
+}

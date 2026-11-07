@@ -1,0 +1,18 @@
+{
+  "dates": [
+    "2026-10-30",
+    "2026-11-06"
+  ],
+  "latest": "2026-11-06",
+  "model": {
+    "model_version": "mock",
+    "test_start": "2026-10-24",
+    "test_end": "2026-10-30",
+    "n_test": 600,
+    "auc": 0.74,
+    "brier": 0.17,
+    "baseline_name": "momentum",
+    "baseline_auc": 0.66,
+    "baseline_brier": 0.2
+  }
+}

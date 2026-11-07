@@ -1,0 +1,235 @@
+{
+  "id": "mock-glacier-flood",
+  "title": "Glacial lake flood warning issued",
+  "summary": "MOCK DATA: invented for UI development.",
+  "first_seen": "2026-10-10",
+  "locations": [
+    {
+      "name": "Kathmandu",
+      "country": "NP",
+      "lat": 27.72,
+      "lon": 85.32
+    }
+  ],
+  "entities": [
+    {
+      "name": "Kathmandu",
+      "kind": "location",
+      "wikipedia_title": "Kathmandu",
+      "pageviews_7d": 29440,
+      "edits_7d": 8
+    }
+  ],
+  "timeline": [
+    {
+      "day": "2026-10-10",
+      "articles": 7,
+      "posts": 21,
+      "wiki_pageviews": 280
+    },
+    {
+      "day": "2026-10-11",
+      "articles": 8,
+      "posts": 24,
+      "wiki_pageviews": 320
+    },
+    {
+      "day": "2026-10-12",
+      "articles": 7,
+      "posts": 21,
+      "wiki_pageviews": 280
+    },
+    {
+      "day": "2026-10-13",
+      "articles": 9,
+      "posts": 27,
+      "wiki_pageviews": 360
+    },
+    {
+      "day": "2026-10-14",
+      "articles": 10,
+      "posts": 30,
+      "wiki_pageviews": 400
+    },
+    {
+      "day": "2026-10-15",
+      "articles": 9,
+      "posts": 27,
+      "wiki_pageviews": 360
+    },
+    {
+      "day": "2026-10-16",
+      "articles": 14,
+      "posts": 42,
+      "wiki_pageviews": 560
+    },
+    {
+      "day": "2026-10-17",
+      "articles": 14,
+      "posts": 42,
+      "wiki_pageviews": 560
+    },
+    {
+      "day": "2026-10-18",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-19",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-20",
+      "articles": 14,
+      "posts": 42,
+      "wiki_pageviews": 560
+    },
+    {
+      "day": "2026-10-21",
+      "articles": 20,
+      "posts": 60,
+      "wiki_pageviews": 800
+    },
+    {
+      "day": "2026-10-22",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-23",
+      "articles": 35,
+      "posts": 105,
+      "wiki_pageviews": 1400
+    },
+    {
+      "day": "2026-10-24",
+      "articles": 39,
+      "posts": 117,
+      "wiki_pageviews": 1560
+    },
+    {
+      "day": "2026-10-25",
+      "articles": 43,
+      "posts": 129,
+      "wiki_pageviews": 1720
+    },
+    {
+      "day": "2026-10-26",
+      "articles": 36,
+      "posts": 108,
+      "wiki_pageviews": 1440
+    },
+    {
+      "day": "2026-10-27",
+      "articles": 33,
+      "posts": 99,
+      "wiki_pageviews": 1320
+    },
+    {
+      "day": "2026-10-28",
+      "articles": 63,
+      "posts": 189,
+      "wiki_pageviews": 2520
+    },
+    {
+      "day": "2026-10-29",
+      "articles": 73,
+      "posts": 219,
+      "wiki_pageviews": 2920
+    },
+    {
+      "day": "2026-10-30",
+      "articles": 49,
+      "posts": 147,
+      "wiki_pageviews": 1960
+    },
+    {
+      "day": "2026-10-31",
+      "articles": 72,
+      "posts": 216,
+      "wiki_pageviews": 2880
+    },
+    {
+      "day": "2026-11-01",
+      "articles": 61,
+      "posts": 183,
+      "wiki_pageviews": 2440
+    },
+    {
+      "day": "2026-11-02",
+      "articles": 107,
+      "posts": 321,
+      "wiki_pageviews": 4280
+    },
+    {
+      "day": "2026-11-03",
+      "articles": 121,
+      "posts": 363,
+      "wiki_pageviews": 4840
+    },
+    {
+      "day": "2026-11-04",
+      "articles": 91,
+      "posts": 273,
+      "wiki_pageviews": 3640
+    },
+    {
+      "day": "2026-11-05",
+      "articles": 130,
+      "posts": 390,
+      "wiki_pageviews": 5200
+    },
+    {
+      "day": "2026-11-06",
+      "articles": 154,
+      "posts": 462,
+      "wiki_pageviews": 6160
+    }
+  ],
+  "items": [
+    {
+      "id": "mock-glacier-flood-news-0",
+      "kind": "news",
+      "title": "Glacial lake flood warning issued (Kathmandu)",
+      "url": "https://example.com/mock-glacier-flood/0",
+      "published_at": "2026-11-06T09:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.9
+    },
+    {
+      "id": "mock-glacier-flood-news-1",
+      "kind": "news",
+      "title": "Glacial lake flood warning issued (Kathmandu)",
+      "url": "https://example.com/mock-glacier-flood/1",
+      "published_at": "2026-11-05T10:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.85
+    },
+    {
+      "id": "mock-glacier-flood-news-2",
+      "kind": "news",
+      "title": "Glacial lake flood warning issued (Kathmandu)",
+      "url": "https://example.com/mock-glacier-flood/2",
+      "published_at": "2026-11-04T11:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.8
+    },
+    {
+      "id": "mock-glacier-flood-bsky-0",
+      "kind": "bluesky",
+      "title": "Watching the Kathmandu situation closely. This is getting bigger.",
+      "url": "https://bsky.app/profile/example.bsky.social/post/mock",
+      "published_at": "2026-11-06T12:00:00",
+      "source": "example.bsky.social",
+      "language": "en",
+      "similarity": 0.71
+    }
+  ]
+}

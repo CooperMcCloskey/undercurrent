@@ -1,0 +1,9 @@
+# Markdown is edited by four people at once; reformatting it causes merge conflicts.
+*.md
+data/
+pipeline/
+notebooks/
+package-lock.json
+uv.lock
+web/public/mock/
+web/src/api/types.gen.ts

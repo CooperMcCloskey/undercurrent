@@ -1,0 +1,235 @@
+{
+  "id": "mock-vote-recount",
+  "title": "Disputed vote count triggers a recount",
+  "summary": "MOCK DATA: invented for UI development.",
+  "first_seen": "2026-10-10",
+  "locations": [
+    {
+      "name": "Nairobi",
+      "country": "KE",
+      "lat": -1.29,
+      "lon": 36.82
+    }
+  ],
+  "entities": [
+    {
+      "name": "Nairobi",
+      "kind": "location",
+      "wikipedia_title": "Nairobi",
+      "pageviews_7d": 20680,
+      "edits_7d": 7
+    }
+  ],
+  "timeline": [
+    {
+      "day": "2026-10-10",
+      "articles": 14,
+      "posts": 42,
+      "wiki_pageviews": 560
+    },
+    {
+      "day": "2026-10-11",
+      "articles": 10,
+      "posts": 30,
+      "wiki_pageviews": 400
+    },
+    {
+      "day": "2026-10-12",
+      "articles": 13,
+      "posts": 39,
+      "wiki_pageviews": 520
+    },
+    {
+      "day": "2026-10-13",
+      "articles": 19,
+      "posts": 57,
+      "wiki_pageviews": 760
+    },
+    {
+      "day": "2026-10-14",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-15",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-16",
+      "articles": 21,
+      "posts": 63,
+      "wiki_pageviews": 840
+    },
+    {
+      "day": "2026-10-17",
+      "articles": 25,
+      "posts": 75,
+      "wiki_pageviews": 1000
+    },
+    {
+      "day": "2026-10-18",
+      "articles": 26,
+      "posts": 78,
+      "wiki_pageviews": 1040
+    },
+    {
+      "day": "2026-10-19",
+      "articles": 20,
+      "posts": 60,
+      "wiki_pageviews": 800
+    },
+    {
+      "day": "2026-10-20",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-21",
+      "articles": 25,
+      "posts": 75,
+      "wiki_pageviews": 1000
+    },
+    {
+      "day": "2026-10-22",
+      "articles": 26,
+      "posts": 78,
+      "wiki_pageviews": 1040
+    },
+    {
+      "day": "2026-10-23",
+      "articles": 27,
+      "posts": 81,
+      "wiki_pageviews": 1080
+    },
+    {
+      "day": "2026-10-24",
+      "articles": 44,
+      "posts": 132,
+      "wiki_pageviews": 1760
+    },
+    {
+      "day": "2026-10-25",
+      "articles": 46,
+      "posts": 138,
+      "wiki_pageviews": 1840
+    },
+    {
+      "day": "2026-10-26",
+      "articles": 36,
+      "posts": 108,
+      "wiki_pageviews": 1440
+    },
+    {
+      "day": "2026-10-27",
+      "articles": 48,
+      "posts": 144,
+      "wiki_pageviews": 1920
+    },
+    {
+      "day": "2026-10-28",
+      "articles": 44,
+      "posts": 132,
+      "wiki_pageviews": 1760
+    },
+    {
+      "day": "2026-10-29",
+      "articles": 63,
+      "posts": 189,
+      "wiki_pageviews": 2520
+    },
+    {
+      "day": "2026-10-30",
+      "articles": 53,
+      "posts": 159,
+      "wiki_pageviews": 2120
+    },
+    {
+      "day": "2026-10-31",
+      "articles": 51,
+      "posts": 153,
+      "wiki_pageviews": 2040
+    },
+    {
+      "day": "2026-11-01",
+      "articles": 54,
+      "posts": 162,
+      "wiki_pageviews": 2160
+    },
+    {
+      "day": "2026-11-02",
+      "articles": 71,
+      "posts": 213,
+      "wiki_pageviews": 2840
+    },
+    {
+      "day": "2026-11-03",
+      "articles": 63,
+      "posts": 189,
+      "wiki_pageviews": 2520
+    },
+    {
+      "day": "2026-11-04",
+      "articles": 84,
+      "posts": 252,
+      "wiki_pageviews": 3360
+    },
+    {
+      "day": "2026-11-05",
+      "articles": 107,
+      "posts": 321,
+      "wiki_pageviews": 4280
+    },
+    {
+      "day": "2026-11-06",
+      "articles": 87,
+      "posts": 261,
+      "wiki_pageviews": 3480
+    }
+  ],
+  "items": [
+    {
+      "id": "mock-vote-recount-news-0",
+      "kind": "news",
+      "title": "Disputed vote count triggers a recount (Nairobi)",
+      "url": "https://example.com/mock-vote-recount/0",
+      "published_at": "2026-11-06T09:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.9
+    },
+    {
+      "id": "mock-vote-recount-news-1",
+      "kind": "news",
+      "title": "Disputed vote count triggers a recount (Nairobi)",
+      "url": "https://example.com/mock-vote-recount/1",
+      "published_at": "2026-11-05T10:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.85
+    },
+    {
+      "id": "mock-vote-recount-news-2",
+      "kind": "news",
+      "title": "Disputed vote count triggers a recount (Nairobi)",
+      "url": "https://example.com/mock-vote-recount/2",
+      "published_at": "2026-11-04T11:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.8
+    },
+    {
+      "id": "mock-vote-recount-bsky-0",
+      "kind": "bluesky",
+      "title": "Watching the Nairobi situation closely. This is getting bigger.",
+      "url": "https://bsky.app/profile/example.bsky.social/post/mock",
+      "published_at": "2026-11-06T12:00:00",
+      "source": "example.bsky.social",
+      "language": "en",
+      "similarity": 0.71
+    }
+  ]
+}

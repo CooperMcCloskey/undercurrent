@@ -1,0 +1,27 @@
+{
+  "name": "undercurrent",
+  "private": true,
+  "workspaces": [
+    "web"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "uv run uvicorn undercurrent.api.app:app --reload --port 8000",
+    "dev:web": "npm run dev -w web",
+    "dev:mock": "npm run dev -w web -- --mode mock",
+    "build": "npm run build -w web",
+    "typecheck": "npm run typecheck -w web",
+    "gen:types": "uv run python -m undercurrent.contracts | json2ts --unreachableDefinitions --additionalProperties false --bannerComment \"/* AUTO-GENERATED from pipeline/undercurrent/contracts.py by: npm run gen:types. Do not edit by hand. */\" > web/src/api/types.gen.ts",
+    "gen:mock": "uv run python -m undercurrent.mock",
+    "format": "prettier --write . && uv run ruff format",
+    "check": "npm run typecheck && uv run ruff check && uv run pytest -q"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7",
+    "json-schema-to-typescript": "^16.0.0",
+    "prettier": "^3.9.10"
+  }
+}

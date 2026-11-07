@@ -1,0 +1,235 @@
+{
+  "id": "mock-port-strike",
+  "title": "Port workers' strike spreads to a second terminal",
+  "summary": "MOCK DATA: invented for UI development.",
+  "first_seen": "2026-10-10",
+  "locations": [
+    {
+      "name": "Rotterdam",
+      "country": "NL",
+      "lat": 51.92,
+      "lon": 4.48
+    }
+  ],
+  "entities": [
+    {
+      "name": "Rotterdam",
+      "kind": "location",
+      "wikipedia_title": "Rotterdam",
+      "pageviews_7d": 11440,
+      "edits_7d": 27
+    }
+  ],
+  "timeline": [
+    {
+      "day": "2026-10-10",
+      "articles": 20,
+      "posts": 60,
+      "wiki_pageviews": 800
+    },
+    {
+      "day": "2026-10-11",
+      "articles": 13,
+      "posts": 39,
+      "wiki_pageviews": 520
+    },
+    {
+      "day": "2026-10-12",
+      "articles": 17,
+      "posts": 51,
+      "wiki_pageviews": 680
+    },
+    {
+      "day": "2026-10-13",
+      "articles": 17,
+      "posts": 51,
+      "wiki_pageviews": 680
+    },
+    {
+      "day": "2026-10-14",
+      "articles": 24,
+      "posts": 72,
+      "wiki_pageviews": 960
+    },
+    {
+      "day": "2026-10-15",
+      "articles": 24,
+      "posts": 72,
+      "wiki_pageviews": 960
+    },
+    {
+      "day": "2026-10-16",
+      "articles": 28,
+      "posts": 84,
+      "wiki_pageviews": 1120
+    },
+    {
+      "day": "2026-10-17",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-18",
+      "articles": 23,
+      "posts": 69,
+      "wiki_pageviews": 920
+    },
+    {
+      "day": "2026-10-19",
+      "articles": 18,
+      "posts": 54,
+      "wiki_pageviews": 720
+    },
+    {
+      "day": "2026-10-20",
+      "articles": 22,
+      "posts": 66,
+      "wiki_pageviews": 880
+    },
+    {
+      "day": "2026-10-21",
+      "articles": 27,
+      "posts": 81,
+      "wiki_pageviews": 1080
+    },
+    {
+      "day": "2026-10-22",
+      "articles": 20,
+      "posts": 60,
+      "wiki_pageviews": 800
+    },
+    {
+      "day": "2026-10-23",
+      "articles": 24,
+      "posts": 72,
+      "wiki_pageviews": 960
+    },
+    {
+      "day": "2026-10-24",
+      "articles": 33,
+      "posts": 99,
+      "wiki_pageviews": 1320
+    },
+    {
+      "day": "2026-10-25",
+      "articles": 32,
+      "posts": 96,
+      "wiki_pageviews": 1280
+    },
+    {
+      "day": "2026-10-26",
+      "articles": 27,
+      "posts": 81,
+      "wiki_pageviews": 1080
+    },
+    {
+      "day": "2026-10-27",
+      "articles": 36,
+      "posts": 108,
+      "wiki_pageviews": 1440
+    },
+    {
+      "day": "2026-10-28",
+      "articles": 42,
+      "posts": 126,
+      "wiki_pageviews": 1680
+    },
+    {
+      "day": "2026-10-29",
+      "articles": 26,
+      "posts": 78,
+      "wiki_pageviews": 1040
+    },
+    {
+      "day": "2026-10-30",
+      "articles": 45,
+      "posts": 135,
+      "wiki_pageviews": 1800
+    },
+    {
+      "day": "2026-10-31",
+      "articles": 44,
+      "posts": 132,
+      "wiki_pageviews": 1760
+    },
+    {
+      "day": "2026-11-01",
+      "articles": 37,
+      "posts": 111,
+      "wiki_pageviews": 1480
+    },
+    {
+      "day": "2026-11-02",
+      "articles": 34,
+      "posts": 102,
+      "wiki_pageviews": 1360
+    },
+    {
+      "day": "2026-11-03",
+      "articles": 56,
+      "posts": 168,
+      "wiki_pageviews": 2240
+    },
+    {
+      "day": "2026-11-04",
+      "articles": 41,
+      "posts": 123,
+      "wiki_pageviews": 1640
+    },
+    {
+      "day": "2026-11-05",
+      "articles": 36,
+      "posts": 108,
+      "wiki_pageviews": 1440
+    },
+    {
+      "day": "2026-11-06",
+      "articles": 38,
+      "posts": 114,
+      "wiki_pageviews": 1520
+    }
+  ],
+  "items": [
+    {
+      "id": "mock-port-strike-news-0",
+      "kind": "news",
+      "title": "Port workers' strike spreads to a second terminal (Rotterdam)",
+      "url": "https://example.com/mock-port-strike/0",
+      "published_at": "2026-11-06T09:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.9
+    },
+    {
+      "id": "mock-port-strike-news-1",
+      "kind": "news",
+      "title": "Port workers' strike spreads to a second terminal (Rotterdam)",
+      "url": "https://example.com/mock-port-strike/1",
+      "published_at": "2026-11-05T10:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.85
+    },
+    {
+      "id": "mock-port-strike-news-2",
+      "kind": "news",
+      "title": "Port workers' strike spreads to a second terminal (Rotterdam)",
+      "url": "https://example.com/mock-port-strike/2",
+      "published_at": "2026-11-04T11:00:00",
+      "source": "example.com",
+      "language": "en",
+      "similarity": 0.8
+    },
+    {
+      "id": "mock-port-strike-bsky-0",
+      "kind": "bluesky",
+      "title": "Watching the Rotterdam situation closely. This is getting bigger.",
+      "url": "https://bsky.app/profile/example.bsky.social/post/mock",
+      "published_at": "2026-11-06T12:00:00",
+      "source": "example.bsky.social",
+      "language": "en",
+      "similarity": 0.71
+    }
+  ]
+}
