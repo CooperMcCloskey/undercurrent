@@ -217,6 +217,25 @@ def test_client_retries_429_and_5xx_then_succeeds(fake) -> None:
     assert payload == {"items": [{"timestamp": "2026110100", "views": 42}]}
 
 
+def test_client_retries_a_404_only_when_asked(fake) -> None:
+    url = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/X/daily/a/b"
+    fake.fail_next = [404]
+    assert fake.client().get_json(url) is None  # default: a 404 is believed
+    fake.fail_next = [404, 404]
+    assert fake.client().get_json(url, retry_404=2) is not None  # one-off 404s retried
+
+
+def test_one_off_404_does_not_record_a_year_of_zeros(fake) -> None:
+    fake.fail_next = [404]
+    wiki.update_title(fake.client(), "pageviews", "en", "Real_News", D1, D2)
+    assert wiki.build_table("pageviews")["views"].tolist() == [42, 0]  # real data, not [0, 0]
+
+
+def test_top_download_retries_a_one_off_404(fake) -> None:
+    fake.fail_next = [404]
+    assert wiki_top.download(fake.client(), "en", "all-access", D1) == "downloaded"
+
+
 def test_client_gives_up_after_repeated_errors(fake) -> None:
     fake.fail_next = [500] * 10
     with pytest.raises(RuntimeError, match="giving up"):
@@ -243,9 +262,16 @@ def test_top_download_is_resumable_and_skips_unpublished_days(fake) -> None:
     c = fake.client()
     assert wiki_top.download(c, "en", "all-access", D1) == "downloaded"
     assert wiki_top.download(c, "en", "all-access", D1) == "cached"
-    assert wiki_top.download(c, "en", "all-access", D3) == "not published yet"
+    assert wiki_top.download(c, "en", "all-access", D3) == "missing (404)"
     assert not (wiki_top.RAW_DIR / "en" / "all-access" / f"{D3}.json").exists()
-    assert sum(n for p, n in fake.calls.items() if "/top/" in p) == 2  # cached call: no request
+    # D1: 1 request, then cached (0); D3 is a past day, so its 404 is tried 1 + RETRY_404 times
+    assert sum(n for p, n in fake.calls.items() if "/top/" in p) == 1 + 1 + wiki_top.RETRY_404
+
+
+def test_top_recent_404_is_not_retried(fake, monkeypatch) -> None:
+    monkeypatch.setattr(wiki_top, "utc_today", lambda: D3)  # D3 is "today": not published yet
+    assert wiki_top.download(fake.client(), "en", "all-access", D3) == "not published yet"
+    assert sum(n for p, n in fake.calls.items() if "/top/" in p) == 1
 
 
 def test_top_prune_keeps_a_rolling_window(fake) -> None:
@@ -418,3 +444,22 @@ def test_fetch_end_to_end_across_languages(fake) -> None:
     assert (d1["qid"], d1["title_en"], d1["n_langs"]) == ("Q1", "Real_News", 2)
     assert (d1["views"], d1["views_en"], d1["views_ja"]) == (52, 42, 10)  # summed over languages
     assert d1["edits"] == 4  # 2 per language
+
+
+def test_fetch_with_fewer_languages_keeps_the_others_in_the_entity_table(fake) -> None:
+    # tier 1: pageviews in every language, then edits in English only
+    wiki.fetch(["Real_News"], D1, D2, ["pageviews"], langs=["en", "ja"])
+    wiki.fetch(["Real_News"], D1, D2, ["edits"], langs=["en"])
+    ent = pd.read_parquet(wiki.PROCESSED / "wiki_entity_daily.parquet")
+    d1 = ent[ent["day"] == D1].iloc[0]
+    assert (d1["views"], d1["views_en"], d1["views_ja"]) == (52, 42, 10)  # ja not dropped
+    assert d1["edits"] == 2 and d1["edits_en"] == 2
+    assert "edits_ja" not in ent.columns
+
+
+def test_fetch_pageviews_only_on_a_fresh_machine(fake) -> None:
+    # tier 2: English pageviews only, before any edits exist
+    wiki.fetch(["Real_News"], D1, D2, ["pageviews"], langs=["en"])
+    ent = pd.read_parquet(wiki.PROCESSED / "wiki_entity_daily.parquet")
+    assert ent["views"].tolist() == [42, 0]
+    assert ent["edits"].isna().all()  # missing, not zero

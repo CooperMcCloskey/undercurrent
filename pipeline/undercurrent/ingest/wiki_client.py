@@ -76,10 +76,16 @@ class WikiClient:
         if slot > now:
             time.sleep(slot - now)
 
-    def get_json(self, url: str, params: dict | None = None) -> dict | None:
-        """Parsed JSON, or None on 404. Raises RuntimeError after repeated failures."""
+    def get_json(self, url: str, params: dict | None = None, retry_404: int = 0) -> dict | None:
+        """Parsed JSON, or None on 404. Raises RuntimeError after repeated failures.
+
+        retry_404: how many times to retry a 404 before believing it. The pageviews API
+        sometimes answers 404 for data it has (seen on about 1 in 400 top-1000 requests, which
+        succeeded on a later try), so callers for whom 404 means "no data" should retry.
+        """
         last = ""
-        for attempt in range(self._retries):
+        tries_404 = 0
+        for attempt in range(self._retries + retry_404):
             self._wait_turn()
             try:
                 with self._in_flight:
@@ -89,7 +95,11 @@ class WikiClient:
                 time.sleep(min(2**attempt, 30))
                 continue
             if r.status_code == 404:
-                return None
+                if tries_404 >= retry_404:
+                    return None
+                tries_404 += 1
+                time.sleep(MIN_BACKOFF_S)
+                continue
             if r.status_code == 429 or r.status_code >= 500:
                 last = f"HTTP {r.status_code}"
                 try:

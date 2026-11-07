@@ -1,9 +1,10 @@
 """Daily top-1000 most-viewed articles on each Wikipedia language: a cheap bulk attention signal.
 
-    uv run python -m undercurrent.ingest.wiki_top              # last 30 days, all 8 languages
+    uv run python -m undercurrent.ingest.wiki_top --days 365   # first run: the whole 12 months
+    uv run python -m undercurrent.ingest.wiki_top              # daily top-up (last 7 days)
     uv run python -m undercurrent.ingest.wiki_top --langs en de
 
-Only a rolling window is kept: lists older than --keep-days (default 30) before --end are
+A rolling 12-month window is kept: lists older than --keep-days (default 365) before --end are
 deleted after each run, so the files don't grow forever. --keep-days 0 keeps everything.
 
 Raw JSON -> data/raw/wiki/top/<lang>/<access>/YYYY-MM-DD.json, access = all-access and desktop
@@ -37,13 +38,15 @@ from undercurrent.ingest.wiki_client import (
     days_between,
     project,
     site_info,
+    utc_today,
 )
 
 RAW_DIR = RAW / "wiki" / "top"
 ACCESS = ("all-access", "desktop")
 OUT = PROCESSED / "wiki_top.parquet"
 BOT_DESKTOP_SHARE = 0.9
-KEEP_DAYS = 30  # rolling window of daily top-1000 lists to keep
+RETRY_404 = 2  # the API sometimes 404s for days it has; see WikiClient.get_json
+KEEP_DAYS = 365  # rolling window of daily top-1000 lists to keep (the 12-month range)
 ALWAYS_EXCLUDED = {"-", "Undefined"}
 
 
@@ -80,9 +83,12 @@ def download(client: WikiClient, lang: str, access: str, day: dt.date) -> str:
     if path.exists():
         return "cached"
     url = f"{REST}/metrics/pageviews/top/{project(lang)}/{access}/{day:%Y/%m/%d}"
-    payload = client.get_json(url)
+    # A 404 for the last couple of days usually just means "not published yet"; for older days
+    # it can be a one-off API error, so retry those before giving up.
+    recent = day >= utc_today() - dt.timedelta(days=2)
+    payload = client.get_json(url, retry_404=0 if recent else RETRY_404)
     if payload is None:
-        return "not published yet"
+        return "not published yet" if recent else "missing (404)"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload))
     return "downloaded"
@@ -122,7 +128,7 @@ def build_table(client: WikiClient) -> pd.DataFrame:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    add_date_args(p, default_days=KEEP_DAYS)
+    add_date_args(p, default_days=7)  # team rule: no months of downloads by default
     add_lang_arg(p)
     p.add_argument(
         "--keep-days",

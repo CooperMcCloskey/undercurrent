@@ -70,7 +70,9 @@ def fetch_pageviews(
         f"{REST}/metrics/pageviews/per-article/{project(lang)}/all-access/user/"
         f"{title_path(title)}/daily/{start:%Y%m%d}00/{end:%Y%m%d}00"
     )
-    payload = client.get_json(url)  # 404: no such page, or no views in range
+    # 404 means no such page or no views in range, but can also be a one-off API error; retry
+    # before recording a whole range of zeros as complete.
+    payload = client.get_json(url, retry_404=2)
     items = (payload or {}).get("items", [])
     return {
         f"{i['timestamp'][:4]}-{i['timestamp'][4:6]}-{i['timestamp'][6:8]}": i["views"]
@@ -188,7 +190,10 @@ def build_entity_table(
     n_langs = owner.groupby("qid")["lang"].nunique().rename("n_langs")
 
     def wide(df: pd.DataFrame, col: str) -> pd.DataFrame:
-        df = df[df["complete"]].merge(owner, on=["lang", "title"])
+        df = df[df["complete"].astype(bool)].merge(owner, on=["lang", "title"])
+        if df.empty:  # e.g. pageviews fetched but no edits yet
+            index = pd.MultiIndex.from_tuples([], names=["qid", "title_en", "day"])
+            return pd.DataFrame({col: pd.Series(dtype="float64")}, index=index)
         per_lang = df.pivot_table(
             index=["qid", "title_en", "day"], columns="lang", values=col, aggfunc="sum"
         )
@@ -241,8 +246,14 @@ def fetch(
         print(f"{kind}: {dict(statuses)} -> {len(df):,} rows")
     client.close()
 
-    all_links = link_languages(_all_cached_en_titles(), langs)
-    ent = build_entity_table(_table("pageviews"), _table("edits"), all_links, langs)
+    # The entity table covers every language we have data for, not just this run's --langs:
+    # tier 1 runs pageviews in 8 languages and edits in English only, and the second run must
+    # not drop the other 7 languages from the table.
+    views, edits = _table("pageviews"), _table("edits")
+    present = set(views["lang"]) | set(edits["lang"])
+    all_langs = [x for x in LANGUAGES if x in present] + sorted(present - set(LANGUAGES))
+    all_links = link_languages(_all_cached_en_titles(), all_langs)
+    ent = build_entity_table(views, edits, all_links, all_langs)
     print(f"wiki_entity_daily: {len(ent):,} rows, {ent['qid'].nunique():,} entities")
 
 
