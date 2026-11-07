@@ -233,7 +233,8 @@ def build_articles(raw: pd.DataFrame, *, sampled: bool = False) -> pa.Table:
         {
             "id": [article_id(u) for u in df["url"]],
             "url": df["url"].tolist(),
-            "domain": df["domain"].where(df["domain"].notna(), None).tolist(),
+            # pandas 3 strings use NaN for missing; `.where(..., None)` keeps it NaN
+            "domain": [d if isinstance(d, str) and d else None for d in df["domain"]],
             "published_at": df["published_at"].dt.to_pydatetime().tolist(),
             "title": df["title"].tolist(),
             "locations": df["locations"].map(parse_locations).tolist(),
