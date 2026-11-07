@@ -16,7 +16,7 @@ set -euo pipefail
 
 BLOCK=${1:?usage: create_vm.sh BLOCK [ACCOUNTS]   (BLOCK 1 is the newest; see docs/TWO_YEAR_RUN.md)}
 ACCOUNTS=${2:-4}
-BUCKET=${BUCKET:-undercurrent-hackathon-514022}
+BUCKET=${BUCKET:-undercurrent-data-cooper}
 MAX_GB=${MAX_GB:-2500}
 VM=${VM:-uc-gpu}
 REGION=us-central1
