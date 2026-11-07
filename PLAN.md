@@ -55,14 +55,15 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Goal:** clean, resumable inputs for everyone else.
 **Writes:** `data/raw/`, `data/processed/articles.parquet`, `wiki_*.parquet`, `bluesky/*.parquet`
 
-- [ ] GDELT GKG 2.1 downloader (`masterfilelist.txt` / `lastupdate.txt`): `--start/--end`, resumable, with a `--sample-per-hour` option for backfill
-- [ ] GKG parser → `articles.parquet` with these columns:
+- [ ] GDELT GKG 2.1 downloader for **both feeds**, English and translated (`masterfilelist.txt` / `lastupdate.txt` and their `-translation` versions): `--start/--end`, resumable, with a `--sample-per-hour` option for backfill (same rate on both feeds)
+- [ ] GKG parser (both feeds) → `articles.parquet` with these columns:
   - `id`, `url`, `domain`, `published_at`
   - `title`, taken from `<PAGE_TITLE>` in V2EXTRASXML
   - `locations`, with lat/lon and **FIPS→ISO2** country codes
   - `persons`, `orgs`, `themes`
   - `tone`
-- [ ] Deduplicate articles (same URL; syndicated copies with the same title)
+  - `translated` (from the translated feed?) and `lang` (source language from TranslationInfo; null for English)
+- [ ] Deduplicate articles across both feeds together (same URL; syndicated copies with the same title)
 - [ ] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet`
 - [ ] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet`
 - [ ] Entity name → Wikipedia title resolver, cached (B and C both need it)
@@ -157,9 +158,11 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Python 3.13 (pinned in `.python-version`) | 3.15 is too new to rely on for torch/faiss wheels |
 | Heatmap of story footprints instead of one tower per story; custom heat layer instead of `heatmapsData` | Stories happen across regions, not at single points. The built-in heatmap layer is too slow to update for a time slider |
 | Countries as one custom merged mesh, not `polygonsData` | 1,616 polygons meant ~4,800 draw calls per frame and a 3.7 s freeze at load; the merged mesh is 2 draw calls and builds in 60 ms |
+| Ingest both English and translated GKG feeds from the start | English-only would bias stories towards Anglophone sources; same sampling rate on both keeps growth ratios comparable |
 
 ## Open questions
 
 - Hackathon schedule, and the rules on code prepared beforehand
 - Who owns which workstream
-- How many days of GDELT to backfill. Measure the size of a single day of GKG first (see `docs/ARCHITECTURE.md`)
+- How many days of GDELT to backfill. Measure the size of a single day of GKG first, for both feeds (see `docs/ARCHITECTURE.md`)
+- Is `<PAGE_TITLE>` original-language or English in the translated feed? (A to check)

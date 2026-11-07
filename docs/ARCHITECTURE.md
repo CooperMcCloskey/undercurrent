@@ -35,7 +35,7 @@ Until `data/export/meta.json` exists, the API serves `web/public/mock/` instead.
 
 - A new file is published every 15 minutes at `http://data.gdeltproject.org/gdeltv2/YYYYMMDDHHMMSS.gkg.csv.zip`.
 - The full index is `http://data.gdeltproject.org/gdeltv2/masterfilelist.txt`, and the newest file is listed in `lastupdate.txt`.
-- The main feed covers English-language sources. A separate machine-translated feed (`*.translation.gkg.csv.zip`) covers other languages. Start with English and add the translated feed later if there's time.
+- The main feed covers English-language sources. A separate machine-translated feed (`*.translation.gkg.csv.zip`, indexed in `masterfilelist-translation.txt` and `lastupdate-translation.txt`) covers other languages. **We ingest both feeds from the start**, because English-only data would bias the stories towards Anglophone sources.
 
 **Format**
 
@@ -49,6 +49,7 @@ Until `data/export/meta.json` exists, the API serves `web/public/mock/` instead.
   - `V2EnhancedLocations` / `V1Locations`
   - `V1Persons`, `V1Organizations`
   - `V1.5Tone` (the first comma-separated value is the average tone)
+  - `V2.1TranslationInfo` (translated feed only; gives the source language)
   - `V2ExtrasXML` (contains `<PAGE_TITLE>`)
 
 **Pitfalls**
@@ -58,6 +59,12 @@ Until `data/export/meta.json` exists, the API serves `web/public/mock/` instead.
 - **Country codes are FIPS 10-4, not ISO.** Several codes clash: `UK`→`GB`, `GM`→`DE`, `CH`→China (ISO `CH` is Switzerland), `SZ`→Switzerland, `AS`→Australia, `RS`→Russia. Use a mapping table and convert everything to ISO alpha-2 at ingest time.
 - **Size.** GKG is large. Download one day and measure it before planning a backfill. For history, take one 15-minute file per hour. Growth ratios still hold on a consistent sample, which cuts the download by 4×. Use every file for the last few days, which are shown live.
 - Syndicated stories appear many times (the same wire copy on many domains). Deduplicate before counting volume, or count unique domains instead.
+- **Translated feed.**
+  - It doubles the file count. Measure **both** feeds' file sizes for one day before planning a backfill.
+  - Use the same sampling rate for both feeds on every day, so growth ratios stay comparable.
+  - Deduplicate across both feeds together, not per feed.
+  - Its `TranslationInfo` field gives the source language (for example `srclc:fra;eng:...`). It's empty in the English feed.
+  - It's unverified whether `<PAGE_TITLE>` in the translated feed is in the original language or in English. The ingest agent must check and record the answer in `PLAN.md` Notes.
 
 ### Wikipedia (Ingest; used as features by Forecast)
 
@@ -87,6 +94,7 @@ You need an approved OAuth "script" app and you're rate limited. Pushshift is go
 ## Stories (Stories workstream)
 
 1. **Embed** titles (and post text) with `config.EMBEDDING_MODEL`, a multilingual model with 384-dimension vectors. L2-normalise the vectors, so cosine similarity becomes a dot product.
+   - Titles may be non-English, because both GDELT feeds are ingested. The multilingual model handles this, but tune similarity thresholds with non-English titles in the sample.
 2. **Cluster news** over a trailing window, using HDBSCAN (in scikit-learn) on the normalised vectors, or agglomerative clustering with a cosine distance threshold. Use FAISS for nearest-neighbour queries once the data is too big for brute force.
    - Don't link items by pairwise threshold and take connected components. That *chains* unrelated stories together.
 3. **Track stories** day to day. Match each new cluster to the existing story with the most similar centroid, above a threshold, so the id stays the same. Otherwise create a new story. Ids are slugs, matching `contracts.STORY_ID_PATTERN`.
