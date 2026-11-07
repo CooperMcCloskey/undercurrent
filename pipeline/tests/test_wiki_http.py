@@ -248,6 +248,17 @@ def test_top_download_is_resumable_and_skips_unpublished_days(fake) -> None:
     assert sum(n for p, n in fake.calls.items() if "/top/" in p) == 2  # cached call: no request
 
 
+def test_top_prune_keeps_a_rolling_window(fake) -> None:
+    c = fake.client()
+    for day in (D1, D2):
+        for access in wiki_top.ACCESS:
+            wiki_top.download(c, "en", access, day)
+    assert wiki_top.prune(keep_from=D2) == 2  # both D1 lists
+    left = sorted(p.stem for p in wiki_top.RAW_DIR.rglob("*.json"))
+    assert left == [D2.isoformat(), D2.isoformat()]
+    assert set(wiki_top.build_table(c)["day"]) == {D2}
+
+
 def test_top_build_table_cleans_each_language(fake) -> None:
     c = fake.client()
     for lang in ("en", "ja"):

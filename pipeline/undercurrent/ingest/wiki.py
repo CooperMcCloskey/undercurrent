@@ -1,6 +1,6 @@
 """Daily pageviews and edit counts for entities, across the Wikipedia languages, cached per article.
 
-    uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --days 60
+    uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --days 365
     uv run python -m undercurrent.ingest.wiki --titles Barack_Obama NATO --days 14 --langs en de
 
 Input is English titles (what wiki_resolve writes). Each one is linked through Wikidata to its
@@ -45,6 +45,11 @@ from undercurrent.ingest.wiki_client import (
     utc_today,
 )
 from undercurrent.ingest.wiki_resolve import link_languages
+
+# Standard history length: a year of daily numbers per article. Pageviews cost one request per
+# article whatever the range; edits need about one extra request per 500 edits. The CLI default
+# stays short (team rule: no months of downloads by default), so pass --days HISTORY_DAYS.
+HISTORY_DAYS = 365
 
 KINDS = {
     # kind: (value column, days to wait before a day's count is trusted as complete)

@@ -1,7 +1,10 @@
 """Daily top-1000 most-viewed articles on each Wikipedia language: a cheap bulk attention signal.
 
-    uv run python -m undercurrent.ingest.wiki_top --days 60            # all 8 languages
-    uv run python -m undercurrent.ingest.wiki_top --days 60 --langs en de
+    uv run python -m undercurrent.ingest.wiki_top              # last 30 days, all 8 languages
+    uv run python -m undercurrent.ingest.wiki_top --langs en de
+
+Only a rolling window is kept: lists older than --keep-days (default 30) before --end are
+deleted after each run, so the files don't grow forever. --keep-days 0 keeps everything.
 
 Raw JSON -> data/raw/wiki/top/<lang>/<access>/YYYY-MM-DD.json, access = all-access and desktop
             (skipped if already downloaded)
@@ -40,6 +43,7 @@ RAW_DIR = RAW / "wiki" / "top"
 ACCESS = ("all-access", "desktop")
 OUT = PROCESSED / "wiki_top.parquet"
 BOT_DESKTOP_SHARE = 0.9
+KEEP_DAYS = 30  # rolling window of daily top-1000 lists to keep
 ALWAYS_EXCLUDED = {"-", "Undefined"}
 
 
@@ -84,6 +88,16 @@ def download(client: WikiClient, lang: str, access: str, day: dt.date) -> str:
     return "downloaded"
 
 
+def prune(keep_from: dt.date) -> int:
+    """Delete raw lists for days before keep_from. Returns how many files were removed."""
+    removed = 0
+    for path in RAW_DIR.glob("*/*/*.json"):
+        if dt.date.fromisoformat(path.stem) < keep_from:
+            path.unlink()
+            removed += 1
+    return removed
+
+
 def build_table(client: WikiClient) -> pd.DataFrame:
     frames = []
     for lang_dir in sorted(p for p in RAW_DIR.iterdir() if p.is_dir()) if RAW_DIR.exists() else []:
@@ -108,8 +122,14 @@ def build_table(client: WikiClient) -> pd.DataFrame:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    add_date_args(p, default_days=7)
+    add_date_args(p, default_days=KEEP_DAYS)
     add_lang_arg(p)
+    p.add_argument(
+        "--keep-days",
+        type=int,
+        default=KEEP_DAYS,
+        help=f"delete lists older than this many days before --end (default {KEEP_DAYS}; 0 = keep all)",
+    )
     args = p.parse_args()
     start, end = date_range(args)
 
@@ -121,6 +141,9 @@ def main() -> None:
                 status = download(client, lang, access, day)
                 counts[status] = counts.get(status, 0) + 1
         print(f"{lang} {start}..{end}: {counts}")
+    if args.keep_days:
+        keep_from = end - dt.timedelta(days=args.keep_days - 1)
+        print(f"removed {prune(keep_from)} lists older than {keep_from}")
 
     df = build_table(client)
     client.close()

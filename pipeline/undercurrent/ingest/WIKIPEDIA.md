@@ -4,7 +4,7 @@
 
 ## In one paragraph
 
-When something is about to become big news, people start looking it up. They read the Wikipedia articles on the people, places and organisations involved, and editors start updating those articles. This code collects that signal. For each **entity** in our stories (a person, an organisation, a place), it records **how many people read its Wikipedia article each day, and how many edits it got**. It does this in the 8 most-read Wikipedia languages, and it also saves each language's daily list of its 1,000 most-read articles. Reading and editing often pick up a few days before a story peaks in the news, and that early warning is what the forecast is looking for.
+When something is about to become big news, people start looking it up. They read the Wikipedia articles on the people, places and organisations involved, and editors start updating those articles. This code collects that signal. For each **entity** in our stories (a person, an organisation, a place), it records **how many people read its Wikipedia article each day, and how many edits it got, over the past year**. It does this in the 8 most-read Wikipedia languages, and it also keeps each language's daily list of its 1,000 most-read articles for the past 30 days. Reading and editing often pick up a few days before a story peaks in the news, and that early warning is what the forecast is looking for.
 
 ## Why it's useful to the project
 
@@ -18,7 +18,7 @@ When something is about to become big news, people start looking it up. They rea
 
 | Term | Meaning |
 |---|---|
-| **Pageviews** | How many times people read an article on a given day. We count human readers only; Wikimedia filters out known bots and crawlers. |
+| **Pageviews** | How many times people read an article **on a given day** (one number per day, never an all-time total). We count human readers only; Wikimedia filters out known bots and crawlers. |
 | **Edits** | How many times an article was changed on a given day. A burst of edits usually means something is happening. |
 | **Top-1000** | Wikipedia's own daily list of its 1,000 most-read articles, per language. |
 | **Title** | An article's name in a URL, with underscores: `Barack_Obama`. |
@@ -49,7 +49,7 @@ wiki_pageviews.parquet / wiki_edits.parquet     one row per language, article an
 wiki_entity_daily.parquet                        one row per entity and day
 ```
 
-Separately, and with no names needed, `wiki_top` downloads each language's top-1000 list for every day.
+Separately, and with no names needed, `wiki_top` downloads each language's top-1000 list for each of the last 30 days.
 
 ### Step 1: name → English article (`wiki_resolve.py`)
 
@@ -66,7 +66,9 @@ The English title is looked up on Wikidata, which says what the article is calle
 
 ### Step 3: daily numbers for each article (`wiki.py`)
 
-- **Pageviews:** one request per article covers the whole date range.
+**How much history: one year (365 days) per article.** That's the standard (`HISTORY_DAYS` in `wiki.py`). It gives the forecast a long baseline: how unusual this week is compared with the entity's normal level.
+
+- **Pageviews:** we ask for "daily views of this article from day X to day Y". One request returns **one number per day** for the whole year (365 numbers), so a year costs no more requests than a week.
 - **Edits:** we ask the article's own language site for its revision history in the date range and count edits per day. Very active articles need more than one request.
 - **Days with nothing are recorded as 0.** But Wikimedia publishes pageviews about a day late, so for the last day or two a missing number might just mean "not published yet". Those rows have `complete = False` and are fetched again on the next run.
 - **Everything is saved per article** under `data/raw/wiki/`. Running again only fetches what's missing or not yet complete, so you can stop a long run and start it again.
@@ -77,7 +79,9 @@ Complete rows are added together by Wikidata ID, so `wiki_entity_daily.parquet` 
 
 ### Top-1000 lists (`wiki_top.py`)
 
-For each language and day we download two lists, all devices and desktop only, and clean them:
+For each language and day we download two lists, all devices and desktop only, and clean them.
+
+**Only the last 30 days are kept.** Each run downloads any missing days in the window and deletes lists older than 30 days, so the files never grow. Change this with `--keep-days`; `--keep-days 0` keeps everything.
 
 - **Remove pages that aren't articles:** the main page, search pages, help pages and so on. Each language names these differently (`Special:`, `特別:`, `Spezial:`…), so we read the names from each site rather than hard-coding English ones.
 - **Flag likely bots.** Real readers are mostly on phones. A page whose readers are 90%+ on desktop is almost always being hit by an automated script, as with `JSON-LD` or `List_of_S&P_500_companies`. Those rows get `suspect_bot = True`. About 0.4–1.6% of rows are flagged, depending on the language. **Rows are flagged, not deleted.**
@@ -93,19 +97,22 @@ Since 2026, Wikimedia allows clients like ours (no login, identified by a User-A
 
 **What this means for timing:**
 
-| Job | Requests | Time |
-|---|---|---|
-| Top-1000, 8 languages, 60 days | about 960 | about 5 minutes |
-| Resolve 1,000 names | about 60–400 (depends how many need a search) | 1–3 minutes |
-| Pageviews and edits, 1 entity, 8 languages | about 16 | about 5 seconds |
-| …1,000 entities | about 16,000 | **about 1.5 hours** |
-| …3,000 entities | about 48,000 | **about 4.5 hours** |
+| Job | Requests | Time | Disk |
+|---|---|---|---|
+| Top-1000, 8 languages, 30 days (first run) | about 480 | about 3 minutes | about 40 MB |
+| Top-1000, daily top-up | 16 | seconds | stays about 40 MB |
+| Resolve 1,000 names | about 60–400 (depends how many need a search) | 1–3 minutes | under 1 MB |
+| A year of pageviews and edits, 1 entity, 8 languages | about 22 | about 5 seconds | about 0.1 MB |
+| …1,000 entities | about 22,000 | **about 1.3 hours** | about 100 MB |
+| …3,000 entities | about 66,000 | **about 4 hours** | about 300 MB |
 
-So **choose entities carefully**, start the big fetch early in the background, and use `--langs` or `--what pageviews` to cut the work if time is short.
+These are measured, not guessed: a year for 89 entities (633 articles) took 6 minutes 47 seconds and 8.7 MB. Edits take most of the requests, because very active articles need one extra request per 500 edits.
+
+So **choose entities carefully**, start the big fetch early in the background, and use `--langs` or `--what pageviews` to cut the work if time is short. Pageviews alone take about 8 requests per entity.
 
 ### Why we don't download Wikipedia's bulk files
 
-Wikimedia publishes complete daily pageview files, but one day across all languages is about 700 MB, so 60 days is about 42 GB. That's too much for hackathon wifi, when we only need a few thousand articles. Asking for exactly the articles we need, and keeping them on disk, gives us the same data in a few MB. **Once fetched, everything works offline**, including training and the demo.
+Wikimedia publishes complete daily pageview files, but one day across all languages is about 700 MB, so a year is about 250 GB. That's too much for hackathon wifi, when we only need a few thousand articles. Asking for exactly the articles we need, and keeping them on disk, gives us the same data in a few MB. **Once fetched, everything works offline**, including training and the demo.
 
 ---
 
@@ -134,7 +141,7 @@ The per-language detail: `lang, title, day, views` (or `edits`), plus `complete`
 
 ### `data/processed/wiki_top.parquet`
 
-`lang, day, rank, title, views, desktop_share, suspect_bot`. Use `df[~df.suspect_bot]` to drop likely bots.
+`lang, day, rank, title, views, desktop_share, suspect_bot`, for the last 30 days only. Use `df[~df.suspect_bot]` to drop likely bots.
 
 ### Caches (you don't normally need these)
 
@@ -143,7 +150,7 @@ The per-language detail: `lang, title, day, views` (or `edits`), plus `complete`
 | `data/cache/wiki_resolve.json` | name → English title, or `null` |
 | `data/cache/wiki_links.json` | English title → Wikidata ID and the titles in each language |
 | `data/cache/wiki_siteinfo/<lang>.json` | each language's main page and non-article prefixes |
-| `data/raw/wiki/top/<lang>/<all-access or desktop>/<day>.json` | downloaded top-1000 lists |
+| `data/raw/wiki/top/<lang>/<all-access or desktop>/<day>.json` | downloaded top-1000 lists (last 30 days) |
 | `data/raw/wiki/{pageviews,edits}/<hash>.json` | downloaded numbers per article |
 
 To start again from scratch, delete the relevant cache and run the command again.
@@ -155,21 +162,22 @@ To start again from scratch, delete the relevant cache and run the command again
 All commands run from the repo root. Each one is safe to stop and run again.
 
 ```bash
-# 1. Top-1000 lists. Needs no names. Run any time; it only downloads days it doesn't have.
-uv run python -m undercurrent.ingest.wiki_top --days 60
+# 1. Top-1000 lists for the last 30 days. Needs no names. Run any time: it downloads missing days
+#    and deletes lists older than 30 days.
+uv run python -m undercurrent.ingest.wiki_top
 
 # 2. Names → English titles (also links them to the other languages).
 #    The names file has one name per line, e.g. the top people/orgs of each story.
 uv run python -m undercurrent.ingest.wiki_resolve --names-file data/processed/story_entities.txt \
     --out-titles data/processed/wiki_titles.txt
 
-# 3. Daily pageviews and edits in all 8 languages, then the combined entity table.
-uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --days 60
+# 3. A year of daily pageviews and edits in all 8 languages, then the combined entity table.
+uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --days 365
 ```
 
 Useful options (every command has `--help`):
 
-- `--days N`, or `--start YYYY-MM-DD --end YYYY-MM-DD`. The default is the last 7 days, ending yesterday.
+- `--days N`, or `--start YYYY-MM-DD --end YYYY-MM-DD`, always ending yesterday by default. **For `wiki`, pass `--days 365`.** Its default is only 7 days, because the team rule is that no command downloads months of data unless asked. `wiki_top` defaults to 30.
 - `--langs en de fr` to use fewer or other languages.
 - `--what pageviews` (in `wiki`) to skip edits and roughly halve the time.
 - `--retry-misses` (in `wiki_resolve`) to look up names that previously found nothing.
@@ -177,13 +185,21 @@ Useful options (every command has `--help`):
 Or from Python:
 
 ```python
-from undercurrent.ingest.wiki_resolve import resolve, resolve_entities
-from undercurrent.ingest import wiki
+import datetime as dt
 
-resolve("barack obama")                 # "Barack_Obama"
-resolve_entities(["barack obama"])      # {"barack obama": {"qid": "Q76", "title": "Barack_Obama",
-                                        #   "titles": {"en": "Barack_Obama", "ja": "バラク・オバマ", ...}}}
-wiki.fetch(["Barack_Obama"], start, end)   # downloads, then rebuilds the three tables
+from undercurrent.ingest import wiki
+from undercurrent.ingest.wiki_resolve import resolve, resolve_entities
+
+# "Barack_Obama"
+resolve("barack obama")
+
+# {"barack obama": {"qid": "Q76", "title": "Barack_Obama",
+#                   "titles": {"en": "Barack_Obama", "ja": "バラク・オバマ", ...}}}
+resolve_entities(["barack obama"])
+
+# a year of daily numbers; downloads what's missing, then rebuilds the three tables
+end = dt.date.today() - dt.timedelta(days=1)
+wiki.fetch(["Barack_Obama"], end - dt.timedelta(days=wiki.HISTORY_DAYS - 1), end)
 ```
 
 ---
@@ -209,7 +225,9 @@ wiki.fetch(["Barack_Obama"], start, end)   # downloads, then rebuilds the three 
    - **acceleration:** this week's growth minus last week's;
    - **spread:** how many languages show rising views (from the `views_<lang>` columns);
    - **non-English share:** views outside English divided by total views; a rising share suggests the story is spreading internationally;
-   - **top-1000 presence:** how many of the story's entities are in a top-1000 list that day (`wiki_top`, with bots removed).
+   - **unusualness:** this week's views compared with the entity's own past year (for example, how many standard deviations above its 1-year average). Big topics are always busy, so this is fairer than raw counts.
+
+   The top-1000 lists only cover the last 30 days, so **don't use them as a backtest feature**: older training days would have no data. They're fine for the live view.
 4. **Missing isn't zero.** An entity with no rows was never fetched; treat it as missing (NaN). The gradient boosting model handles NaN natively.
 
 ### D: Web and API
@@ -221,7 +239,7 @@ wiki.fetch(["Barack_Obama"], start, end)   # downloads, then rebuilds the three 
 ### A: Ingest (looking after this code)
 
 - Keep column names stable. Adding columns is fine; tell B and C before renaming or removing anything.
-- Tests: `uv run pytest pipeline/tests/test_wiki*.py`. That's 30 tests; they run offline in about 1 second using a fake Wikimedia server.
+- Tests: `uv run pytest pipeline/tests/test_wiki*.py`. That's 31 tests; they run offline in about 1 second using a fake Wikimedia server.
 
 ---
 

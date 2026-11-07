@@ -78,10 +78,11 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 **Needs from others:** none yet
 **Notes:**
-- Wikipedia: full guide in `pipeline/undercurrent/ingest/WIKIPEDIA.md`. Query on demand + disk cache, not dumps (dumps are about 42 GB for 60 days). After fetching, everything works offline.
+- Wikipedia: full guide in `pipeline/undercurrent/ingest/WIKIPEDIA.md`. Query on demand + disk cache, not dumps (dumps are about 250 GB for a year). After fetching, everything works offline.
 - **8 languages** (en ja de fr ru es it zh, the most-read Wikipedias), linked by Wikidata ID. Start from `wiki_entity_daily.parquet`: one row per entity and day, languages summed, with per-language columns.
 - **Wikimedia rate limit: 200 requests/min total, at most 3 at once** (new in 2026). About 5 s per entity (8 languages × pageviews + edits), so 1,000 entities take about 1.5 h. Pick entities carefully and start early.
-- `wiki_top.parquet`: 8 languages × 60 days (2026-09-08..11-06) downloaded, with likely bots flagged (`suspect_bot`).
+- **History: one year of daily pageviews and edits per entity** (`wiki --days 365`): about 5 s and 0.1 MB per entity. 89 entities fetched so far (2025-11-07..2026-11-06).
+- `wiki_top.parquet`: rolling **last 30 days** only (older lists deleted on each run), 8 languages, likely bots flagged (`suspect_bot`). Too short for backtest features; use it for the live view.
 
 ### V: Vectors (owner: Cooper)
 
