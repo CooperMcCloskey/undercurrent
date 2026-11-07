@@ -12,12 +12,17 @@ Later, GDELT's own theme tags (ELECTION, PROTEST, NATURAL_DISASTER, ECON_*...) c
 second vote for news-heavy stories.
 """
 
+import hashlib
+import json
+import os
 from functools import cache
+from pathlib import Path
 
 import numpy as np
 
+from undercurrent import config
 from undercurrent.contracts import Category
-from undercurrent.vectors.embed import embed
+from undercurrent.vectors.embed import TEXT_VERSION, embed
 
 CATEGORY_EXAMPLES: dict[Category, list[str]] = {
     "politics": [
@@ -94,15 +99,35 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
 MIN_SIMILARITY = 0.2
 
 
+def _cache_path() -> Path:
+    """Where the prototypes are kept on disk. The key covers the model, the text cleaning and
+    the examples, so editing any of them makes a new file instead of using stale vectors."""
+    key = json.dumps([config.EMBEDDING_MODEL, TEXT_VERSION, CATEGORY_EXAMPLES], sort_keys=True)
+    digest = hashlib.sha1(key.encode()).hexdigest()[:16]
+    return config.CACHE / "category_prototypes" / f"{digest}.npy"
+
+
 @cache
 def prototypes() -> tuple[tuple[Category, ...], np.ndarray]:
-    """One L2-normalised prototype vector per category (cached per process)."""
+    """One L2-normalised prototype vector per category (cached per process, and on disk).
+
+    The disk cache means a process that only needs categories (the story tracker) never has to
+    load the embedding model, and PyTorch and FAISS can crash each other in one process."""
     names = tuple(CATEGORY_EXAMPLES)
+    path = _cache_path()
+    if path.exists():
+        return names, np.load(path)
     rows = []
     for name in names:
         mean = embed(CATEGORY_EXAMPLES[name]).mean(axis=0)
         rows.append(mean / np.linalg.norm(mean))
-    return names, np.stack(rows)
+    stacked = np.stack(rows).astype(np.float32)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    with open(tmp, "wb") as f:
+        np.save(f, stacked)
+    os.replace(tmp, path)
+    return names, stacked
 
 
 def categorize(vectors: np.ndarray) -> tuple[list[Category], np.ndarray]:
