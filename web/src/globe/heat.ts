@@ -143,45 +143,82 @@ const vertexShader = /* glsl */ `
   }
 `
 
-// Converts each pixel's position back to lat/lng (the inverse of three-globe's polar2Cartesian)
-// and looks up the heat texture: alpha = intensity t, rgb = story hue premultiplied by t (so
-// blending between cells stays correct). Then a heatmap ramp within the hue:
-//   1. Rescale the hue to a fixed luminance, so yellow isn't "hotter" than indigo at equal heat.
-//   2. Brightness rises with t: dark at the edges, full colour in the body, near white at the core.
-//   3. Opacity rises with t, so the field fades smoothly into the globe.
-const fragmentShader = /* glsl */ `
+// Shared by both styles. Converts each pixel's position back to lat/lng (the inverse of
+// three-globe's polar2Cartesian) and looks up the heat texture: alpha = intensity t, rgb = hue
+// premultiplied by t (so blending between cells stays correct). evenHue() rescales the hue to a
+// fixed luminance, so yellow isn't "hotter" than indigo at equal heat.
+const shaderCommon = /* glsl */ `
   uniform sampler2D uHeat;
   uniform float uOpacity;
   varying vec3 vPos;
   // Not "PI": three.js #defines PI in its common chunk, which would break this if included.
   const float HEAT_PI = 3.141592653589793;
   const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722); // Rec. 709 relative luminance weights
-  const float HUE_LUMA = 0.55;
-  void main() {
+  vec4 heatHere() {
     vec3 p = normalize(vPos);
     float lat = asin(clamp(p.y, -1.0, 1.0));
     float lng = 0.5 * HEAT_PI - atan(p.z, p.x);
-    vec4 texel = texture2D(uHeat, vec2(lng / (2.0 * HEAT_PI) + 0.5, lat / HEAT_PI + 0.5));
+    return texture2D(uHeat, vec2(lng / (2.0 * HEAT_PI) + 0.5, lat / HEAT_PI + 0.5));
+  }
+  vec3 evenHue(vec3 premultiplied, float t, float luma) {
+    vec3 hue = premultiplied / max(t, 1e-4);
+    return clamp(hue * (luma / max(dot(hue, LUMA), 0.05)), 0.0, 1.0);
+  }
+`
+
+// "fill": the heatmap. Brightness rises with t (dark at the edges, full colour in the body, near
+// white at the core) and opacity rises with t, so the field fades smoothly into the globe.
+const fillShader =
+  shaderCommon +
+  /* glsl */ `
+  void main() {
+    vec4 texel = heatHere();
     float t = texel.a;
     if (t < 0.01) discard;
-    vec3 hue = texel.rgb / t;
-    hue = clamp(hue * (HUE_LUMA / max(dot(hue, LUMA), 0.05)), 0.0, 1.0);
+    vec3 hue = evenHue(texel.rgb, t, 0.55);
     vec3 color = hue * mix(0.25, 1.0, smoothstep(0.0, 0.6, t));
     color = mix(color, vec3(1.0), 0.65 * smoothstep(0.65, 1.0, t));
     gl_FragColor = vec4(color, uOpacity * smoothstep(0.0, 0.3, t));
   }
 `
 
+// "outline": one story's rough area, as a crisp bright contour where its heat crosses LEVEL
+// (about 1.5 px wide at any zoom, via fwidth) around a faint fill. Used for the hover highlight.
+const outlineShader =
+  shaderCommon +
+  /* glsl */ `
+  const float LEVEL = 0.3; // on the sqrt scale: ~9% of the story's peak heat
+  void main() {
+    vec4 texel = heatHere();
+    float t = texel.a;
+    float w = max(fwidth(t), 1e-4); // before any discard: derivatives need every pixel
+    if (t < 0.01) discard;
+    float rim = 1.0 - smoothstep(0.0, 1.5 * w, abs(t - LEVEL));
+    float inside = smoothstep(LEVEL - w, LEVEL + w, t);
+    float alpha = max(rim, 0.2 * inside);
+    if (alpha < 0.01) discard;
+    vec3 hue = evenHue(texel.rgb, t, 0.7);
+    gl_FragColor = vec4(mix(hue, vec3(1.0), 0.5 * rim), uOpacity * alpha);
+  }
+`
+
 export interface HeatLayer {
   object: Mesh
   /**
-   * Recompute the heatmap. Cheap enough to call on every time-slider step.
+   * Recompute the heatmap. Cheap enough to call on every time-slider step or hover.
    * `spreadKm` is a fixed minimum spread for every place, in km (see accumulateHeat).
    */
   update(points: HeatPoint[], spreadKm?: number): void
+  /** Fade the whole layer, e.g. dim the heatmap while one story is highlighted. */
+  setOpacity(opacity: number): void
 }
 
-export function createHeatLayer(options: { altitude: number; opacity?: number }): HeatLayer {
+export function createHeatLayer(options: {
+  altitude: number
+  opacity?: number
+  /** "fill" = the heatmap; "outline" = one story's area as a contour (hover highlight). */
+  style?: 'fill' | 'outline'
+}): HeatLayer {
   const grid = createHeatGrid()
   // Half floats: the shader divides colour by intensity, which bands badly with 8-bit values in
   // the faint edges. 16-bit float textures filter linearly on every WebGL2 device.
@@ -195,7 +232,7 @@ export function createHeatLayer(options: { altitude: number; opacity?: number })
   const material = new ShaderMaterial({
     uniforms: { uHeat: { value: texture }, uOpacity: { value: options.opacity ?? 0.85 } },
     vertexShader,
-    fragmentShader,
+    fragmentShader: options.style === 'outline' ? outlineShader : fillShader,
     transparent: true,
     depthWrite: false,
   })
@@ -223,6 +260,9 @@ export function createHeatLayer(options: { altitude: number; opacity?: number })
         pixels[4 * i + 3] = half(t)
       }
       texture.needsUpdate = true
+    },
+    setOpacity(opacity) {
+      material.uniforms.uOpacity.value = opacity
     },
   }
 }
