@@ -14,3 +14,6 @@
 - Get a baseline
 - Compare to the baseline
 - Concrete decisions based on data
+
+## MISC
+- Caching data?
