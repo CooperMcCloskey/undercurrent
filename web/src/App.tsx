@@ -190,7 +190,13 @@ function heatPoints(items: readonly { story: StorySummary; count: number }[]): H
 }
 
 export default function App() {
-  const meta = useQuery({ queryKey: ['meta'], queryFn: api.meta })
+  const meta = useQuery({
+    queryKey: ['meta'],
+    queryFn: api.meta,
+    // Until the API answers (it may still be starting), keep asking, so the page loads by itself
+    // once it's up instead of staying on the error.
+    refetchInterval: (query) => (query.state.status === 'error' ? 3000 : false),
+  })
   // The day on the time bar (null = the latest). Days the pipeline exported are real; the rest
   // of the range comes from the illustrative archive (timeline/history.ts).
   const latest = meta.data ? toIndex(meta.data.latest) : null
