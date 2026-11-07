@@ -14,7 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from undercurrent import contracts as c
-from undercurrent.config import MOCK
+from undercurrent.config import HORIZONS, MOCK
 
 SNAPSHOT_DATES = [dt.date(2026, 10, 30), dt.date(2026, 11, 6)]
 HISTORY_START = dt.date(2026, 10, 10)
@@ -52,6 +52,30 @@ CATEGORIES: dict[str, c.Category] = {
 
 def _days(start: dt.date, end: dt.date) -> list[dt.date]:
     return [start + dt.timedelta(d) for d in range((end - start).days + 1)]
+
+
+def articles_7d(vol: dict[dt.date, int], day: dt.date) -> int:
+    """`StorySummary.article_count_7d` for `day`: articles in the 7 days ending that day."""
+    return sum(vol.get(day - dt.timedelta(k), 0) for k in range(7))
+
+
+def mock_projection(last7: int, growth: float, wiki_trend: float, days: int) -> c.HorizonForecast:
+    """What a decent model would say: this week's size, plus half of last week's trend and the
+    Wikipedia trend, in a range that widens with the horizon."""
+    momentum = 0.5 * growth * days / 7
+    wiki = wiki_trend * days / 7
+    median = last7 * 2 ** (momentum + wiki)
+    spread = 0.25 + 0.05 * days  # log2 units either side of the median
+    return c.HorizonForecast(
+        days=days,
+        articles_7d=round(median, 1),
+        low=round(median * 2**-spread, 1),
+        high=round(median * 2**spread, 1),
+        factors=[
+            c.Factor(name="growth_7d", contribution=round(momentum, 2)),
+            c.Factor(name="wiki_pageview_growth", contribution=round(wiki, 2)),
+        ],
+    )
 
 
 def _write(path: Path, model: BaseModel) -> None:
@@ -129,15 +153,16 @@ def build(out: Path = MOCK) -> None:
         stories = []
         for sid, title, place, iso2, lat, lon, _, _ in STORIES:
             vol = volumes[sid]
-            last7 = sum(vol.get(as_of - dt.timedelta(k), 0) for k in range(7))
-            prev7 = sum(vol.get(as_of - dt.timedelta(k), 0) for k in range(7, 14))
-            next7 = [vol.get(as_of + dt.timedelta(k), None) for k in range(1, 8)]
+            last7 = articles_7d(vol, as_of)
+            prev7 = articles_7d(vol, as_of - dt.timedelta(7))
             growth = math.log2(max(last7, 1) / max(prev7, 1))
-            p = 1 / (1 + math.exp(-(2.5 * growth - 1 + rng.uniform(-0.5, 0.5))))
-            outcome = None
-            if all(v is not None for v in next7):
-                ratio = sum(next7) / max(last7, 1)
-                outcome = c.Outcome(growth_ratio=round(ratio, 3), grew=ratio >= 2)
+            wiki_trend = rng.uniform(-0.3, 0.5)  # log2 per week, from the story's Wikipedia pages
+            # Only the horizons whose day has already happened have an outcome.
+            outcome = [
+                c.HorizonOutcome(days=h, articles_7d=articles_7d(vol, as_of + dt.timedelta(h)))
+                for h in HORIZONS
+                if as_of + dt.timedelta(h) <= latest
+            ]
             stories.append(
                 c.StorySummary(
                     id=sid,
@@ -154,17 +179,10 @@ def build(out: Path = MOCK) -> None:
                     tone=round(rng.uniform(-6, 1), 2),
                     first_seen=HISTORY_START,
                     forecast=c.Forecast(
-                        p_grow=round(p, 3),
                         model_version="mock",
-                        factors=[
-                            c.Factor(name="growth_7d", contribution=round(growth, 2)),
-                            c.Factor(
-                                name="wiki_pageview_growth",
-                                contribution=round(rng.uniform(-0.5, 1), 2),
-                            ),
-                        ],
+                        horizons=[mock_projection(last7, growth, wiki_trend, h) for h in HORIZONS],
                     ),
-                    outcome=outcome,
+                    outcome=c.Outcome(horizons=outcome) if outcome else None,
                 )
             )
         _write(
@@ -177,15 +195,24 @@ def build(out: Path = MOCK) -> None:
         c.Meta(
             dates=SNAPSHOT_DATES,
             latest=latest,
+            horizons=list(HORIZONS),
             model=c.ModelMetrics(
                 model_version="mock",
                 test_start=dt.date(2026, 10, 24),
                 test_end=dt.date(2026, 10, 30),
-                n_test=600,
-                auc=0.74,
-                brier=0.17,
-                baseline_auc=0.66,
-                baseline_brier=0.20,
+                # Invented, but shaped like an honest result: the model beats persistence over
+                # the first week, and at 14 days it does not (and its ranges are overconfident).
+                horizons=[
+                    c.HorizonMetrics(
+                        days=h, n_test=600, mae_log2=mae, baseline_mae_log2=base, coverage=cov
+                    )
+                    for h, mae, base, cov in [
+                        (1, 0.21, 0.26, 0.79),
+                        (3, 0.34, 0.42, 0.78),
+                        (7, 0.52, 0.61, 0.76),
+                        (14, 0.83, 0.80, 0.66),
+                    ]
+                ],
             ),
         ),
     )

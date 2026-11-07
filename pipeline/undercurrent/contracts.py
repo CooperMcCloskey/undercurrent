@@ -17,9 +17,9 @@ Files on disk (data/export/ and web/public/mock/ use the same layout):
 
 import datetime as dt
 import json
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import models_json_schema
 
 SourceKind = Literal["news", "bluesky", "reddit", "wikipedia"]
@@ -79,25 +79,94 @@ class Item(_Model):
 
 class Factor(_Model):
     name: str
-    contribution: float = Field(description="Signed; positive pushes toward growth")
+    contribution: float = Field(
+        description="Signed, in log2 units of the projected change in volume; positive pushes "
+        "the projection up"
+    )
+
+
+def _ascending(days: list[int]) -> list[int]:
+    if any(a >= b for a, b in zip(days, days[1:], strict=False)):
+        raise ValueError(f"horizons must be strictly ascending by days, got {days}")
+    return days
+
+
+class HorizonForecast(_Model):
+    """A story's projected size `days` days after the snapshot's `as_of`.
+
+    The unit is `StorySummary.article_count_7d`: the number the globe draws a story's heat from.
+    So the projection for day t+h is drawn by the same code as the real snapshot of day t+h. To
+    look ahead, take the story from the snapshot of day t and swap `article_count_7d` for
+    `articles_7d`. The model is judged on the same number (see `Outcome`).
+    """
+
+    days: int = Field(ge=1, description="How many days after the snapshot's as_of")
+    articles_7d: float = Field(
+        ge=0,
+        description="Median projection of article_count_7d on day as_of + days: articles "
+        "published in the 7 days ending that day",
+    )
+    low: float = Field(ge=0, description="Lower end of the central `Forecast.interval` range")
+    high: float = Field(ge=0, description="Upper end of the central `Forecast.interval` range")
+    factors: list[Factor] = Field(
+        default_factory=list, description="Top drivers of this projection; may be empty"
+    )
+
+    @model_validator(mode="after")
+    def _low_median_high(self) -> Self:
+        if not self.low <= self.articles_7d <= self.high:
+            raise ValueError(
+                f"need low <= articles_7d <= high, got {self.low}, {self.articles_7d}, {self.high}"
+            )
+        return self
 
 
 class Forecast(_Model):
-    p_grow: float = Field(
-        ge=0,
-        le=1,
-        description="P(volume over next horizon_days >= GROWTH_RATIO x previous horizon_days)",
-    )
-    horizon_days: int = 7
+    """Where a story is expected to be over the next few days: one projection per horizon."""
+
     model_version: str
-    factors: list[Factor] = Field(default_factory=list)
+    interval: float = Field(
+        0.8,
+        gt=0,
+        lt=1,
+        description="Share of outcomes that should fall between each horizon's low and high "
+        "(0.8 = the 10th to 90th percentile)",
+    )
+    horizons: list[HorizonForecast] = Field(
+        min_length=1,
+        description="Strictly ascending by days; every story in a snapshot uses a subset of "
+        "Meta.horizons",
+    )
+
+    @field_validator("horizons")
+    @classmethod
+    def _ascending_days(cls, horizons: list[HorizonForecast]) -> list[HorizonForecast]:
+        _ascending([h.days for h in horizons])
+        return horizons
+
+
+class HorizonOutcome(_Model):
+    days: int = Field(ge=1)
+    articles_7d: int = Field(
+        ge=0,
+        description="What article_count_7d actually read on as_of + days (0 if the story had "
+        "gone quiet). Equals that day's snapshot whenever the story is in it.",
+    )
 
 
 class Outcome(_Model):
-    """What actually happened. Only present on past snapshots (backtest / replay)."""
+    """What actually happened. Only present on past snapshots (backtest / replay), and only for
+    the horizons whose day is on or before Meta.latest."""
 
-    growth_ratio: float = Field(description="Volume next horizon_days / previous horizon_days")
-    grew: bool
+    horizons: list[HorizonOutcome] = Field(
+        min_length=1, description="Strictly ascending by days; a subset of the forecast's horizons"
+    )
+
+    @field_validator("horizons")
+    @classmethod
+    def _ascending_days(cls, horizons: list[HorizonOutcome]) -> list[HorizonOutcome]:
+        _ascending([h.days for h in horizons])
+        return horizons
 
 
 class FootprintPoint(_Model):
@@ -129,7 +198,11 @@ class StorySummary(_Model):
     growth_7d: float = Field(description="log2(volume last 7 days / volume previous 7 days)")
     tone: float | None = Field(None, description="Mean GDELT tone of the story's articles")
     first_seen: dt.date
-    forecast: Forecast | None = None
+    forecast: Forecast | None = Field(
+        None,
+        description="Where the story is expected to be in the coming days. None = no projection "
+        "(too little history): the future globe then draws it unchanged.",
+    )
     outcome: Outcome | None = None
 
     @field_validator("footprint")
@@ -166,22 +239,60 @@ class StoryDetail(_Model):
     items: list[Item]
 
 
+class HorizonMetrics(_Model):
+    """How well the projections `days` ahead did on the held-out test days."""
+
+    days: int = Field(ge=1)
+    n_test: int = Field(description="(story, day) pairs scored")
+    mae_log2: float = Field(
+        ge=0,
+        description="Mean |log2((projected + 1) / (actual + 1))|: the typical miss as a factor "
+        "of 2^x (0 = perfect, 1 = off by 2x)",
+    )
+    baseline_mae_log2: float = Field(
+        ge=0, description="The same error for the baseline; the model earns its place by beating it"
+    )
+    coverage: float = Field(
+        ge=0,
+        le=1,
+        description="Share of actuals inside [low, high]. Should be close to Forecast.interval; "
+        "much lower means the ranges are overconfident",
+    )
+
+
 class ModelMetrics(_Model):
     model_version: str
     test_start: dt.date
     test_end: dt.date
-    n_test: int
-    auc: float
-    brier: float
-    baseline_name: str = "momentum"
-    baseline_auc: float
-    baseline_brier: float
+    baseline_name: str = Field(
+        "persistence", description="'persistence' = the story stays as big as it is now"
+    )
+    horizons: list[HorizonMetrics] = Field(
+        description="One per horizon, ascending by days. A horizon is only worth showing as a "
+        "forecast if mae_log2 < baseline_mae_log2."
+    )
+
+    @field_validator("horizons")
+    @classmethod
+    def _ascending_days(cls, horizons: list[HorizonMetrics]) -> list[HorizonMetrics]:
+        _ascending([h.days for h in horizons])
+        return horizons
 
 
 class Meta(_Model):
     dates: list[dt.date] = Field(description="Days that have a snapshot, ascending")
     latest: dt.date
+    horizons: list[int] = Field(
+        default_factory=list,
+        description="Forecast horizons in days, ascending: how far past `latest` the globe can "
+        "look. Empty if there are no forecasts.",
+    )
     model: ModelMetrics | None = None
+
+    @field_validator("horizons")
+    @classmethod
+    def _ascending_days(cls, horizons: list[int]) -> list[int]:
+        return _ascending(horizons)
 
 
 class LivePost(_Model):

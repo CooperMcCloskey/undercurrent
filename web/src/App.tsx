@@ -20,6 +20,7 @@ import {
   type DotPlacement,
   type PlaceLabel,
 } from './story/articles'
+import { describeForecastShort } from './story/forecast'
 import { StoryPanel } from './story/StoryPanel'
 import { useArticles } from './story/useArticles'
 
@@ -107,7 +108,7 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCode
 const pointLabel = (o: object) => {
   const s = marker(o).story
   const { label, color } = CATEGORY_STYLE[s.category]
-  const p = s.forecast ? ` · ${Math.round(s.forecast.p_grow * 100)}% chance of growing` : ''
+  const p = s.forecast ? ` · ${describeForecastShort(s.forecast)}` : ''
   return `<span style="color:${color}">● ${label}</span><br/><b>${escapeHtml(s.title)}</b><br/>${s.article_count_7d} articles, ${s.post_count_7d} posts this week${p}<br/><i>Click to explore the articles</i>`
 }
 const dotLabel = (o: object) => {

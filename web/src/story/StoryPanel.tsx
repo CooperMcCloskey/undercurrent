@@ -13,6 +13,7 @@ import {
   type Article,
   type SourceKind,
 } from './articles'
+import { describeForecast } from './forecast'
 import { KindGlyph } from './KindGlyph'
 
 type Sort = 'importance' | 'newest'
@@ -111,8 +112,7 @@ export function StoryPanel({
         </dl>
         {story.forecast && (
           <p className="mt-2 text-xs text-slate-300">
-            Forecast: {Math.round(story.forecast.p_grow * 100)}% chance of growing over the next{' '}
-            {story.forecast.horizon_days} days
+            Forecast: {describeForecast(story.forecast)}
           </p>
         )}
       </header>
