@@ -67,19 +67,12 @@ Everything below. No real data has been fetched yet, and there's no clustering o
   - `locations`, with lat/lon and **FIPS→ISO2** country codes
   - `persons`, `orgs`, `themes`
   - `tone`
-<<<<<<< HEAD
   - `translated` (from the translated feed?) and `lang` (source language from TranslationInfo; null for English)
 - [ ] Deduplicate articles across both feeds together (same URL; syndicated copies with the same title)
-- [ ] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet`
-- [ ] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet`
-- [ ] Entity name → Wikipedia title resolver, cached (B and C both need it)
-=======
-- [ ] Deduplicate articles (same URL; syndicated copies with the same title)
 - [x] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet` (`ingest/wiki.py`)
 - [x] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet` (`ingest/wiki.py`)
 - [x] Entity name → Wikipedia title resolver, cached (B and C both need it) (`ingest/wiki_resolve.py`)
 - [x] Wikipedia daily top-1000 (bulk signal, bot-flagged) → `wiki_top.parquet` (`ingest/wiki_top.py`)
->>>>>>> ingest-wiki
 - [ ] Bluesky Jetstream consumer → `bluesky/*.parquet`, plus an in-process hook that D can use for `/api/live`
 - [ ] (stretch) Reddit, only if API access was approved
 
