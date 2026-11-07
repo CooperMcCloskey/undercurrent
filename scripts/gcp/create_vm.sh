@@ -60,7 +60,7 @@ else
   # PyTorch in uv.lock is built for CUDA 13, which needs NVIDIA driver 580+: prefer a CUDA 13 image.
   echo "== Finding the Deep Learning VM image"
   FAMILIES=$(gcloud compute images list --project=deeplearning-platform-release --no-standard-images \
-    --format="value(family)" | grep -E '^common-cu[0-9]' | sort -uV || true)
+    --filter="family~^common-cu" --format="value(family)" | grep -E '^common-cu[0-9]' | sort -uV || true)
   FAMILY=$(echo "$FAMILIES" | grep -E '^common-cu1[3-9]' | tail -1 || true)
   if [ -z "$FAMILY" ]; then
     FAMILY=$(echo "$FAMILIES" | tail -1)
@@ -69,7 +69,7 @@ else
   if [ -z "$FAMILY" ]; then
     echo "Couldn't find a Deep Learning VM image. Families on offer:" >&2
     gcloud compute images list --project=deeplearning-platform-release --no-standard-images \
-      --format="value(family)" | sort -u | head -40 >&2
+      --filter="family~cu" --format="value(family)" | sort -u | head -40 >&2
     exit 1
   fi
   ZONES=$(gcloud compute accelerator-types list --filter="name=nvidia-l4 AND zone~^$REGION" \
