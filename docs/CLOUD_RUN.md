@@ -3,6 +3,7 @@
 How to go from nothing to GDELT → vectors → stories → forecasts, on the $300 Google Cloud credit, as fast as possible. The *why* behind each choice is in `README.md` ("Scaling up"); this file is the *how*, in order.
 
 - **Steps 0–6** are the one-year run on two small machines.
+- **`docs/TWO_YEAR_RUN.md`** is the plan we're running: two years split across 3–4 people's accounts, one VM each.
 - **"Multi-year: 5–10 years in parallel"** (further down) scales the same pipeline to 5–10 years on bigger machines. Steps 0–2 (accounts, quota, login, the one-day test) come first either way.
 
 **Prices and sizes below are estimates** (list prices as we know them, unmeasured data). Check the real numbers at step 2 and write them in `PLAN.md` Notes (A).
