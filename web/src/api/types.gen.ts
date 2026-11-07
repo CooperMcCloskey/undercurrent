@@ -167,6 +167,10 @@ export interface StorySummary {
   title: string;
   location: Location1;
   /**
+   * What the story is about; sets its colour
+   */
+  category: "politics" | "conflict" | "economy" | "society" | "disaster" | "health" | "technology" | "other";
+  /**
    * Where the story is happening, for the heatmap. Empty means just `location`.
    */
   footprint: FootprintPoint[];

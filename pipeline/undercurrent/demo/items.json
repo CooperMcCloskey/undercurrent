@@ -1,5 +1,16 @@
 {
   "about": "Hand-written example items for testing vectors + clustering before real data exists. All invented. 'story' is the hand label, used only to score the clustering; null means noise that should stay unclustered. Location types: city, region, country.",
+  "categories": {
+    "port-strike": "society",
+    "rotterdam-flood": "disaster",
+    "grain-curbs": "economy",
+    "kenya-recount": "politics",
+    "bolivia-blockades": "politics",
+    "chip-tariffs": "economy",
+    "nepal-glacier": "disaster",
+    "argentina-rates": "economy",
+    "chile-wildfires": "disaster"
+  },
   "items": [
     {"id": "port-1", "story": "port-strike", "kind": "news", "day": "2026-11-03", "lang": "en", "text": "Dockworkers at Rotterdam's largest container terminal walk off the job over pay", "locations": [{"name": "Rotterdam", "country": "NL", "lat": 51.92, "lon": 4.48, "type": "city"}]},
     {"id": "port-2", "story": "port-strike", "kind": "news", "day": "2026-11-04", "lang": "en", "text": "Port strike in Rotterdam halts container traffic for a second day", "locations": [{"name": "Rotterdam", "country": "NL", "lat": 51.92, "lon": 4.48, "type": "city"}]},

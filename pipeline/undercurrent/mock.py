@@ -40,6 +40,15 @@ FOOTPRINTS = {
     "mock-rate-hold": [(-34.60, -58.38, 0.80, 80), (-38.4, -63.6, 0.20, 700)],
 }  # fmt: skip
 
+CATEGORIES: dict[str, c.Category] = {
+    "mock-port-strike": "society",
+    "mock-grain-curbs": "economy",
+    "mock-vote-recount": "politics",
+    "mock-chip-tariffs": "economy",
+    "mock-glacier-flood": "disaster",
+    "mock-rate-hold": "economy",
+}
+
 
 def _days(start: dt.date, end: dt.date) -> list[dt.date]:
     return [start + dt.timedelta(d) for d in range((end - start).days + 1)]
@@ -133,6 +142,7 @@ def build(out: Path = MOCK) -> None:
                     id=sid,
                     title=title,
                     location=c.Location(name=place, country=iso2, lat=lat, lon=lon),
+                    category=CATEGORIES[sid],
                     footprint=[
                         c.FootprintPoint(lat=fy, lon=fx, weight=w, radius_km=km)
                         for fy, fx, w, km in FOOTPRINTS[sid]

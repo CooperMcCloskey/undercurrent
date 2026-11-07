@@ -10,6 +10,7 @@
         "lat": 51.92,
         "lon": 4.48
       },
+      "category": "society",
       "footprint": [
         {
           "lat": 51.92,
@@ -64,6 +65,7 @@
         "lat": 46.48,
         "lon": 30.72
       },
+      "category": "economy",
       "footprint": [
         {
           "lat": 46.48,
@@ -124,6 +126,7 @@
         "lat": -1.29,
         "lon": 36.82
       },
+      "category": "politics",
       "footprint": [
         {
           "lat": -1.29,
@@ -178,6 +181,7 @@
         "lat": 25.03,
         "lon": 121.57
       },
+      "category": "economy",
       "footprint": [
         {
           "lat": 25.03,
@@ -238,6 +242,7 @@
         "lat": 27.72,
         "lon": 85.32
       },
+      "category": "disaster",
       "footprint": [
         {
           "lat": 27.72,
@@ -292,6 +297,7 @@
         "lat": -34.6,
         "lon": -58.38
       },
+      "category": "economy",
       "footprint": [
         {
           "lat": -34.6,

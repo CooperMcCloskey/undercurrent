@@ -25,7 +25,8 @@ This is a living document. Each workstream owner, and their agent, edits **only 
 - [x] Agent rules (`AGENTS.md`), architecture notes (`docs/ARCHITECTURE.md`) and this plan
 - [x] Detailed hand-offs and timeline in `docs/WORKPLAN.md`
 - [x] **Vectors → stories prototype, end to end** (`uv run python -m undercurrent.demo`). 57 hand-written items (news, posts, Wikipedia; 4 languages; 9 stories plus noise) are embedded (`vectors/embed.py`) and clustered with a similarity graph + Louvain (`stories/graph.py`). It recovers the 9 hand-labelled stories exactly, then exports to `data/export/`, so `npm run dev` shows them
-- [x] **One colour per story** on the globe: heat, markers and legend (`web/src/globe/storyColors.ts`)
+- [x] **Stories coloured by category** (politics, conflict, economy, society, disaster, health, technology). The contract has a new `StorySummary.category` field, assigned by `vectors.categorize()` from embedding similarity to category examples (9/9 correct on the demo). The globe's heat, markers and legend use one colour per category (`web/src/globe/categories.ts`)
+- [x] **Heatmap with absolute sizes**: a fixed spread in km on the globe, so zooming magnifies it instead of reshaping it; brightness within each colour shows intensity
 - Verified so far: ruff, pytest, API smoke test, typecheck and production build all pass. The globe code (land, heat, markers) was rendered and screenshotted in a browser with the mock data.
 
 ### Not done
@@ -84,6 +85,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 - [ ] Text cleaning per source, versioned. Started: `clean_text()` strips site-name suffixes from GDELT, and URLs and @mentions from posts. Still to do: drop boilerplate titles
 - [x] `embed()` (`vectors/embed.py`)
+- [x] `categorize()`: story category from vectors (`vectors/categories.py`). Still to do: more examples for weak categories, and recheck on real stories
 - [ ] `load()` and `threshold()`; store per source and day (float16, L2-normalised), cached by text hash
 - [ ] Model benchmark (speed on your laptop + ~100 labelled pairs) → set `config.EMBEDDING_MODEL`, **locked at the H+2 sync**
 - [ ] Wikipedia "Current events" bullets for the backfill range → `wiki_events.parquet`
@@ -175,6 +177,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Embed titles, not full article text | GDELT has no article text; scraping is slow and hits paywalls |
 | Embedding model chosen by V at H+2 from a speed and quality benchmark; multilingual MiniLM is the default (`config.EMBEDDING_MODEL`) | GDELT is multilingual, and the backfill has to embed in about an hour. Changing the model later means re-embedding everything |
 | One vector store and one `threshold()` for every source, owned by V | Similarity scales differ between models and sources, so cutoffs must come from one calibrated place, not be hardcoded in each workstream |
+| Story categories by embedding similarity to a few example headlines per category (`vectors/categories.py`) | Needs no training data or extra model, works for every source and language, and reuses the vectors we already compute. GDELT theme tags can add a second vote later |
 | Stories = Louvain communities of a kNN cosine-similarity graph (`stories/graph.py`) | It's the "link items by the angle between vectors" idea without chaining; it recovered all 9 demo stories, including two separate stories in the same city |
 | Cluster news first, then attach social posts with per-source thresholds | Threshold-linking everything chains unrelated stories together; posts and headlines don't sit in the same part of embedding space |
 | Wikipedia two ways: pageview/edit *features* via entity → title; *items* (Current events bullets, new event articles) via embeddings | Entity linking gives clean numeric history for the model; event text embeds well against headlines and shows on the globe as a source |

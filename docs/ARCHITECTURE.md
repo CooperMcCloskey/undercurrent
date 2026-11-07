@@ -127,6 +127,9 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
 6. **Footprint** (`StorySummary.footprint`): where the story is happening, drawn as the heatmap.
    - Group the story's GDELT location mentions by place. Weight each place by its share of mentions (weights sum to 1); keep the top ~10.
    - Set `radius_km` from GDELT's location type: city (types 3/4) ~75, state or region (2/5) ~250, whole country (1) about half the country's width (300–1000).
+7. **Category** (`StorySummary.category`): `vectors.categorize(centroid)` (`pipeline/undercurrent/vectors/categories.py`).
+   - Each category (politics, conflict, economy, society, disaster, health, technology) is described by ~8 short headline-style examples. Their vectors are averaged into a prototype, and the story takes the nearest one ("other" below 0.2 similarity). No extra model or training data, and it works across sources and languages.
+   - On the demo it gets all 9 stories right, but some calls are close: Bolivia's election blockades score politics 0.38 vs society 0.38; the Rotterdam flood scores disaster 0.25 vs health 0.24. To firm it up, add examples to the weak categories. With real GDELT data, add a second vote from the articles' theme tags (`ELECTION`, `PROTEST`, `NATURAL_DISASTER`, `ECON_*`…).
 
 ## Forecast (Forecast workstream)
 
@@ -139,13 +142,17 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
 
 ## Web (Web workstream)
 
-- **Story colours** (`web/src/globe/storyColors.ts`): nine well-separated hues, picked by a hash of the story id, so a story keeps its colour as the time slider moves. Colours repeat beyond nine stories on screen. Markers, heat and the legend all use them; stories that share an anchor are fanned out in a small ring.
-- **Heatmap** (`web/src/globe/heat.ts`): each story's `article_count_7d` is spread over its footprint as Gaussians, in the story's colour. Where stories overlap, colours blend by heat. Density is computed into a 0.5° grid only when the data changes (~35 ms for 5,000 points). A shader then colours it every frame on a single transparent sphere.
+- **Colours are categories** (`web/src/globe/categories.ts`): one fixed colour per `StorySummary.category`, used by the heat, the markers, the tooltip and the legend (which groups stories by category). It's typed as `Record<Category, …>`, so a new category in `contracts.py` without a colour is a type error. Stories sharing an anchor are fanned out in a small ring.
+- **Heatmap** (`web/src/globe/heat.ts`): each story's `article_count_7d` is spread over its footprint as Gaussians, in its category's colour. Where stories overlap, colours blend by heat.
+  - **Intensity is shown by brightness within the colour:** dark at the edges, full colour in the body, near white at the core. Each hue is rescaled to the same luminance first, so yellow doesn't look hotter than indigo at the same heat.
+  - **Sizes are absolute, in km on the globe.** Every place gets a fixed minimum spread (`HEAT_SPREAD_KM` = 200 in `App.tsx`), so a story's places merge into one field. Zooming only magnifies the layer; it never recomputes or reshapes it.
+  - Density is computed into a 0.5° grid only when the data changes (35–65 ms for 5,000 points). A shader colours it every frame on a single transparent sphere, using a half-float texture so the faint edges don't band.
   - Don't use react-globe.gl's `heatmapsData`. It rebuilds a ~130k-vertex sphere on every update, and needs WebGPU or takes seconds on the CPU.
   - Heat is normalised to the day's biggest story and shown on a √ scale, so small stories stay visible.
-- Story markers are small flat `pointsData` dots (for hover and click), coloured by forecast. Possible additions: `ringsData` pulses for growing stories, and `labelsData` for the top few.
+- Story markers are small flat `pointsData` dots (for hover and click), in the story's colour; the forecast is in the tooltip. Possible additions: `ringsData` pulses for growing stories, and `labelsData` for the top few.
 - **Don't use `polygonsData` for the countries.** The land is one merged mesh plus one set of border lines, built in `web/src/globe/land.ts` and added as a custom layer: 2 draw calls and about 60 ms to build. Through `polygonsData`, the 1,616 polygons at 1:50m cost about 4,800 draw calls per frame and 3.7 s of blocking work at load. `polygonsData` is fine for a handful of highlighted countries.
 - **Keep `<Globe>` props stable.** Accessor functions, materials and config go at module scope, and data arrays are memoised. react-globe.gl re-processes a whole layer whenever a prop changes identity, and inline arrow functions change on every render.
+- **Always pass `customThreeObjectUpdate`**, even as a no-op. Without it, the custom layer empties its scene on every data change and only re-adds *new* items. Existing items (the land, the heatmap) silently disappear.
 - With 1,000+ stories, set `pointsMerge` (one draw call, but no per-point hover) or switch to `hexBinPointsData`.
 - All server data goes through `web/src/api/client.ts` (react-query). UI state (selected story, current date, replay mode) lives in a zustand store.
 - The production bundle is about 2 MB because of three.js. That's fine for the demo, so don't optimise it.

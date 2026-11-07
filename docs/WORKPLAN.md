@@ -139,6 +139,7 @@ One row per (story, day): the state of the story **as of the end of that day**, 
 | `label` | str | most central headline |
 | `location` | struct{name, country, lat, lon} | most-mentioned location |
 | `footprint` | list<struct{lat, lon, weight, radius_km}> | the heatmap spread; same fields as `contracts.FootprintPoint` (see `docs/ARCHITECTURE.md`) |
+| `category` | str | `vectors.categorize(centroid)`; one of `contracts.Category`; sets the story's colour on the globe |
 | `entities` | list<str> | top persons and orgs |
 | `first_seen` | date | |
 | `n_articles_day` | int | articles assigned on this day |

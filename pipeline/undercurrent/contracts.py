@@ -24,6 +24,11 @@ from pydantic.json_schema import models_json_schema
 
 SourceKind = Literal["news", "bluesky", "reddit", "wikipedia"]
 EntityKind = Literal["person", "organization", "location", "other"]
+# What a story is about; the globe colours stories by this. Assigned by
+# undercurrent.vectors.categories (embedding similarity to category descriptions).
+Category = Literal[
+    "politics", "conflict", "economy", "society", "disaster", "health", "technology", "other"
+]
 
 STORY_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,80}$"
 
@@ -108,6 +113,7 @@ class StorySummary(_Model):
     id: str = Field(pattern=STORY_ID_PATTERN, description="Stable across days")
     title: str
     location: Location = Field(description="Main location: anchor for the marker and label")
+    category: Category = Field("other", description="What the story is about; sets its colour")
     footprint: list[FootprintPoint] = Field(
         default_factory=list,
         description="Where the story is happening, for the heatmap. Empty means just `location`.",

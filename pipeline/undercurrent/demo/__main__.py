@@ -28,7 +28,8 @@ from sklearn.metrics import adjusted_rand_score
 from undercurrent import contracts as c
 from undercurrent.config import EXPORT
 from undercurrent.stories.graph import centroid, cluster
-from undercurrent.vectors import embed
+from undercurrent.vectors import categorize, embed
+from undercurrent.vectors.categories import prototypes
 
 ITEMS = Path(__file__).with_name("items.json")
 MARKER = ".demo-export"
@@ -61,7 +62,8 @@ def build_stories(items: list[dict], vectors: np.ndarray, labels: np.ndarray) ->
     stories = []
     for label in sorted(set(labels.tolist()) - {-1}):
         idx = np.flatnonzero(labels == label)
-        sims = vectors[idx] @ centroid(vectors[idx])
+        center = centroid(vectors[idx])
+        sims = vectors[idx] @ center
         news = [k for k, i in enumerate(idx) if items[i]["kind"] == "news"]
         best = max(news or range(len(idx)), key=lambda k: sims[k])  # most central headline
         title = items[idx[best]]["text"]
@@ -72,9 +74,14 @@ def build_stories(items: list[dict], vectors: np.ndarray, labels: np.ndarray) ->
                 "id": f"{slug(title)}-{digest}",
                 "title": title,
                 "label": int(label),
+                "centroid": center,
                 "members": [(items[i], float(s)) for i, s in zip(idx, sims, strict=True)],
             }
         )
+    if stories:  # what each story is about: nearest category prototype to its centroid
+        categories, scores = categorize(np.stack([s["centroid"] for s in stories]))
+        for s, category, row in zip(stories, categories, scores, strict=True):
+            s["category"], s["category_scores"] = category, row
     return stories
 
 
@@ -116,16 +123,30 @@ def footprint(
     return points, location
 
 
-def report(items: list[dict], vectors: np.ndarray, labels: np.ndarray, stories: list[dict]) -> None:
+def report(
+    items: list[dict],
+    vectors: np.ndarray,
+    labels: np.ndarray,
+    stories: list[dict],
+    hand_categories: dict[str, str],
+) -> None:
     # Noise (hand label null, or predicted -1) counts as its own singleton in the score.
     truth = [it["story"] or f"noise:{it['id']}" for it in items]
     pred = [f"s{label}" if label >= 0 else f"noise:{i}" for i, label in enumerate(labels)]
     print(
         f"\nAdjusted Rand index vs hand labels: {adjusted_rand_score(truth, pred):.3f} (1 = perfect)"
     )
+    names = prototypes()[0]
+    right = sum(s["category"] == hand_categories.get(majority(s)) for s in stories)
+    print(f"Categories matching hand labels: {right}/{len(stories)}")
 
     for s in stories:
+        top = np.argsort(-s["category_scores"])[:2]
+        scores = ", ".join(f"{names[k]} {s['category_scores'][k]:.2f}" for k in top)
+        hand = hand_categories.get(majority(s))
+        flag = "" if s["category"] == hand else f"   ← hand label: {hand}"
         print(f"\n■ story {s['label']}: {s['title']}  [{s['id']}]")
+        print(f"   category: {s['category']} ({scores}){flag}")
         for item, sim in sorted(s["members"], key=lambda m: -m[1]):
             flag = "" if item["story"] == majority(s) else f"   ← hand label: {item['story']}"
             print(f"   {sim:.2f}  {item['kind']:<9} {item['text'][:80]}{flag}")
@@ -233,6 +254,7 @@ def export(items: list[dict], stories: list[dict], out: Path, force: bool) -> No
                     id=s["id"],
                     title=s["title"],
                     location=location,
+                    category=s["category"],
                     footprint=points,
                     article_count_7d=last7,
                     post_count_7d=count_kind(seen, "bluesky", as_of, 0, 6),
@@ -260,14 +282,15 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="overwrite a non-demo export")
     args = parser.parse_args()
 
-    items = json.loads(ITEMS.read_text())["items"]
+    data = json.loads(ITEMS.read_text())
+    items = data["items"]
     vectors = embed_items(items)
     labels = cluster(
         vectors, k=args.k, min_sim=args.min_sim, resolution=args.resolution, min_size=args.min_size
     )
     stories = build_stories(items, vectors, labels)
     print(f"{len(items)} items, {vectors.shape[1]}-d vectors -> {len(stories)} stories")
-    report(items, vectors, labels, stories)
+    report(items, vectors, labels, stories, data["categories"])
     if not args.no_export:
         export(items, stories, args.out, args.force)
 
