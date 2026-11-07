@@ -91,14 +91,14 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Goal:** every piece of text (GDELT headlines, Bluesky posts, Wikipedia event summaries and new articles) as a vector in one shared space, plus calibrated "same story" thresholds.
 **Reads:** `articles.parquet`, `bluesky/*.parquet`; fetches the Wikipedia text itself. **Writes:** `data/processed/vectors/`, `wiki_events.parquet`, `wiki_new.parquet`, `pipeline/undercurrent/vectors/thresholds.py`. Interface: `docs/WORKPLAN.md` sections 3.4 and 3.9.
 
-- [ ] Text cleaning per source, versioned. Started: `clean_text()` strips site-name suffixes from GDELT, and URLs and @mentions from posts. Still to do: drop boilerplate titles
+- [x] Text cleaning per source, versioned: `clean_text()` (`vectors/embed.py`) and which headlines are worth a vector (`vectors/clean.py`: boilerplate and too-short titles are dropped, with a word count that handles Chinese, Japanese and Korean)
 - [x] `embed()` (`vectors/embed.py`)
 - [x] `categorize()`: story category from vectors (`vectors/categories.py`). Still to do: more examples for weak categories, and recheck on real stories
-- [ ] `load()` and `threshold()`; store per source and day (float16, L2-normalised), cached by text hash
+- [x] `load()` and `threshold()`; the store per source and day (float16, L2-normalised), deduped by text hash and reusing the last 3 days (`vectors/store.py`, run with `python -m undercurrent.vectors.store`)
 - [ ] Model benchmark (speed on your laptop + ~100 labelled pairs) → set `config.EMBEDDING_MODEL`, **locked at the H+2 sync**
 - [ ] Wikipedia "Current events" bullets for the backfill range → `wiki_events.parquet`
 - [ ] Vectors for A's last 7 days, embedded day by day as they land (H+6)
-- [ ] Thresholds per source pair (news–news, bluesky–news, wiki_events–news), from ~50 labelled pairs each (H+8)
+- [ ] Thresholds per source pair (news–news, bluesky–news, wiki_events–news), from ~50 labelled pairs each (H+8). The tool is built (`python -m undercurrent.vectors.calibrate`); the values in `vectors/thresholds.py` are still placeholders and warn when used
 - [ ] Vectors for the backfill (newest 60 days first, then the rest), day by day as A parses it, kept in the bucket (H+11 for the first 60 days)
 - [ ] Bluesky vectors; `embed()` fast enough for live posts
 - [ ] New Wikipedia event articles → `wiki_new.parquet` → vectors
@@ -106,22 +106,30 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 **Needs from others:** A: `articles.parquet` (1 day by H+2, 7 days by H+5, the newest 60 days by H+10, the rest of the 12 months after that), Bluesky parquet (H+12)
 **Notes:**
+- The store (`vectors/store.py`) is tested with a fake model, and was run once with the real model on the 102 demo headlines: 5 days embedded, a second run skipped them all, `load()` and the manifest were right. Not yet run on real articles. Its only knowledge of A's schema is `day_inputs()`.
+- `embed()` cleans and embeds raw text; the store uses `embed_cleaned()` because cleaning twice can strip real words. `embed()` still behaves as before.
+- Device is picked automatically (CUDA, then MPS, then CPU). **PyTorch and FAISS crash each other on macOS** if used in one process: keep embedding and story tracking as separate processes (`README.md`, "Clustering").
+- Category prototypes are cached on disk (`data/cache/category_prototypes/`), so the tracker can label stories without loading the embedding model.
 
 ### B: Stories (owner: ____)
 
 **Goal:** turn articles and posts into stable, sensible stories.
 **Reads:** V's vectors and thresholds, `articles.parquet`. **Writes:** `data/processed/stories*`, and `data/export/` (snapshots and story details)
 
-- [ ] Cluster the news over a trailing window (for example 3 days), starting from the prototype in `stories/graph.py` (perfect on the demo items). Eyeball 20 real clusters and recalibrate `min_sim` before trusting it
-- [ ] Story tracking: match each day's clusters to existing stories by centroid similarity, so story ids stay stable; unmatched clusters become new stories
-- [ ] Story label (most central headline), primary location (most-mentioned GDELT location), top entities
+- [x] Cluster the news at the size of a real day (`stories/cluster.py`: FAISS neighbours, connected components, Louvain inside each, a split kept only if it makes the groups tighter). 120,000 synthetic items in about 8 seconds. Still to do: eyeball 20 real clusters and calibrate before trusting it
+- [x] Story tracking (`stories/tracker.py`, run by `python -m undercurrent.stories.track`): match items to story centroids, start new stories from the leftovers, merge duplicates (lineage), retire the idle; resumable
+- [ ] Story label (done: most central headline) and category (done), primary location (most-mentioned GDELT location), top entities
 - [ ] Footprint for the heatmap: the story's location mentions, weighted by share, with `radius_km` set from GDELT's location type (see `docs/ARCHITECTURE.md`)
 - [ ] Attach Bluesky/Reddit posts and Wikipedia items to the nearest story centroid, using V's per-source thresholds (`vectors.threshold()`)
 - [ ] Exporter: write `meta.json`, `snapshots/<day>.json` and `stories/<id>.json` to `data/export/`, then run `uv run pytest`
-- [ ] Point-in-time: stories as of day t use only data from day t or earlier (C depends on this)
+- [x] Point-in-time: stories as of day t use only data from day t or earlier (C depends on this). A test checks that earlier days' output doesn't change when later days are added
 
-**Needs from others:** none yet
+**Needs from others:** V: calibrated cutoffs in `vectors/thresholds.py` (the news–news value is a placeholder). A: `articles.parquet` with `id`, `title`, `day` and `locations` (the tracker's only knowledge of A's schema is `day_meta()` in `stories/track.py`).
 **Notes:**
+- Output (`docs/WORKPLAN.md` 3.5 and 3.6): `story_assignments/<day>.parquet`, `stories_daily/<day>.parquet` (no per-day centroid: too big; location, footprint and entities still to add), `story_lineage/<day>.parquet`, and `tracker_state/state.pkl`. Rows are never rewritten; a merge is recorded in the lineage.
+- Measured on synthetic data only: about 200,000 items a day takes 13–37 seconds and 2.3 GB; every assignment was correct and no noise was placed in a story. On the 102 hand-labelled demo headlines, `--min-size 2` finds 16 of 27 stories at 92% purity (the demo has about 2 headlines per story per day, so the default of 3 finds 2). Never run on real data.
+- A story starts when at least `min_size` items about it arrive on the same day; slow trickles are missed. Kept deliberately (point-in-time); carrying leftovers over a few days would need an `assigned_on` column.
+- The forecast code doesn't apply `story_lineage` yet (a merged story's earlier rows keep the old id).
 
 ### C: Forecast (owner: ____)
 
@@ -136,7 +144,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
   - number of distinct domains and countries
   - tone, and change in tone
   - Wikipedia pageview and edit growth for the story's entities
-- [ ] Models: `HistGradientBoostingRegressor` with quantile loss is done, one model per horizon (`forecast/models.py`). Still to do: ridge regression and the sequence model (add each with `@register`). Use a fixed test period (the latest 3–6 months) and time-ordered folds by quarter, with a gap between train and test (`README.md`, "Forecast model")
+- [ ] Models: both built. `HistGradientBoostingRegressor` with quantile loss, one model per horizon (`forecast/models.py`), and a GRU over each story's last 28 days that predicts all horizons at once and can be pretrained (`forecast/neural.py`); `--model hgb gru` averages them. Still to do: run them on real data and keep the net only if it earns its place (stages in `README.md`, "Future prediction"); ridge regression if wanted (`@register`). Use a fixed test period (the latest 3–6 months) and time-ordered folds by quarter, with a gap between train and test (`README.md`, "Forecast model")
 - [ ] Range coverage per horizon (should be near 80%; the backtest measures it, and `forecast/run.py` writes `forecasts.parquet` and `model_metrics.json`), plus `ModelMetrics` written to `meta.json`; per-story `forecast` (with top `factors` per horizon) and `outcome` (horizons that have already happened) written to the snapshots
 - [ ] Find 2 or 3 strong examples for the pitch (stories whose surge was projected early)
 - [ ] **Unblock yourself:** until B has stories, build the label/feature/backtest code on proxy stories (for example GKG theme × country counts), then switch to B's stories (done: `forecast/synthetic.py` and `forecast/proxy.py`; the switch is `--source stories`)
@@ -157,6 +165,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - **Evaluation:** walk-forward. The last 90 days are the final test window (reported in `model_metrics.json`, never tuned on); earlier quarters are extra windows. Training ends `h` days before calibration starts, and calibration ends `h` days before the test window, so nothing overlaps. The predictions a replay shows come from models that had not seen those days.
 - **Ranges** are calibrated (conformalised quantile regression) on the 28 days before each window, so the "80%" range should really cover about 80%.
 - A smoke test on synthetic stories shows the pipeline works (the model beats persistence, coverage is 78–82%). That says nothing about real news: it needs real stories.
+- **Neural net:** the plan for when and how to use it is in `README.md`, "Future prediction". On 7,700 made-up rows it was slightly behind the trees on its own, as expected for so little data. Sequences and pretraining data go through the same no-lookahead and time-cutoff rules as everything else, and tests check both.
 
 ### D: Web and API (owner: ____)
 

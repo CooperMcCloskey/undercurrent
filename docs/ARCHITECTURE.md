@@ -115,13 +115,13 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
 
 1. **Vectors** come from V: `vectors.load("news", days)`. Never embed inside `stories/`, so every workstream uses the same space.
    - Titles may be non-English, because both GDELT feeds are ingested. The multilingual model handles this, but tune similarity thresholds with non-English titles in the sample (the demo items include French, Spanish and Dutch).
-2. **Cluster** over a trailing window with a similarity graph (`stories/graph.py`, a working prototype):
+2. **Cluster** the items that matched no known story (`stories/cluster.py`, which scales to a real day; `stories/graph.py` is the small prototype it grew from, described here):
    - Link each item to its `k` most similar items above `min_sim` (cosine).
    - Run Louvain community detection; each community is a story, and groups smaller than `min_size` are noise.
    - Louvain maximises modularity, so it doesn't *chain* the way connected components do: two dense groups joined by one weak link stay separate.
    - On the demo items (`uv run python -m undercurrent.demo`), it recovers all 9 hand-labelled stories exactly: two different Rotterdam stories stay apart, French/Spanish/Dutch headlines join their English stories, and noise stays out. That holds for `min_sim` 0.40–0.45, `k` 8–10 and resolution 1.0–2.0, with MiniLM.
-   - `min_sim` is model-specific, so recalibrate it on real data. This prototype won't scale to a real day (hundreds of thousands of articles): see "Clustering: needs a rewrite to scale" in `README.md`.
-3. **Track stories** day to day. Match each new cluster to the existing story with the most similar centroid, above a threshold, so the id stays the same. Otherwise create a new story. Ids are slugs, matching `contracts.STORY_ID_PATTERN`.
+   - `min_sim` is model-specific, so recalibrate it on real data. The prototype's similarity matrix and Python Louvain don't scale; `cluster.py` finds neighbours with FAISS, takes connected components, and runs Louvain inside each component (keeping a split only if it makes the groups clearly tighter). Measured numbers are in "Clustering: the story tracker" in `README.md`.
+3. **Track stories** day to day (`stories/tracker.py`, run by `stories/track.py`). Each day: match items to the existing story with the most similar centroid above `assign_sim` (so the id stays the same, unless the place rule objects), start new stories from the leftovers with step 2, merge stories whose centroids have become the same (written to a lineage table), retire the idle. Assignments are never rewritten, so every row is point-in-time. Ids are slugs plus 6 hex characters, matching `contracts.STORY_ID_PATTERN`.
 4. **Attach other sources** (posts, Wikipedia event text) to the nearest story centroid, above `vectors.threshold(<source>, "news")`.
 5. **Location** of a story: the GDELT location mentioned most often in its articles. This anchors the story's marker.
 6. **Footprint** (`StorySummary.footprint`): where the story is happening, drawn as the heatmap.

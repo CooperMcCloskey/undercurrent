@@ -38,7 +38,9 @@ Until the real pipeline exports, the globe shows the mock data (`npm run dev:moc
 | `npm run check` | Typecheck + ruff + pytest |
 | `npm run format` | Prettier + ruff format |
 | `uv run python -m undercurrent.<area>.<module>` | Run a pipeline step |
-| `uv run python -m undercurrent.forecast.run --source synthetic` | Train, backtest and forecast on made-up stories (no data needed). `--source proxy` uses A's `articles.parquet`; `--source stories` uses B's stories. See `pipeline/undercurrent/forecast/README.md` |
+| `uv run python -m undercurrent.forecast.run --source synthetic` | Train, backtest and forecast on made-up stories (no data needed). `--source proxy` uses A's `articles.parquet`; `--source stories` uses B's stories. Add `--model hgb gru` for the neural net. See "Future prediction" below |
+| `uv run python -m undercurrent.vectors.store --source news --start D --end D` | Embed each day's headlines into the vector store (resumable; `--shard i/n` splits days across machines) |
+| `uv run python -m undercurrent.stories.track --start D --end D` | Run the story tracker over a range of days (resumable) |
 | `uv run python -m undercurrent.demo` | Embed + cluster the hand-written demo items, score them, export to `data/export/` (then `npm run dev` shows them) |
 
 ## Scaling up: the plan to maximise performance
@@ -86,9 +88,27 @@ Do these first. Most are cheap now and expensive to fix later.
 - **Keep the GPU off the critical path.** CPU FAISS should be enough for the daily matching (roughly 100k items against ~50k story centroids; my estimate, not measured). Prefetch the next day's vectors while the tracker works on today's.
 - **If time is short,** run everything on one GPU machine and sync each finished day to the bucket. You waste some money on idle GPU time but avoid coordinating two machines.
 
+The commands, in order (each is resumable, and every one skips work that is already done):
+
+```bash
+uv run python -m undercurrent.vectors.store --source news --start 2026-01-01 --end 2026-03-31   # embed (GPU); add --shard 0/4 on each of 4 machines
+uv run python -m undercurrent.stories.track --start 2026-01-01 --end 2026-03-31                  # track (CPU, its own process)
+uv run python -m undercurrent.forecast.run --source stories                                      # forecast
+```
+
 ### Vectors: encode once, keep them in cloud storage
 
 The encoder is a pretrained model; we don't train it. It turns each headline into a vector, so similar headlines sit close together. Those vectors assign articles to stories, attach posts and Wikipedia items, pick categories and match live posts.
+
+**Built** (`pipeline/undercurrent/vectors/store.py`, tested with a fake model and run once with the real one on the demo headlines):
+
+- `python -m undercurrent.vectors.store` embeds one day at a time and writes `vectors/<source>/<day>.npy` (float16, unit length) and `.parquet` (id and the exact text embedded). It reads A's `articles` for `news`, and `bluesky/<day>.parquet`, `wiki_events.parquet`, `wiki_new.parquet` for the others.
+- **Resumable:** files are written under a temporary name and renamed, so a killed run never leaves half a day; finished days are skipped. `--shard i/n` splits days across machines.
+- **Cleans, then drops junk** (`vectors/clean.py`: "Home", "404 Not Found", too-short headlines; the word count handles Chinese, Japanese and Korean). Identical cleaned texts are embedded once, and texts from the previous 3 days are reused.
+- **Refuses to mix models:** `manifest.json` records the model, dimension and text version, and writing with a different one stops with an explanation.
+- `vectors.load(source, days)` returns ids and unit-length float32 vectors, and refuses days that haven't been embedded (pass `missing="skip"` if gaps are expected). `vectors.threshold(a, b)` returns the "same story" cutoff for the current model. **Those cutoffs are placeholders** that warn when used; `python -m undercurrent.vectors.calibrate --pairs pairs.csv` measures them from ~50 labelled pairs.
+- **Cleaning is not safe to run twice** (it can strip real words from "A - B debate - CNN"), so the store embeds the already-cleaned text with `embed_cleaned()`. Use `embed()` only on raw text.
+- **Device:** CUDA, then Apple's MPS, then the CPU, automatically (`UC_DEVICE` or `--device` overrides). `UC_HALF=1` runs a CUDA model in half precision, which is about twice as fast.
 
 - **Encode everything, per day.** Days are independent, so run them in parallel. Dedupe by text hash first, so a wire headline repeated on many sites is embedded once.
 - **Store one file per day:** fp16, L2-normalised, with an id file and a manifest (model, dimension, text version), as in `docs/WORKPLAN.md` section 3.4. Expect roughly 80–150 GB for a few years at 384 dimensions (a guess; measure on one day). In object storage that costs a few dollars.
@@ -99,17 +119,46 @@ The encoder is a pretrained model; we don't train it. It turns each headline int
 - **Fit anything corpus-wide** (PCA, UMAP) on training days only.
 - **Idea, untested:** fine-tune the encoder on "same event" pairs. The GDELT Mentions table links many articles to one event id, which could give free training pairs. It has to be done before the bulk encode.
 
-### Clustering: needs a rewrite to scale
+### Clustering: the story tracker (built, not yet run on real data)
 
-`stories/graph.py` is a prototype tested on 57 hand-written items. It will not survive hundreds of thousands of articles a day: `knn_edges` builds a 4096 × N similarity block (about 5 GB at N = 300,000) and loops in Python per row, and networkx Louvain is slow on millions of edges. The plan:
+`stories/graph.py` is the small prototype (tested on 153 hand-written items); it can't handle a real day. Its replacement is built, and tested on synthetic stories and the demo headlines:
 
-1. **Dedupe** headlines within a day (keep `dup_count`).
-2. **Assign** each new item to the nearest active story centroid with FAISS (CPU should be enough; use a GPU if it isn't), using `vectors.threshold("news", "news")` and the existing place rule (`far_apart`).
-3. **Cluster only the leftovers** (items that matched no story) over a trailing window, to start new stories. That is small enough for Louvain; if it isn't, add Leiden with `uv add`.
-4. **Update the centroids** and retire stories that have been idle for N days.
-5. **Process days in order**, so everything is point-in-time. Embedding each day is independent, so run it on several machines at once; only this tracking step is sequential, and it is cheap.
-6. **Measure before every long run.** Build a labelled set of 1–2k "same story?" pairs (an LLM can draft them if we have API credit) and check precision, recall and adjusted Rand index. Recalibrate `min_sim` for the chosen embedding model. Badly formed stories make the forecast target noisy, so this matters more than the choice of forecast model.
-7. **Export only the top N stories per day and the top items per story**, so the web app stays fast.
+| File | What it does |
+|---|---|
+| `stories/cluster.py` | Clusters one batch of items: nearest neighbours with FAISS, then connected components, then Louvain inside each component. A split is kept only if it makes the groups clearly tighter, because Louvain also cuts one coherent story into pieces |
+| `stories/tracker.py` | The day-by-day state: match items to story centroids, start new stories from the leftovers, merge duplicates, retire idle stories |
+| `stories/track.py` | The command that runs it over a range of days, resumably |
+
+Run it once the day's vectors exist, in its own process:
+
+```bash
+uv run python -m undercurrent.stories.track --start 2026-01-01 --end 2026-03-31
+```
+
+It writes `story_assignments/<day>.parquet`, `stories_daily/<day>.parquet`, `story_lineage/<day>.parquet` (only on days with a merge) and `tracker_state/state.pkl`, which is rewritten every day so a killed run resumes where it stopped. Every day has to be processed, in order.
+
+Each day, in order:
+
+1. **Fade** every story's centroid (half-life 7 days), so it follows how the story is worded now.
+2. **Match** each item to the nearest story centroid above `assign_sim`, unless it is clearly about somewhere else (the place rule from `graph.py`).
+3. **Start new stories** from the items that matched nothing: they are clustered among themselves, and each group of at least `min_size` becomes a story.
+4. **Merge** stories whose centroids are now nearly the same. The oldest id survives and the merge is written to `story_lineage`.
+5. **Retire** stories with no new item for 14 days.
+
+What we measured (made-up and demo data only):
+
+- **Speed:** about 200,000 items a day at 384 dimensions takes 13–37 seconds (the first day is slowest) and peaks at 2.3 GB. A year is roughly 1.5–2 hours.
+- **Accuracy on synthetic stories:** every story assignment was correct, and no noise item was put in a story. On the 102 hand-labelled demo headlines, `--min-size 2` finds 16 of the 27 stories with 92% purity; the default of 3 finds 2, because the demo has only about 2 headlines per story per day.
+- **Tests** check that results for earlier days don't change when later days are added, that input order doesn't matter, that resuming equals an uninterrupted run, that merges are recorded, and that retired stories don't come back under the old id.
+
+Things to know:
+
+- **A story starts when at least `min_size` items about it arrive on the same day.** A slow trickle (one headline a day) is missed until it reaches that. This keeps every decision point-in-time, and at full resolution it costs little: stories too small to start are far below the 20 articles a week the forecast needs. Carrying leftovers over for a few days is the obvious extension; it would need an `assigned_on` column to stay point-in-time.
+- **The cutoffs are placeholders.** `vectors/thresholds.py` has 0.42 for news vs news (tuned on the demo), `assign_sim` is that + 0.05, and `merge_sim` is 0.85. Read 20 real stories and calibrate before trusting any of it.
+- **PyTorch and FAISS crash each other on macOS** if both run in one process (PyTorch must load first, and FAISS then runs on one thread). Embedding and tracking are separate processes, so this doesn't arise. The code guards the mixed case, but keep them apart. It was not seen on Linux, but that is untested.
+- **Merged stories:** rows already written keep the old id, and `story_lineage` maps old to surviving id. The forecast code doesn't apply the lineage yet.
+- **Still to do for B:** each story's location, footprint and entities (the tracker writes id, label, category and size), `story_wiki_entities.parquet`, attaching posts and Wikipedia items, and the exporter. Export only the top N stories per day and the top items per story, so the web app stays fast.
+- **Before the first long run,** label 1–2k "same story?" pairs (an LLM can draft them) and run `python -m undercurrent.vectors.calibrate`. Badly formed stories make the forecast target noisy, so this matters more than the choice of forecast model.
 
 ### Wikipedia: what the data agent (A) should do now
 
@@ -139,7 +188,7 @@ Start with the most recent 12 months, which are closest to what we forecast. Tra
 
 ### Forecast model
 
-- **Models:** gradient boosting (one per horizon, quantile loss), then a sequence model (GRU or a small transformer) over each story's last ~30 days. Ensemble them. Calibrate the ranges on a held-out recent block, so "80%" really covers about 80%.
+- **Models:** gradient boosting (one per horizon, quantile loss) and a sequence model (a GRU over each story's last 28 days) are both built; average them. Calibrate the ranges on a held-out recent block, so "80%" really covers about 80%. The plan for using them is under "Future prediction".
 - **Features**, on top of the current list:
   - story age and position relative to its peak, probably the strongest signal for fade-out;
   - a PCA-reduced story centroid, so the model learns that disasters fade fast and wars persist;
@@ -180,6 +229,69 @@ Start with the most recent 12 months, which are closest to what we forecast. Tra
 1. **Core:** 12 months of full-resolution GDELT, scalable story tracking, tier 1 Wikipedia pageviews, gradient boosting with calibrated ranges, a quarterly backtest.
 2. **Better:** older years (if the learning curve says they help), Events/Mentions and dates features, bulk Wikipedia, the sequence model and ensemble, a stronger embedding model.
 3. **Future globe:** a model of new-story volume by region and category (stories that don't exist yet; needs one optional contract field), a 30-day horizon if it passes, an LLM-labelled gold set.
+
+## Future prediction: the plan
+
+The part of the project that looks ahead. For every story and day it gives the story's expected size (`article_count_7d`) 1, 3, 7 and 14 days later, with an 80% range. Scrub the globe forward and it redraws with those projections; scrub back and it shows what the model said then, next to what actually happened. The data shape is `Forecast` and `Outcome` in `pipeline/undercurrent/contracts.py`; the code and its guide are in `pipeline/undercurrent/forecast/`.
+
+### What exists today
+
+| Piece | What it is | Where |
+|---|---|---|
+| Rows | One per (story, day): 23 features, the last 28 days of history, and the targets | `dataset.py`, `features.py` |
+| Trees (`hgb`) | Gradient boosted quantile models, one set per horizon. Fast; the baseline | `models.py` |
+| Neural net (`gru`) | A GRU over the last 28 days plus the same features, predicting every horizon at once. Can be pretrained | `neural.py` |
+| Blend and calibration | Averages the models, then widens or narrows the range so "80%" covers about 80% | `backtest.py` |
+| Backtest | Walk-forward windows that never overlap, three baselines, confidence intervals | `backtest.py` |
+| Inputs | Made-up stories, theme × country proxy stories, or B's real stories | `synthetic.py`, `proxy.py`, `panel.py` |
+| Output | `forecasts.parquet`, `model_metrics.json`, and contract objects for B's exporter | `export.py` |
+
+64 tests pass, including checks that no feature, no 28-day window and no pretraining data can see the future. **None of it has run on real data yet.**
+
+### Run it
+
+```bash
+uv run python -m undercurrent.forecast.run --source synthetic                      # no data needed
+uv run python -m undercurrent.forecast.run --source proxy                          # needs A's articles
+uv run python -m undercurrent.forecast.run --source stories                        # needs B's stories
+uv run python -m undercurrent.forecast.run --source stories --model hgb gru        # trees + net, averaged
+uv run python -m undercurrent.forecast.run --source stories --model gru --pretrain proxy   # pretrain first
+```
+
+Trial runs (synthetic, proxy) write to `data/processed/forecast/<source>/`, so they can't overwrite what B's exporter reads. The output shows each model's error on its own next to the blend and the baselines.
+
+### The plan, in order
+
+Each stage has a rule for when to move on. The trees come first because they are fast and dependable, and they put real forecasts on the globe soonest.
+
+| Stage | What | Move on when |
+|---|---|---|
+| 0. Dry run on proxy series | `--source proxy` as soon as A's first articles land. No stories needed | It runs on real articles, and the trees beat "it stays the same" at 1 and 3 days. If not, fix the features or the target before building more |
+| 1. Real stories, trees only | `--source stories --model hgb`. First check that B's assignments are never revised (re-run the tracker twice on a sample and compare) | The report shows which horizons beat persistence on the final window. Check coverage for small, medium and large stories separately; if it is off by more than ~5 points, calibrate per size band |
+| 2. Onto the globe | B's exporter calls `export.load_forecasts()`; D builds the future view and the model card | The globe scrubs past today using real forecasts, and the model card hides horizons that don't beat persistence |
+| 3. Add the neural net | `--model hgb gru`, compare the columns | Keep it in the blend only if the blend beats the trees alone with the 95% interval below zero on the earlier windows. Then confirm once on the final window |
+| 4. Pretrain the net | `--pretrain proxy` on years of theme × country series (or aggregates pulled from BigQuery). This is where the net should start to win | It beats the un-pretrained net on the earlier windows |
+| 5. More inputs | Story centroid (reduced, fit on training days only), Events mix, scheduled dates, Wikipedia at scale. One at a time | Each is kept only if the earlier windows improve |
+| 6. Longer reach | A 30-day horizon, and a model of new-story volume by region and category (needs one optional contract field) | The backtest passes. Until then the globe only shows stories that already exist |
+
+### How we decide what ships
+
+- **A horizon is offered as a forecast only if** its calibrated blend beats persistence with the 95% interval below zero on the final window (`beats_persistence` in `forecast_report.json`). Otherwise the model card shows it greyed out.
+- **Tune on the earlier windows.** Look at the final window once per decision. If we tune on it, its numbers are no longer honest.
+- **Judge each model on its own column,** not just the blend.
+- **Beat all three baselines:** persistence, damped momentum, and the typical change for a story of that age and category.
+
+### Compute (rough estimates)
+
+The trees take minutes on a CPU. The net trained at about 34,000 rows a second on a small test on a laptop-class CPU, so a year of rows (1–3 million, a guess) is 1–2 minutes per epoch. A full backtest is several windows × ~20 epochs, so roughly 1–3 hours on a CPU and minutes on a GPU. Pretraining adds a few epochs on the auxiliary data. Measure on the real data before planning around these.
+
+### Risks and open decisions
+
+- **Counting from `story_assignments` is only honest if B never revises an assignment.** The notes in `PLAN.md` ask for this; verify it in stage 1.
+- **The net may not beat the trees.** Rows from one story are near-copies, so there are fewer independent examples than rows. Pretraining is the bet; the trees stay as the baseline either way.
+- **Only stories that already exist are forecast,** and only those with at least 20 articles in the last 7 days. Others are drawn unchanged.
+- **Never run on real data.** Expect the first real run to break something in the loaders. The error messages name the file to fix.
+- **Open:** one model for all horizons in the trees too (probably a small gain), and what the minimum story size should be once the data is full resolution.
 
 ## Repo map
 
