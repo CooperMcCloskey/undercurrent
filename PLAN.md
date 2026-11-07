@@ -60,15 +60,15 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Goal:** clean, resumable inputs for everyone else.
 **Writes:** `data/raw/`, `data/processed/articles.parquet`, `wiki_*.parquet`, `bluesky/*.parquet`
 
-- [ ] GDELT GKG 2.1 downloader for **both feeds**, English and translated (`masterfilelist.txt` / `lastupdate.txt` and their `-translation` versions): `--start/--end`, resumable, full resolution by default (`--sample-per-hour` is a fallback only, with the same rate on both feeds)
-- [ ] GKG parser (both feeds) → `articles.parquet` with these columns:
+- [x] GDELT GKG 2.1 downloader for **both feeds**, English and translated (`masterfilelist.txt` / `lastupdate.txt` and their `-translation` versions): `--start/--end`, resumable, full resolution by default (`--sample-per-hour` is a fallback only, with the same rate on both feeds) (`ingest/gdelt_zip.py`; or from BigQuery, `ingest/gdelt_bq.py`)
+- [x] GKG parser (both feeds) → `articles/day=*/part.parquet` (`ingest/gkg.py`, `ingest/fips.py`) with these columns:
   - `id`, `url`, `domain`, `published_at`
   - `title`, taken from `<PAGE_TITLE>` in V2EXTRASXML
   - `locations`, with lat/lon and **FIPS→ISO2** country codes
   - `persons`, `orgs`, `themes`
   - `tone`
   - `translated` (from the translated feed?) and `lang` (source language from TranslationInfo; null for English)
-- [ ] Deduplicate articles across both feeds together (same URL; syndicated copies with the same title)
+- [x] Deduplicate articles across both feeds together (same URL; syndicated copies with the same title)
 - [x] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet` (`ingest/wiki.py`)
 - [x] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet` (`ingest/wiki.py`)
 - [x] Entity name → Wikipedia title resolver, cached (B and C both need it) (`ingest/wiki_resolve.py`)
@@ -82,6 +82,8 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - **8 languages** (en ja de fr ru es it zh, the most-read Wikipedias), linked by Wikidata ID. Start from `wiki_entity_daily.parquet`: one row per entity and day, languages summed, with per-language columns.
 - **Wikimedia rate limit: 200 requests/min total, at most 3 at once** (new in 2026). About 5 s per entity (8 languages × pageviews + edits), so 1,000 entities take about 1.5 h. Pick entities carefully and start early.
 - `wiki_top.parquet`: 8 languages × 60 days (2026-09-08..11-06) downloaded, with likely bots flagged (`suspect_bot`).
+- **GDELT, one full day measured (2026-11-05, both feeds, zip files):** 1.39 GB zipped (0.51 GB English + 0.88 GB translated), 341,088 GKG rows, 339,647 with a title. Details: `ingest/GDELT.md`.
+- **Translated-feed `<PAGE_TITLE>` is in the original language**, not English. About 70% of articles come from that feed; `lang` is ISO 639-3 (`spa`, `zho`, `rus`, ...).
 
 ### V: Vectors (owner: Cooper)
 
@@ -229,4 +231,4 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - Who owns which workstream: Cooper owns V. B (Stories) needs an owner
 - **What do we predict?** `Humans.md` says "Wikipedia views, edits and new articles in the cluster"; this plan and `docs/WORKPLAN.md` say "the story's news volume (`article_count_7d`) over the next 1–14 days", with Wikipedia as features. The contract now follows the news-volume version, because the future globe draws that number. Confirm it before C starts: the target code, the model card and the pitch all depend on it. News volume has the most history to backtest on; a Wikipedia pageview spike is closer to "the public notices"
 - Backfill depth is decided: 12 months at full resolution first, then older years only if the learning curve says they help (`README.md`). Still open: measure one full day of both feeds (rows, unique titles, size) and write it here, because every size and cost estimate depends on it
-- Is `<PAGE_TITLE>` original-language or English in the translated feed? (A to check)
+- ~~Is `<PAGE_TITLE>` original-language or English in the translated feed?~~ Original language (A, see Notes)

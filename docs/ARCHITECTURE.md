@@ -31,6 +31,8 @@ Until `data/export/meta.json` exists, the API serves `web/public/mock/` instead.
 
 ### GDELT GKG 2.1 (Ingest)
 
+How we pull it (from BigQuery, or from the 15-minute zip files) and what is kept: `pipeline/undercurrent/ingest/GDELT.md`.
+
 **Files**
 
 - A new file is published every 15 minutes at `http://data.gdeltproject.org/gdeltv2/YYYYMMDDHHMMSS.gkg.csv.zip`.
@@ -64,7 +66,7 @@ Until `data/export/meta.json` exists, the API serves `web/public/mock/` instead.
   - Use the same sampling rate for both feeds on every day, so growth ratios stay comparable.
   - Deduplicate across both feeds together, not per feed.
   - Its `TranslationInfo` field gives the source language (for example `srclc:fra;eng:...`). It's empty in the English feed.
-  - It's unverified whether `<PAGE_TITLE>` in the translated feed is in the original language or in English. The ingest agent must check and record the answer in `PLAN.md` Notes.
+  - `<PAGE_TITLE>` in the translated feed is in the **original language**, not English (checked on 2026-11-05/06). About 70% of articles come from this feed.
 
 ### Wikipedia (Ingest; used as features by Forecast)
 
