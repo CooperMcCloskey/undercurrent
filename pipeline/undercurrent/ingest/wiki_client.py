@@ -22,11 +22,18 @@ ACTION = "https://en.wikipedia.org/w/api.php"
 class WikiClient:
     """Thread-safe GET with a shared request-rate limit and retry on 429/5xx/network errors."""
 
-    def __init__(self, max_rps: float = 10.0, retries: int = 6, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        max_rps: float = 10.0,
+        retries: int = 6,
+        timeout: float = 30.0,
+        transport: httpx.BaseTransport | None = None,  # tests pass an httpx.MockTransport
+    ) -> None:
         self._http = httpx.Client(
             headers={"User-Agent": WIKIMEDIA_USER_AGENT, "Accept": "application/json"},
             timeout=timeout,
             follow_redirects=True,
+            transport=transport,
         )
         self._interval = 1.0 / max_rps
         self._lock = threading.Lock()
