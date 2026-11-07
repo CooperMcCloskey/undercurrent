@@ -128,21 +128,35 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Goal:** project each story's `article_count_7d` at 1, 3, 7 and 14 days ahead (`config.HORIZONS`) with an 80% range, so the globe can look into the future; backtested honestly against "it stays as it is". The contract is done: `Forecast.horizons`, `Outcome.horizons`, `ModelMetrics.horizons`, `Meta.horizons`.
 **Reads:** B's stories, A's Wikipedia tables. **Writes:** `forecast` and `outcome` in the snapshots, and `model` in `meta.json`
 
-- [ ] Fix the target and write the final definition in Notes: `article_count_7d` on day t+h, modelled as `log2((future + 1) / (now + 1))` (see `docs/ARCHITECTURE.md`). Decide which stories get a forecast (for example ≥ 20 articles in the previous 7 days); the rest have `forecast = None` and are drawn unchanged
-- [ ] Build targets with no lookahead: take the story's centroid at day t, and count future articles as the ones closest to that centroid. At 12-month scale that recount is expensive; the alternative is to count from the tracker's append-only `story_assignments` (`README.md`, "Vectors"). Decide, and write it in Notes
-- [ ] Baselines: persistence, and momentum (persistence scaled by `growth_7d`). Report the typical miss (`mae_log2`) per horizon
-- [ ] Features:
+- [x] Fix the target and write the final definition in Notes: `article_count_7d` on day t+h, modelled as `log2((future + 1) / (now + 1))` (see `docs/ARCHITECTURE.md`). Decide which stories get a forecast (for example ≥ 20 articles in the previous 7 days); the rest have `forecast = None` and are drawn unchanged (`forecast/dataset.py`)
+- [x] Build targets with no lookahead: count future articles from the tracker's append-only `story_assignments` (decided: see Notes; it depends on B, see Needs from others)
+- [x] Baselines: persistence, damped momentum (`growth_7d`) and the median change for the story's age and category. The typical miss (`mae_log2`) per horizon is in the backtest report
+- [x] Features (`forecast/features.py`; add more with `@feature`):
   - volume, growth and acceleration
   - number of distinct domains and countries
   - tone, and change in tone
   - Wikipedia pageview and edit growth for the story's entities
-- [ ] Models: ridge regression first, then `HistGradientBoostingRegressor` (quantile loss for the range). One model per horizon. Use a fixed test period (the latest 3–6 months) and time-ordered folds by quarter, with a gap between train and test (`README.md`, "Forecast model")
-- [ ] Range coverage per horizon (should be near 80%), plus `ModelMetrics` written to `meta.json`; per-story `forecast` (with top `factors` per horizon) and `outcome` (horizons that have already happened) written to the snapshots
+- [ ] Models: `HistGradientBoostingRegressor` with quantile loss is done, one model per horizon (`forecast/models.py`). Still to do: ridge regression and the sequence model (add each with `@register`). Use a fixed test period (the latest 3–6 months) and time-ordered folds by quarter, with a gap between train and test (`README.md`, "Forecast model")
+- [ ] Range coverage per horizon (should be near 80%; the backtest measures it, and `forecast/run.py` writes `forecasts.parquet` and `model_metrics.json`), plus `ModelMetrics` written to `meta.json`; per-story `forecast` (with top `factors` per horizon) and `outcome` (horizons that have already happened) written to the snapshots
 - [ ] Find 2 or 3 strong examples for the pitch (stories whose surge was projected early)
-- [ ] **Unblock yourself:** until B has stories, build the label/feature/backtest code on proxy stories (for example GKG theme × country counts), then switch to B's stories
+- [ ] **Unblock yourself:** until B has stories, build the label/feature/backtest code on proxy stories (for example GKG theme × country counts), then switch to B's stories (done: `forecast/synthetic.py` and `forecast/proxy.py`; the switch is `--source stories`)
 
-**Needs from others:** B: point-in-time story centroids per day. V: vectors and the news–news threshold. A: entity → Wikipedia title mapping.
+**Needs from others** (C reads these in `forecast/panel.py`; the column names live in `forecast/schema.py`, so if you rename something, tell C: it is a one-line fix there):
+- **B:** `story_assignments.parquet` must be **append-only**: once an article is assigned to a story, never change it. C counts a story's future articles from it. When stories merge or split, keep a lineage table (`story_lineage.parquet`: `old_story_id, new_story_id, day`).
+- **B:** `stories_daily.parquet` with `category` and `first_seen` (C uses both as features).
+- **B:** `story_wiki_entities.parquet` (`story_id, qid`): each story's Wikipedia entities, chosen from information available within the story's first ~3 days (so the choice can't see how the story later did), without countries or capitals. A's `wiki_entity_daily.parquet` is joined on `qid`.
+- **B (exporter):** don't regroup `forecasts.parquet` yourself. Call `forecast.export.load_forecasts(path)` (a `Forecast` and an `Outcome` per story and day, already validated against the contract) and `meta_horizons(path)` for `Meta.horizons`. Rows with `source == "live"` are the latest day; the rest are out-of-sample predictions.
+- **A:** `articles.parquet` with `domain`, `tone` and `locations[].country` as documented. Useful but optional: `daily_totals.parquet` (`day, total_articles`), the raw count before dedup, so volume can be normalised and outage days spotted.
+- **V:** nothing required. Later, a reduced story centroid as a feature (fit on training days only).
+
 **Notes:**
+- Code: `pipeline/undercurrent/forecast/`, guide in `forecast/README.md`. Try it with no data: `uv run python -m undercurrent.forecast.run --source synthetic`. Tests: `pipeline/tests/test_forecast_*.py`.
+- **Target:** `y_h = log2((a7(t+h) + 1) / (a7(t) + 1))`, where `a7` is the articles in the 7 days ending that day, i.e. `StorySummary.article_count_7d`. A story has a row on day t only if `a7(t) >= 20` (`settings.MIN_ARTICLES_7D`) and t is at least 21 days into the data (`BURN_IN_DAYS`). Other stories have `forecast = None`.
+- **Future volume** is counted from B's `story_assignments`, not by re-matching against frozen centroids (too expensive at 12-month scale). That is only valid if assignments are never revised: see Needs from others.
+- **Wikipedia timing:** pageviews up to t − 1, edits up to t (`settings.WIKI_VIEWS_LAG_DAYS`). A test checks that a spike on day t doesn't move the features at t.
+- **Evaluation:** walk-forward. The last 90 days are the final test window (reported in `model_metrics.json`, never tuned on); earlier quarters are extra windows. Training ends `h` days before calibration starts, and calibration ends `h` days before the test window, so nothing overlaps. The predictions a replay shows come from models that had not seen those days.
+- **Ranges** are calibrated (conformalised quantile regression) on the 28 days before each window, so the "80%" range should really cover about 80%.
+- A smoke test on synthetic stories shows the pipeline works (the model beats persistence, coverage is 78–82%). That says nothing about real news: it needs real stories.
 
 ### D: Web and API (owner: ____)
 
