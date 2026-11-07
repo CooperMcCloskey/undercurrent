@@ -25,8 +25,8 @@ import { useArticles } from './story/useArticles'
 
 // Vector globe: ocean sphere, merged land mesh (globe/land.ts), a heatmap of where stories are
 // happening coloured by category (globe/heat.ts), a marker per story, and an outline of the
-// hovered story's area. Hovering a marker also bursts out a dot per article around it, sized by
-// importance (globe/constellation.ts); clicking it opens the story's articles in a panel
+// hovered story's area. Hovering a marker also bursts out a small dot per article or post (all one
+// size, so the story stays the big thing; globe/constellation.ts); clicking it opens the story's articles in a panel
 // (story/StoryPanel.tsx).
 const COLORS = {
   ocean: '#0b1424',
@@ -415,6 +415,10 @@ export default function App() {
               </button>
             )}
           </div>
+          <p className="mb-2 text-slate-400">
+            Big dots are stories. Hover one to see its articles (small circles) and posts (small
+            diamonds).
+          </p>
           <div className="space-y-2">
             {legend.map(({ category, stories: group }) => {
               const off = hidden.has(category)

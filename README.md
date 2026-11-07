@@ -19,7 +19,7 @@ npm run dev            # API on :8000 + web on :5173
 ## What you see
 
 - **The globe:** every story is a marker coloured by its category (politics, conflict, economy...), over a heatmap of the places it is happening. Click a category in the legend to hide or show it.
-- **Hover a story** to outline its area and burst out a dot for every place each of its articles mentions, with each place named. That is why the heat is where it is. Dots are sized by how central the article is to the story.
+- **Hover a story** to outline its area and burst out a small dot for every place each of its articles mentions, with each place named. That is why the heat is where it is. The big dots are stories; the small ones are their articles (circles) and posts (diamonds), all one size.
 - **Click a story** to fly to it and open a panel with every article, post and Wikipedia page in it, linked. Filter by source, sort by importance or date. Hovering a row lights its dots on the globe, and clicking a dot jumps to its row.
 
 Until the real pipeline exports, the globe shows the mock data (`npm run dev:mock`) or the hand-written demo (`undercurrent.demo`). Neither is real news.

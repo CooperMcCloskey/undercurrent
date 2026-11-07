@@ -6,7 +6,7 @@ import {
   KIND_ORDER,
   KIND_STYLE,
   articlesOnGlobe,
-  glyphSize,
+  GLYPH_PX,
   formatWhen,
   hostOf,
   safeHref,
@@ -123,7 +123,7 @@ export function StoryPanel({
         </Chip>
         {kinds.map((k) => (
           <Chip key={k} active={kind === k} onClick={() => setKind(k)}>
-            <KindGlyph kind={k} color={color} size={9} />
+            <KindGlyph kind={k} color={color} size={GLYPH_PX} />
             {KIND_STYLE[k].label} {counts[k]}
           </Chip>
         ))}
@@ -166,12 +166,12 @@ export function StoryPanel({
                 onMouseEnter={() => onHighlight(a.id)}
                 onMouseLeave={() => onHighlight(null)}
               >
-                {/* Same mark as its dots on the globe, grown with importance the same way. */}
+                {/* Same mark as its dots on the globe. */}
                 <span
                   className="mt-0.5 flex w-[22px] shrink-0 justify-center"
                   title={`${KIND_STYLE[a.kind].label}, importance ${Math.round(a.importance * 100)}%`}
                 >
-                  <KindGlyph kind={a.kind} color={color} size={glyphSize(a.importance)} />
+                  <KindGlyph kind={a.kind} color={color} size={GLYPH_PX} />
                 </span>
                 <div className="min-w-0 flex-1">
                   {href ? (
@@ -201,9 +201,9 @@ export function StoryPanel({
       </div>
 
       <footer className="border-t border-slate-700/60 px-4 py-2 text-[11px] leading-snug text-slate-500">
-        An item gets a dot at each place it mentions, which is why the story's heat sits where it
-        does; items that name no place sit beside the marker. Dot size shows how central an item is
-        to the story (posts count for less).
+        The big marker on the globe is the story. The small circles around it are its articles and
+        the small diamonds its posts, each at a place the item mentions, which is why the story's
+        heat sits where it does; items that name no place sit beside the marker.
         {onGlobe < articles.length && ` The globe shows the top ${onGlobe} of ${articles.length}.`}
       </footer>
     </aside>

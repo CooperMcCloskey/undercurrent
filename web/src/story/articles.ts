@@ -1,17 +1,20 @@
 // Turns a story's items (articles, posts, Wikipedia pages) into what the UI draws: a ranked list,
-// a dot size per item, and where each dot sits around the story's marker.
+// and where each item's dots sit on the globe.
 import type { Item, Location } from '../api/types.gen'
 
 export type SourceKind = Item['kind']
 
-/** How each kind of item looks: `shape` is how its dot is drawn (colour is the story's category). */
-export const KIND_STYLE: Record<SourceKind, { label: string; shape: 'disc' | 'ring' | 'diamond' }> =
-  {
-    news: { label: 'News', shape: 'disc' },
-    wikipedia: { label: 'Wikipedia', shape: 'diamond' },
-    bluesky: { label: 'Bluesky', shape: 'ring' },
-    reddit: { label: 'Reddit', shape: 'ring' },
-  }
+/**
+ * How each kind of item looks (the colour is the story's category). Articles, Wikipedia pages
+ * included, are circles; social posts are diamonds. All are small and one size, so the only big
+ * thing on the globe is a story's own marker.
+ */
+export const KIND_STYLE: Record<SourceKind, { label: string; shape: 'disc' | 'diamond' }> = {
+  news: { label: 'News', shape: 'disc' },
+  wikipedia: { label: 'Wikipedia', shape: 'disc' },
+  bluesky: { label: 'Bluesky', shape: 'diamond' },
+  reddit: { label: 'Reddit', shape: 'diamond' },
+}
 export const KIND_ORDER = Object.keys(KIND_STYLE) as SourceKind[]
 
 export interface Article extends Item {
@@ -22,7 +25,7 @@ export interface Article extends Item {
 // IMPORTANCE. The contract has no per-item importance (yet), so it is derived from what an item
 // does have:
 //   - similarity: how squarely the item is about the story (cosine similarity to its centroid);
-//     squared, so the gap between a core item and a fringe one shows up in the dot size.
+//     squared, so a core item clearly outranks a fringe one.
 //   - kind: a news article or a Wikipedia page counts for more than a single social post.
 // Swap this out when the export carries a real signal: syndicated copies (`dup_count` in
 // articles.parquet), social engagement, or the page's Wikipedia pageviews.
@@ -37,16 +40,18 @@ export function rankArticles(items: readonly Item[]): Article[] {
     .sort((a, b) => b.importance - a.importance || b.published_at.localeCompare(a.published_at))
 }
 
-/** Size of an item's mark in the panel, px. Grows with importance like its dot on the globe. */
-export const glyphSize = (importance: number) => 7 + 15 * importance ** 2
+/** Size of an item's mark in the panel, px. */
+export const GLYPH_PX = 9
 
-// Dots live on the globe, so their sizes and spacing are in degrees of arc (1 deg ~ 111 km): they
-// scale with the globe when you zoom, like the heat and the markers. They are small next to the
-// story's marker (radius 0.6 deg, 1.1 when hovered), so the marker stays the clear centre.
-const DOT_RADIUS_MIN_DEG = 0.2
-const DOT_RADIUS_MAX_DEG = 0.5
-export const dotRadius = (importance: number) =>
-  DOT_RADIUS_MIN_DEG + (DOT_RADIUS_MAX_DEG - DOT_RADIUS_MIN_DEG) * importance ** 2
+// Dots live on the globe, so their size and spacing are in degrees of arc (1 deg ~ 111 km): they
+// scale with the globe when you zoom, like the heat and the markers. Every dot is the same small
+// size, far smaller than a story's marker (radius 0.6 deg, 1.1 when hovered), so what is big on
+// the globe is a story and what is small is one of its articles or posts.
+const DOT_RADIUS_DEG = 0.25
+// A diamond covers less area than a circle of the same radius; this makes the two look as big.
+const DIAMOND_SCALE = 1.25
+export const dotRadius = (kind: SourceKind) =>
+  DOT_RADIUS_DEG * (KIND_STYLE[kind].shape === 'diamond' ? DIAMOND_SCALE : 1)
 
 /** One dot of the constellation: a point on the globe. */
 export interface DotPlacement {
@@ -146,7 +151,7 @@ export function layoutDots(
   let k = 0 // index among the items placed beside the marker
   const dots: DotPlacement[] = []
   shown.forEach((article, i) => {
-    const radius = dotRadius(article.importance)
+    const radius = dotRadius(article.kind)
     const delay = Math.min(i * 12, 300)
     const places = placesOf(article)
     for (const place of places) {

@@ -2,9 +2,8 @@ import type { CSSProperties } from 'react'
 import { KIND_STYLE, type SourceKind } from './articles'
 
 /**
- * The mark for one kind of item, in the story's colour: a disc for news, a ring for social posts,
- * a diamond for Wikipedia. Fills its parent when `size` is omitted. Used for the dots on the globe
- * and for the matching marks in the panel, so the two read as the same thing.
+ * The mark for one kind of item, in the story's colour: a circle for an article (Wikipedia pages
+ * too), a diamond for a social post. Used in the panel, so its marks match the dots on the globe.
  */
 export function KindGlyph({
   kind,
@@ -23,13 +22,12 @@ export function KindGlyph({
     flexShrink: 0,
     boxSizing: 'border-box',
     ...(shape === 'disc' && { background: color, borderRadius: '50%' }),
-    ...(shape === 'ring' && { border: `2px solid ${color}`, borderRadius: '50%' }),
     // `rotate`/`scale` rather than `transform`, so callers can still scale the mark.
     ...(shape === 'diamond' && {
       background: color,
       borderRadius: 2,
       rotate: '45deg',
-      scale: 0.75,
+      scale: 0.85,
     }),
   }
   return <span aria-hidden style={style} />

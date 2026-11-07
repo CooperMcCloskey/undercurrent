@@ -12,12 +12,12 @@ import {
   Color,
   DoubleSide,
   Float32BufferAttribute,
+  Group,
   LineBasicMaterial,
   LineSegments,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
-  RingGeometry,
   Vector3,
   type Object3D,
 } from 'three'
@@ -49,7 +49,7 @@ const RADIUS = GLOBE_RADIUS * (1 + DOT_ALTITUDE)
 const OPACITY = 0.95
 const SPOKE_OPACITY = 0.3
 const SPOKE_STEP_DEG = 2 // a spoke is bent along the globe (a vertex every 2 deg), not a chord through it
-const LIT_SCALE = 1.6
+const LIT_SCALE = 2.2 // the dots are small: a lit one has to stand out
 const LIT_WHITE = 0.55
 const GROW_MS = 450
 const WHITE = new Color('#ffffff')
@@ -57,10 +57,18 @@ const WHITE = new Color('#ffffff')
 // Unit-radius shapes, scaled per dot. The "diamond" is a 4-sided circle: its corners point
 // east, north, west and south, so it stands on a corner.
 const SHAPES = {
-  disc: new CircleGeometry(1, 32),
-  ring: new RingGeometry(0.58, 1, 32),
+  disc: new CircleGeometry(1, 24),
   diamond: new CircleGeometry(1, 4),
 }
+// The dots are tiny, so each carries an invisible, larger disc that takes the pointer for it (it
+// writes neither colour nor depth). It is switched off (scaled to nothing) while the dot bursts
+// out of the marker, or the stack of dots would cover the marker and take its hover.
+const HIT_RADIUS_DEG = 0.45
+const HIT_MATERIAL = new MeshBasicMaterial({
+  colorWrite: false,
+  depthWrite: false,
+  side: DoubleSide,
+})
 
 /** Same formula as three-globe's polar2Cartesian, for a unit sphere. */
 function surfaceVector(lat: number, lng: number): Vector3 {
@@ -119,18 +127,24 @@ export function buildConstellation(
       depthWrite: false,
     })
     materials.push(material)
+    // The dot: a group lying flat on the globe (local x east, y north, z out), 1 unit = 1 degree of
+    // arc, holding the drawn shape and the invisible hit disc.
+    const object = new Group()
+    object.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(frame.east, frame.north, up))
+    object.scale.setScalar(RADIUS * DEG)
     const mesh = new Mesh(SHAPES[KIND_STYLE[dot.article.kind].shape], material)
-    mesh.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(frame.east, frame.north, up))
     mesh.renderOrder = 5 // over the heat layers, which are transparent spheres
+    const hit = new Mesh(SHAPES.disc, HIT_MATERIAL)
+    object.add(mesh, hit)
 
     // Bursts out of the marker: drawn at its place, then grows and glides to the dot's own.
     const target = up.clone().multiplyScalar(RADIUS)
     const start = origin.clone().multiplyScalar(RADIUS)
-    const baseScale = RADIUS * dot.radius * DEG
     let isLit = false
     const place = (e: number) => {
-      mesh.position.copy(start).lerp(target, e).setLength(RADIUS)
-      mesh.scale.setScalar(baseScale * (0.25 + 0.75 * e) * (isLit ? LIT_SCALE : 1))
+      object.position.copy(start).lerp(target, e).setLength(RADIUS)
+      mesh.scale.setScalar(dot.radius * (0.25 + 0.75 * e) * (isLit ? LIT_SCALE : 1))
+      hit.scale.setScalar(e < 0.9 ? 1e-3 : Math.max(HIT_RADIUS_DEG, dot.radius))
       material.opacity = OPACITY * e
     }
     place(instant ? 1 : 0)
@@ -144,7 +158,7 @@ export function buildConstellation(
       material.color.set(color).lerp(WHITE, on ? LIT_WHITE : 0)
     }
     lit.set(dot.article.id, [...(lit.get(dot.article.id) ?? []), light])
-    items.push({ object: mesh, story, article: dot.article, place: dot.place })
+    items.push({ object, story, article: dot.article, place: dot.place })
 
     // Spoke: marker -> dot, along the globe.
     const angle = Math.acos(Math.max(-1, Math.min(1, origin.dot(up))))
