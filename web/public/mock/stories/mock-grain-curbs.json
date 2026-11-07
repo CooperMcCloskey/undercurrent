@@ -199,7 +199,15 @@
       "published_at": "2026-11-06T09:00:00",
       "source": "example.com",
       "language": "en",
-      "similarity": 0.9
+      "similarity": 0.9,
+      "locations": [
+        {
+          "name": "Odesa",
+          "country": "UA",
+          "lat": 46.48,
+          "lon": 30.72
+        }
+      ]
     },
     {
       "id": "mock-grain-curbs-news-1",
@@ -209,7 +217,15 @@
       "published_at": "2026-11-05T10:00:00",
       "source": "example.com",
       "language": "en",
-      "similarity": 0.85
+      "similarity": 0.85,
+      "locations": [
+        {
+          "name": "Odesa",
+          "country": "UA",
+          "lat": 46.48,
+          "lon": 30.72
+        }
+      ]
     },
     {
       "id": "mock-grain-curbs-news-2",
@@ -219,7 +235,15 @@
       "published_at": "2026-11-04T11:00:00",
       "source": "example.com",
       "language": "en",
-      "similarity": 0.8
+      "similarity": 0.8,
+      "locations": [
+        {
+          "name": "Odesa",
+          "country": "UA",
+          "lat": 46.48,
+          "lon": 30.72
+        }
+      ]
     },
     {
       "id": "mock-grain-curbs-bsky-0",
@@ -229,7 +253,8 @@
       "published_at": "2026-11-06T12:00:00",
       "source": "example.bsky.social",
       "language": "en",
-      "similarity": 0.71
+      "similarity": 0.71,
+      "locations": []
     }
   ]
 }

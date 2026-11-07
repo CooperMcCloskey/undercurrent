@@ -69,6 +69,12 @@ class Item(_Model):
     source: str | None = Field(None, description="Domain, Bluesky handle or subreddit")
     language: str | None = None
     similarity: float = Field(ge=-1, le=1, description="Cosine similarity to the story centroid")
+    locations: list[Location] = Field(
+        default_factory=list,
+        description="Every place this item mentions, the main one first (for a GDELT article: "
+        "its most specific location first). The globe puts a dot at each of them, which is also "
+        "why the story's heat sits where it does. Empty if unknown, e.g. most social posts.",
+    )
 
 
 class Factor(_Model):

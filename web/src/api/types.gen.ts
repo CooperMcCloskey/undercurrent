@@ -81,16 +81,10 @@ export interface Item {
    * Cosine similarity to the story centroid
    */
   similarity: number;
-}
-/**
- * Message on the /api/live websocket.
- *
- * This interface was referenced by `UndercurrentContract`'s JSON-Schema
- * via the `definition` "LivePost".
- */
-export interface LivePost {
-  item: Item;
-  story_id: string | null;
+  /**
+   * Every place this item mentions, the main one first (for a GDELT article: its most specific location first). The globe puts a dot at each of them, which is also why the story's heat sits where it does. Empty if unknown, e.g. most social posts.
+   */
+  locations: Location[];
 }
 /**
  * This interface was referenced by `UndercurrentContract`'s JSON-Schema
@@ -104,6 +98,16 @@ export interface Location {
   country: string | null;
   lat: number;
   lon: number;
+}
+/**
+ * Message on the /api/live websocket.
+ *
+ * This interface was referenced by `UndercurrentContract`'s JSON-Schema
+ * via the `definition` "LivePost".
+ */
+export interface LivePost {
+  item: Item;
+  story_id: string | null;
 }
 /**
  * This interface was referenced by `UndercurrentContract`'s JSON-Schema

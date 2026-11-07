@@ -83,6 +83,7 @@ def build(out: Path = MOCK) -> None:
                 source="example.com",
                 language="en",
                 similarity=round(0.9 - 0.05 * n, 2),
+                locations=[loc],
             )
             for n in range(3)
         ] + [
