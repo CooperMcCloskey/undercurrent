@@ -13,3 +13,4 @@
 - Train a model to predict wikipedia views, edits, and new articles that fit into the cluster
 - Get a baseline
 - Compare to the baseline
+- Concrete decisions based on data
