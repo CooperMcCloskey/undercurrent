@@ -22,7 +22,7 @@ The JSON files in `data/export/` are the interface between the pipeline and the 
 |---|---|---|
 | `meta.json` | `Meta`: snapshot dates, latest date, model metrics | `GET /api/meta` |
 | `snapshots/<YYYY-MM-DD>.json` | `Snapshot`: every story as of that day, with forecast (and outcome, for past days) | `GET /api/snapshots/{day}` |
-| `stories/<id>.json` | `StoryDetail`: timeline, items from every source, entities, locations | `GET /api/stories/{id}` |
+| `stories/<id>.json` | `StoryDetail`: timeline, items from every source (each with the places it mentions), entities, locations | `GET /api/stories/{id}` |
 | (websocket) | `LivePost` | `WS /api/live` (to do) |
 
 Until `data/export/meta.json` exists, the API serves `web/public/mock/` instead. `npm run dev:mock` skips the API entirely.
@@ -150,6 +150,13 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
   - Don't use react-globe.gl's `heatmapsData`. It rebuilds a ~130k-vertex sphere on every update, and needs WebGPU or takes seconds on the CPU.
   - Heat is normalised to the day's biggest story and shown on a √ scale, so small stories stay visible.
 - Story markers are small flat `pointsData` dots (for hover and click), in the story's colour; the forecast is in the tooltip. Possible additions: `ringsData` pulses for growing stories, and `labelsData` for the top few.
+- **Article dots** (`web/src/globe/constellation.ts`, layout in `web/src/story/articles.ts`): hovering or selecting a story fetches its `StoryDetail` (react-query, cached) and draws one dot per article per place it mentions (`Item.locations`; the first 4 places of each article, at most 80 dots, most important articles first).
+  - **Placement and size are in degrees on the globe**, like the heat and the markers, so the dots turn with the globe and scale with zoom. They are small next to the hovered marker (dot radius 0.2–0.5°, marker 1.1°). Lines from the marker to each dot follow the surface. Don't lay the dots out in screen pixels around the marker: we tried, and zoomed out they spread across continents. Don't use the html layer for the dots either.
+  - **Heat and dots come from the same places**, so every patch of heat has a dot in it. Dots whose places coincide (three articles about the same city) are nudged apart just enough not to overlap and to clear the marker (`layoutDots`). An item with no place (most posts) gets one dot in a spiral beside the marker, and its tooltip says so.
+  - **Importance has no field in the contract**, so it's derived: similarity² to the story centroid, times a weight for the kind (news and Wikipedia 1, posts 0.6), relative to the story's top item. Replace it when the export carries a real signal (`dup_count` of syndicated copies, engagement, pageviews).
+  - **Hover and click** work through the custom layer: each dot is its own datum, so `onCustomLayerHover/Click` receive its article. The land and heat layers have raycasting off, so only dots are hit. Leaving a marker ends its hover after 200 ms, so the pointer can cross the gap to one of its dots. Hovering any dot of an article lights all of that article's dots and its row in the panel.
+  - **Place labels** ("Ankara · 1 mention") use the `html` layer: text in screen pixels pinned to the place, so it stays readable at any zoom. Set with `textContent`, never `innerHTML`, since place names come from scraped data.
+  - **The story panel** (`web/src/story/StoryPanel.tsx`) lists every article with its places and a link. Links are only rendered for http(s) URLs (`safeHref`), because URLs come from scraped data.
 - **Don't use `polygonsData` for the countries.** The land is one merged mesh plus one set of border lines, built in `web/src/globe/land.ts` and added as a custom layer: 2 draw calls and about 60 ms to build. Through `polygonsData`, the 1,616 polygons at 1:50m cost about 4,800 draw calls per frame and 3.7 s of blocking work at load. `polygonsData` is fine for a handful of highlighted countries.
 - **Keep `<Globe>` props stable.** Accessor functions, materials and config go at module scope, and data arrays are memoised. react-globe.gl re-processes a whole layer whenever a prop changes identity, and inline arrow functions change on every render.
 - **Always pass `customThreeObjectUpdate`**, even as a no-op. Without it, the custom layer empties its scene on every data change and only re-adds *new* items. Existing items (the land, the heatmap) silently disappear.
