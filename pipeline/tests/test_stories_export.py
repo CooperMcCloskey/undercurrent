@@ -1,0 +1,288 @@
+"""stories.export: synthetic tracker output, articles and forecasts -> data/export/, checked
+against the contract tests and by hand (counts, footprints, point in time, outcomes)."""
+
+import datetime as dt
+import json
+from pathlib import Path
+
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
+import test_contracts as contract
+
+from undercurrent import contracts as c
+from undercurrent.ingest.gkg import ARTICLES_SCHEMA
+from undercurrent.stories import export
+from undercurrent.stories.footprint import add_article, footprint
+from undercurrent.stories.track import SCHEMAS
+
+D0 = dt.date(2026, 10, 1)
+DAYS = [D0 + dt.timedelta(i) for i in range(10)]
+END = DAYS[-1]
+
+
+def loc(name, country, lat, lon, type_) -> dict:
+    return {"name": name, "country": country, "lat": lat, "lon": lon, "type": type_}
+
+
+ROTTERDAM = loc("Rotterdam, Zuid-Holland, Netherlands", "NL", 51.92, 4.48, 4)
+NETHERLANDS = loc("Netherlands", "NL", 52.5, 5.75, 1)
+JAPAN = loc("Japan", "JP", 36.0, 138.0, 1)
+PARIS = loc("Paris, Ile-de-France, France", "FR", 48.86, 2.35, 4)
+FRANCE = loc("France", "FR", 46.0, 2.0, 1)
+GERMANY = loc("Germany", "DE", 51.0, 9.0, 1)
+BERLIN = loc("Berlin, Berlin, Germany", "DE", 52.52, 13.4, 4)
+
+STRIKE, QUAKE, TINY, NOWHERE, SUMMIT = (
+    "port-strike-in-rotterdam-aaaaaa",
+    "earthquake-in-japan-bbbbbb",
+    "tiny-story-cccccc",
+    "no-places-dddddd",
+    "summit-eeeeee",
+)
+CATEGORY = {
+    STRIKE: "economy",
+    QUAKE: "disaster",
+    TINY: "other",
+    NOWHERE: "politics",
+    SUMMIT: "politics",
+}
+SUMMIT_PLACES = [[PARIS, FRANCE, GERMANY], [BERLIN, GERMANY], [GERMANY]]
+
+
+def articles_for(day: dt.date) -> list[tuple[str, dict]]:
+    """(story_id, article) pairs published on `day`."""
+    i = (day - D0).days
+    out = []
+
+    def art(story: str, k: int, locations: list[dict], **extra) -> None:
+        aid = f"{story[:4]}{i:02d}{k:02d}".ljust(16, "0")
+        row = {
+            "id": aid,
+            "url": f"https://news.example/{aid}",
+            "domain": "news.example",
+            "published_at": dt.datetime.combine(day, dt.time(8, k), tzinfo=dt.UTC),
+            "title": f"{story} headline {i}-{k}",
+            "locations": locations,
+            "persons": ["jan de vries"] if story == STRIKE else [],
+            "orgs": [],
+            "themes": [],
+            "tone": -2.0 if story == STRIKE else -6.0,
+            "dup_count": 1,
+            "sampled": False,
+            "translated": k == 0,
+            "lang": "fra" if k == 0 else None,
+            **extra,
+        }
+        out.append((story, row))
+
+    for k in range(5):
+        art(STRIKE, k, [ROTTERDAM, NETHERLANDS])
+    if i >= 3:
+        for k in range(2):
+            art(QUAKE, k, [JAPAN])
+    if i <= 1:
+        art(TINY, 0, [JAPAN])
+    for k in range(4):
+        art(NOWHERE, k, [])
+    if day == END:
+        for k, places in enumerate(SUMMIT_PLACES):
+            art(SUMMIT, k, places)
+    return out
+
+
+def write(path: Path, rows: list[dict], schema: pa.Schema) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pylist(rows, schema=schema), path)
+
+
+@pytest.fixture
+def processed(tmp_path: Path) -> Path:
+    root = tmp_path / "processed"
+    first_seen: dict[str, dt.date] = {}
+    for day in DAYS:
+        pairs = articles_for(day)
+        write(
+            root / "articles" / f"day={day}" / "part.parquet",
+            [a for _, a in pairs],
+            ARTICLES_SCHEMA,
+        )
+        assignments, per_story = [], {}
+        for k, (story, a) in enumerate(pairs):
+            sim = 0.9 - 0.01 * k
+            assignments.append(
+                {"article_id": a["id"], "story_id": story, "day": day, "similarity": sim}
+            )
+            per_story[story] = per_story.get(story, 0) + 1
+            first_seen.setdefault(story, day)
+        daily = [
+            {
+                "story_id": s,
+                "day": day,
+                "n_articles_day": n,
+                "first_seen": first_seen[s],
+                "label": s.rsplit("-", 1)[0].replace("-", " "),
+                "category": CATEGORY[s],
+            }
+            for s, n in per_story.items()
+        ]
+        write(
+            root / "story_assignments" / f"{day}.parquet", assignments, SCHEMAS["story_assignments"]
+        )
+        write(root / "stories_daily" / f"{day}.parquet", daily, SCHEMAS["stories_daily"])
+    return root
+
+
+def add_forecasts(root: Path, horizons=(1, 3)) -> None:
+    rows = []
+    for story, day in [(STRIKE, DAYS[2]), (QUAKE, DAYS[8])]:
+        for h in horizons:
+            rows.append(
+                {
+                    "story_id": story,
+                    "day": day,
+                    "days": h,
+                    "articles_7d": 20.0,
+                    "low": 10.0,
+                    "high": 30.0,
+                    "model_version": "test-1",
+                    "factors": [{"name": "momentum", "contribution": 0.2}],
+                    "actual_articles_7d": None,  # the exporter grades against its own snapshots
+                    "source": "walkforward",
+                    "fold": 0,
+                }
+            )
+    pd.DataFrame(rows).to_parquet(root / "forecasts.parquet", index=False)
+    metrics = c.ModelMetrics(
+        model_version="test-1",
+        test_start=DAYS[0],
+        test_end=END,
+        baseline_name="persistence",
+        horizons=[
+            c.HorizonMetrics(days=h, n_test=10, mae_log2=0.3, baseline_mae_log2=0.4, coverage=0.8)
+            for h in horizons
+        ],
+    )
+    (root / "model_metrics.json").write_text(metrics.model_dump_json())
+
+
+def load(out: Path, rel: str) -> dict:
+    return json.loads((out / rel).read_text())
+
+
+def snapshot(out: Path, day: dt.date) -> dict[str, dict]:
+    return {s["id"]: s for s in load(out, f"snapshots/{day}.json")["stories"]}
+
+
+def test_export_end_to_end(processed: Path, tmp_path: Path) -> None:
+    add_forecasts(processed)
+    out = export.run(processed, tmp_path / "export")
+    contract.test_export_matches_contract(out)
+    contract.test_forecasts_are_consistent(out)
+
+    meta = c.Meta.model_validate(load(out, "meta.json"))
+    assert meta.dates == DAYS and meta.latest == END
+    assert meta.horizons == [1, 3] and meta.model and meta.model.model_version == "test-1"
+
+    last = snapshot(out, END)
+    assert list(last) == [STRIKE, QUAKE, SUMMIT]  # biggest first; NOWHERE has no places
+    strike, quake = last[STRIKE], last[QUAKE]
+    assert strike["article_count_7d"] == 35 and quake["article_count_7d"] == 14
+    # 35 articles vs 15 in days 0-2 (the data starts there): log2(36 / 16)
+    assert strike["growth_7d"] == 1.17 and strike["tone"] == -2.0
+    assert strike["category"] == "economy" and strike["first_seen"] == str(D0)
+    assert strike["title"] == "port strike in rotterdam"
+    # "Netherlands" is covered by Rotterdam: all the heat is on the city
+    assert strike["footprint"] == [{"lat": 51.92, "lon": 4.48, "weight": 1.0, "radius_km": 75}]
+    assert strike["location"]["name"].startswith("Rotterdam")
+    assert quake["footprint"][0]["radius_km"] == 500 and quake["location"]["country"] == "JP"
+
+
+def test_point_in_time_and_cutoffs(processed: Path, tmp_path: Path) -> None:
+    out = export.run(processed, tmp_path / "export")
+    first, third = snapshot(out, DAYS[0]), snapshot(out, DAYS[2])
+    assert list(first) == [STRIKE]  # TINY is below --min-articles, QUAKE hasn't started
+    assert third[STRIKE]["article_count_7d"] == 15
+    # QUAKE starts on day 3 with 2 articles a day: below --min-articles 3 until day 4
+    assert QUAKE not in snapshot(out, DAYS[3]) and QUAKE in snapshot(out, DAYS[4])
+    assert snapshot(out, DAYS[4])[QUAKE]["growth_7d"] == pytest.approx(2.322, abs=1e-3)
+    assert all("forecast" in s and s["forecast"] is None for s in third.values())
+
+    small = export.run(processed, tmp_path / "small", top=1, start=DAYS[5])
+    assert load(small, "meta.json")["dates"] == [str(d) for d in DAYS[5:]]
+    assert all(list(snapshot(small, d)) == [STRIKE] for d in DAYS[5:])
+    assert sorted(p.name for p in (small / "stories").iterdir()) == [f"{STRIKE}.json"]
+
+
+def test_outcomes_come_from_later_snapshots(processed: Path, tmp_path: Path) -> None:
+    add_forecasts(processed)
+    out = export.run(processed, tmp_path / "export")
+    strike = snapshot(out, DAYS[2])[STRIKE]
+    assert [h["days"] for h in strike["forecast"]["horizons"]] == [1, 3]
+    assert strike["outcome"]["horizons"] == [
+        {"days": 1, "articles_7d": 20},
+        {"days": 3, "articles_7d": 30},
+    ]
+    quake = snapshot(out, DAYS[8])[QUAKE]
+    assert quake["outcome"]["horizons"] == [{"days": 1, "articles_7d": 14}]  # day 11 is the future
+    assert snapshot(out, DAYS[3])[STRIKE]["forecast"] is None
+
+
+def test_sql_footprint_matches_python(processed: Path, tmp_path: Path) -> None:
+    out = export.run(processed, tmp_path / "export")
+    weights: dict = {}
+    for places in SUMMIT_PLACES:
+        add_article(weights, places)
+    points, location = footprint(weights)
+    summit = snapshot(out, END)[SUMMIT]
+    assert summit["footprint"] == [p.model_dump(mode="json") for p in points]
+    assert [p["weight"] for p in summit["footprint"]] == [0.5, 0.3333, 0.1667]  # DE, Berlin, Paris
+    assert summit["location"]["name"].startswith("Berlin")  # Germany's top city, not its centre
+
+
+def test_story_detail(processed: Path, tmp_path: Path) -> None:
+    out = export.run(processed, tmp_path / "export", items=4)
+    detail = c.StoryDetail.model_validate(load(out, f"stories/{STRIKE}.json"))
+    assert len(detail.timeline) == 10 and {p.articles for p in detail.timeline} == {5}
+    assert len(detail.items) == 4
+    sims = [i.similarity for i in detail.items]
+    assert sims == sorted(sims, reverse=True)
+    assert all([loc.country for loc in i.locations] == ["NL"] for i in detail.items)
+    assert {i.language for i in detail.items} == {
+        "fr"
+    }  # k = 0 articles are the top 4 by similarity
+    assert [(e.name, e.kind) for e in detail.entities] == [("Jan de Vries", "person")]
+    assert detail.locations[0].name.startswith("Rotterdam")
+
+    summit = c.StoryDetail.model_validate(load(out, f"stories/{SUMMIT}.json"))
+    assert [i.locations[0].name.split(",")[0] for i in summit.items] == [
+        "Paris",
+        "Berlin",
+        "Germany",
+    ]
+    assert [loc.name.split(",")[0] for loc in summit.items[0].locations] == ["Paris", "Germany"]
+
+
+def test_only_replaces_its_own_exports(processed: Path, tmp_path: Path) -> None:
+    out = tmp_path / "export"
+    out.mkdir()
+    (out / "meta.json").write_text("{}")
+    with pytest.raises(SystemExit, match="didn't write"):
+        export.run(processed, out)
+    (out / ".demo-export").write_text("demo")
+    export.run(processed, out)
+    assert (out / export.MARKER).exists() and not (out / ".demo-export").exists()
+    export.run(processed, out, top=1)  # its own export: replaced without --force
+    assert len(load(out, f"snapshots/{END}.json")["stories"]) == 1
+    assert not out.with_name("export.tmp").exists() and not out.with_name("export.old").exists()
+
+
+def test_stale_model_card_is_left_out(processed: Path, tmp_path: Path) -> None:
+    add_forecasts(processed)
+    metrics = json.loads((processed / "model_metrics.json").read_text())
+    metrics["horizons"] = metrics["horizons"][:1]
+    (processed / "model_metrics.json").write_text(json.dumps(metrics))
+    out = export.run(processed, tmp_path / "export")
+    meta = load(out, "meta.json")
+    assert meta["horizons"] == [1, 3] and meta["model"] is None

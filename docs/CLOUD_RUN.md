@@ -3,6 +3,7 @@
 How to go from nothing to GDELT → vectors → stories → forecasts, on the $300 Google Cloud credit, as fast as possible. The *why* behind each choice is in `README.md` ("Scaling up"); this file is the *how*, in order.
 
 - **Steps 0–6** are the one-year run on two small machines.
+- **`docs/TWO_YEAR_RUN.md`** is the plan we're running: two years split across 3–4 people's accounts, one VM each.
 - **"Multi-year: 5–10 years in parallel"** (further down) scales the same pipeline to 5–10 years on bigger machines. Steps 0–2 (accounts, quota, login, the one-day test) come first either way.
 
 **Prices and sizes below are estimates** (list prices as we know them, unmeasured data). Check the real numbers at step 2 and write them in `PLAN.md` Notes (A).
@@ -174,9 +175,16 @@ uv run python -m undercurrent.forecast.run --source stories --model hgb gru --de
 
 `pipeline/undercurrent/forecast/README.md` says when each model earns its place.
 
-### 4d. Export to the globe: **not built yet**
+### 4d. Export to the globe
 
-Nothing writes real stories into `data/export/` yet. The forecast side is ready (`forecast/export.py`: `load_forecasts()`, `meta_horizons()`), but B's story exporter is the one missing link between this run and the globe. It must add each story's location, footprint and entities (the tracker writes id, label, category and size) and export the top N stories per day (`README.md`, "Clustering", "Still to do for B"). **Start building it during steps 3–4**, against the 60-day stories. Then:
+`stories/export.py` turns the tracker output, the articles and the forecast into `data/export/`: the top 300 stories of each day, with location, footprint, forecast and outcome, plus one detail file per story. It runs on the CPU in seconds to a minute or two (1.2 million assignments took 2 seconds), so run it after every tracker or forecast run:
+
+```bash
+uv run python -m undercurrent.stories.export                    # every tracked day
+uv run pytest pipeline/tests/test_contracts.py                  # validates data/export/
+```
+
+Re-run the forecast after re-running the tracker, before exporting: story ids change between tracker runs, and the exporter counts any forecast whose actuals don't match the snapshots ("stale forecast?" in its output). Expect about 7 MB of JSON per 30 days exported; for a smaller demo export use `--start` and `--top`. Then:
 
 ```bash
 gcloud storage rsync -r data/export gs://$BUCKET/export        # on the VM

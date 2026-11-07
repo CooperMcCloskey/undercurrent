@@ -157,7 +157,18 @@ Things to know:
 - **The cutoffs are placeholders.** `vectors/thresholds.py` has 0.42 for news vs news (tuned on the demo), `assign_sim` is that + 0.05, and `merge_sim` is 0.85. Read 20 real stories and calibrate before trusting any of it.
 - **PyTorch and FAISS crash each other on macOS** if both run in one process (PyTorch must load first, and FAISS then runs on one thread). Embedding and tracking are separate processes, so this doesn't arise. The code guards the mixed case, but keep them apart. It was not seen on Linux, but that is untested.
 - **Merged stories:** rows already written keep the old id, and `story_lineage` maps old to surviving id. The forecast code doesn't apply the lineage yet.
-- **Still to do for B:** each story's location, footprint and entities (the tracker writes id, label, category and size), `story_wiki_entities.parquet`, attaching posts and Wikipedia items, and the exporter. Export only the top N stories per day and the top items per story, so the web app stays fast.
+- **Still to do for B:** `story_wiki_entities.parquet`, and attaching posts and Wikipedia items (`post_count_7d` is 0 until then). Location, footprint, entities and the exporter are done (below).
+
+#### Export: `python -m undercurrent.stories.export`
+
+Reads `story_assignments`, `stories_daily`, `articles` and, if they exist, `forecasts.parquet` and `model_metrics.json`, and writes `data/export/` in the `contracts.py` shapes: `meta.json`, `snapshots/<day>.json` with each day's `--top` (300) biggest stories, and `stories/<id>.json` for every story in any snapshot, with its `--items` (25) articles closest to the centroid.
+
+- **Point-in-time:** a snapshot for day t uses only assignments up to day t. Story details are one file per story, with everything up to `--end`.
+- **`article_count_7d`** counts each story id's assignments over the 7 days ending that day, without applying `story_lineage`, exactly as `forecast/panel.py` counts. Outcomes are read from the later snapshots, so they always match what the globe showed on that day.
+- **Footprint and location** (`stories/footprint.py`): each article splits one unit of attention over its places. A country is dropped from an article that also names a city or region in it, so countries only get heat from articles that name nothing more specific. Radius by GDELT type: city 75 km, region 250 km, country 500 km. The marker goes on the most-mentioned place, or on that country's most-mentioned city. `Item.locations` are the same places, so the dots and the heat line up.
+- **Entities** are GDELT's persons and organisations named in at least 2 of the story's articles, with names only (no Wikipedia titles yet).
+- Stories with fewer than `--min-articles` (3) articles in the week, or with no places, are left out.
+- It writes into `data/export.tmp` and swaps it in at the end. It replaces only an export it or the demo wrote (`--force` otherwise).
 - **Before the first long run,** label 1–2k "same story?" pairs (an LLM can draft them) and run `python -m undercurrent.vectors.calibrate`. Badly formed stories make the forecast target noisy, so this matters more than the choice of forecast model.
 
 ### Wikipedia: what the data agent (A) should do now
