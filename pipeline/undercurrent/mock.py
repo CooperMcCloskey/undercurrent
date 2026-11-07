@@ -29,6 +29,17 @@ STORIES = [
     ("mock-rate-hold", "Central bank holds rates despite inflation", "Buenos Aires", "AR", -34.60, -58.38, 22, 0.8),
 ]  # fmt: skip
 
+# Where each story is happening: (lat, lon, weight, radius_km). Weights sum to 1.
+# Small radius = a city; large radius = a whole region or country.
+FOOTPRINTS = {
+    "mock-port-strike": [(51.92, 4.48, 0.55, 60), (51.22, 4.40, 0.25, 60), (53.55, 9.99, 0.20, 80)],
+    "mock-grain-curbs": [(46.48, 30.72, 0.40, 80), (46.97, 31.99, 0.20, 80), (49.0, 31.4, 0.25, 450), (30.04, 31.24, 0.15, 120)],
+    "mock-vote-recount": [(-1.29, 36.82, 0.60, 80), (0.0, 37.9, 0.30, 350), (-0.09, 34.77, 0.10, 60)],
+    "mock-chip-tariffs": [(25.03, 121.57, 0.35, 80), (24.80, 120.97, 0.25, 50), (38.90, -77.04, 0.25, 100), (37.57, 126.98, 0.15, 100)],
+    "mock-glacier-flood": [(27.72, 85.32, 0.40, 60), (28.2, 84.5, 0.40, 300), (27.33, 88.61, 0.20, 80)],
+    "mock-rate-hold": [(-34.60, -58.38, 0.80, 80), (-38.4, -63.6, 0.20, 700)],
+}  # fmt: skip
+
 
 def _days(start: dt.date, end: dt.date) -> list[dt.date]:
     return [start + dt.timedelta(d) for d in range((end - start).days + 1)]
@@ -122,6 +133,10 @@ def build(out: Path = MOCK) -> None:
                     id=sid,
                     title=title,
                     location=c.Location(name=place, country=iso2, lat=lat, lon=lon),
+                    footprint=[
+                        c.FootprintPoint(lat=fy, lon=fx, weight=w, radius_km=km)
+                        for fy, fx, w, km in FOOTPRINTS[sid]
+                    ],
                     article_count_7d=last7,
                     post_count_7d=last7 * 3,
                     growth_7d=round(growth, 3),

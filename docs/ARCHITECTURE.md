@@ -91,7 +91,10 @@ You need an approved OAuth "script" app and you're rate limited. Pushshift is go
    - Don't link items by pairwise threshold and take connected components. That *chains* unrelated stories together.
 3. **Track stories** day to day. Match each new cluster to the existing story with the most similar centroid, above a threshold, so the id stays the same. Otherwise create a new story. Ids are slugs, matching `contracts.STORY_ID_PATTERN`.
 4. **Attach other sources** (posts, Wikipedia) to the nearest story centroid. Each source needs its own threshold, because short posts and headlines sit in different parts of embedding space.
-5. **Location** of a story: the GDELT location mentioned most often in its articles.
+5. **Location** of a story: the GDELT location mentioned most often in its articles. This anchors the story's marker.
+6. **Footprint** (`StorySummary.footprint`): where the story is happening, drawn as the heatmap.
+   - Group the story's GDELT location mentions by place. Weight each place by its share of mentions (weights sum to 1); keep the top ~10.
+   - Set `radius_km` from GDELT's location type: city (types 3/4) ~75, state or region (2/5) ~250, whole country (1) about half the country's width (300–1000).
 
 ## Forecast (Forecast workstream)
 
@@ -104,6 +107,12 @@ You need an approved OAuth "script" app and you're rate limited. Pushshift is go
 
 ## Web (Web workstream)
 
-- `react-globe.gl` layers: `pointsData` or `hexBinPointsData` for stories, `ringsData` for "growing" pulses, `polygonsData` for country outlines (`world-atlas` + `topojson-client`), and `labelsData` for the top stories.
+- **Heatmap** (`web/src/globe/heat.ts`): each story's `article_count_7d` is spread over its footprint as Gaussians. Density is computed into a 0.5° grid only when the data changes (~35 ms for 5,000 points). A shader then colours it every frame on a single transparent sphere.
+  - Don't use react-globe.gl's `heatmapsData`. It rebuilds a ~130k-vertex sphere on every update, and needs WebGPU or takes seconds on the CPU.
+  - Heat is normalised to the day's biggest story and shown on a √ scale, so small stories stay visible.
+- Story markers are small flat `pointsData` dots (for hover and click), coloured by forecast. Possible additions: `ringsData` pulses for growing stories, and `labelsData` for the top few.
+- **Don't use `polygonsData` for the countries.** The land is one merged mesh plus one set of border lines, built in `web/src/globe/land.ts` and added as a custom layer: 2 draw calls and about 60 ms to build. Through `polygonsData`, the 1,616 polygons at 1:50m cost about 4,800 draw calls per frame and 3.7 s of blocking work at load. `polygonsData` is fine for a handful of highlighted countries.
+- **Keep `<Globe>` props stable.** Accessor functions, materials and config go at module scope, and data arrays are memoised. react-globe.gl re-processes a whole layer whenever a prop changes identity, and inline arrow functions change on every render.
+- With 1,000+ stories, set `pointsMerge` (one draw call, but no per-point hover) or switch to `hexBinPointsData`.
 - All server data goes through `web/src/api/client.ts` (react-query). UI state (selected story, current date, replay mode) lives in a zustand store.
 - The production bundle is about 2 MB because of three.js. That's fine for the demo, so don't optimise it.
