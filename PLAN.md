@@ -55,15 +55,18 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Goal:** clean, resumable inputs for everyone else.
 **Writes:** `data/raw/`, `data/processed/articles.parquet`, `wiki_*.parquet`, `bluesky/*.parquet`
 
-- [ ] GDELT GKG 2.1 downloader for **both feeds**, English and translated (`masterfilelist.txt` / `lastupdate.txt` and their `-translation` versions): `--start/--end`, resumable, with a `--sample-per-hour` option for backfill (same rate on both feeds)
-- [ ] GKG parser (both feeds) → `articles.parquet` with these columns:
+- [x] GDELT GKG 2.1 downloader for **both feeds**, English and translated (`masterfilelist.txt` / `lastupdate.txt` and their `-translation` versions): `--start/--end`, resumable, with a `--sample-per-hour` option for backfill (same rate on both feeds)
+- [x] GKG parser (both feeds) → `articles.parquet` with these columns (`ingest/gkg_parse.py`, `ingest/gdelt_download.py`, `ingest/fips.py`):
   - `id`, `url`, `domain`, `published_at`
   - `title`, taken from `<PAGE_TITLE>` in V2EXTRASXML
   - `locations`, with lat/lon and **FIPS→ISO2** country codes
   - `persons`, `orgs`, `themes`
   - `tone`
   - `translated` (from the translated feed?) and `lang` (source language from TranslationInfo; null for English)
-- [ ] Deduplicate articles across both feeds together (same URL; syndicated copies with the same title)
+  - added: the rest of V1.5Tone as `tone_pos`, `tone_neg`, `tone_polarity`, `tone_activity`, `tone_selfref`, `word_count`
+  - added: `all_names` (V2.1AllNames; also fills in for the translated feed's sparse `persons`) and `counts` (V1Counts, e.g. PROTEST/KILL with number and lat/lon)
+  - these extra columns aren't in WORKPLAN 3.1 or `contracts.py` yet (`articles.parquet` is pipeline-internal)
+- [x] Deduplicate articles across both feeds together (same URL; syndicated copies with the same title)
 - [ ] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet`
 - [ ] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet`
 - [ ] Entity name → Wikipedia title resolver, cached (B and C both need it)
@@ -72,6 +75,39 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 **Needs from others:** none yet
 **Notes:**
+- **GDELT measurement (2026-11-07)**, one 15-minute file per feed at `20261106120000`:
+
+  | Feed | Zipped | Unzipped | Records | Kept (has title) | Download | Parse |
+  |---|---|---|---|---|---|---|
+  | English | 4.6 MB | 14.4 MB | 1,077 | 1,075 | 0.7 s | 0.15 s |
+  | Translated | 11.6 MB | 36.9 MB | 3,027 | 3,019 | 0.6 s | 0.3 s |
+
+  - The translated feed is ~2.8× the English feed in articles and ~1.8× in zipped bytes. GCAM is ~70% of the bytes and isn't kept, so parsed parquet is ~220 bytes/row.
+  - Cross-feed dedup on that slot: 4,094 → 3,708 rows (386 syndicated copies folded, mostly the Newsquest local-paper network).
+  - **`<PAGE_TITLE>` in the translated feed is in the original language**, not English (HTML-entity-encoded; Greek, Russian, Urdu and so on). Persons, orgs and themes are extracted from the English translation.
+  - `lang` holds GDELT's 3-letter `srclc` code as-is (`ita`, `deu`, `zho`, `ell`...), not 2-letter like Bluesky's `langs`.
+- **Extrapolated from the index (exact zipped sizes), both feeds combined.** Zips are streamed and deleted, so disk is parquet only:
+
+  | Run | Files | Download | Disk (final parquet) | Articles (before dedup) | Time |
+  |---|---|---|---|---|---|
+  | 1 full day (11-06) | 192 | 1.3 GB | ~0.07 GB | ~330k | ~5 min |
+  | 7 full days (10-31..11-06) | 1,344 | 8.3 GB | ~0.41 GB | ~2.1M | ~32 min |
+  | Backfill 53 days, 1 file/hour (09-08..10-30, 60 days total) | 2,544 | 16.0 GB | ~0.80 GB | ~4.0M | ~61 min |
+  | Backfill 60 days, 1 file/hour (09-01..10-30) | 2,880 | 18.1 GB | ~0.90 GB | ~4.5M | ~70 min |
+
+  - Peak disk is the final parquet plus one in-progress day's staging (~0.15 GB) and at most 10 zips. No slots are missing from the index in any of these ranges.
+- **Plan (updated):** the laptop 3 GB / 53-day sampled backfill is dropped. The full backfill will run on a VPS (~1,700 GB disk) once it's up; depth is still to be decided. Each full day is ~1.3 GB of download and ~75 MB of parquet with all columns. There's no gap between downloads (`--min-interval` adds one if needed), and `--workers N` runs N shards in parallel. Status: 11-06 is done; 11-05 is partly staged and resumable.
+- **First full day (2026-11-06)**, both feeds, 3.5 min: downloaded 1.32 GB (English 0.48, translated 0.84); final parquet 56 MB.
+
+  | Feed | Records | No title | Non-web | Folded as duplicates | Final rows |
+  |---|---|---|---|---|---|
+  | English | 112,318 | 200 | 0 | 41,417 (37%) | 70,701 |
+  | Translated | 213,748 | 955 | 339 | 22,520 (11%) | 189,934 |
+
+  - 63 languages: English feed 27%, then `spa` 12%, `zho` 7%, `rus` 6%, `ita` 6%, `deu` 5%. 79% of rows have a location; 0.3% of location mentions have no ISO country.
+  - There were no same-URL duplicates. All folding is same-title syndication: iHeart (one story under up to 624 local-station URLs) and Newsquest local papers. **For B:** some folded rows are a site's generic page title (`Inicio | Periódico CiudadCCS`, `Targeted News Service`) with a high `dup_count`, so consider filtering titles that are just the site name.
+  - `published_at` is GDELT's 15-minute batch time, not the true publish time.
+- **Reading the data:** `duckdb.read_parquet("data/processed/articles/**/*.parquet", hive_partitioning=true)`, or `from undercurrent.ingest.gkg_parse import read_articles`. Resumable per feed and per day; logs are in `data/processed/gdelt_logs/`.
 
 ### B: Stories (owner: ____)
 
