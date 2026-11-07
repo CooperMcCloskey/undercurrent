@@ -4,9 +4,7 @@
 
 ## In one paragraph
 
-When something is about to become big news, people start looking it up. They read the Wikipedia articles on the people, places and organisations involved, and editors start updating those articles. This code collects that signal. For each **entity** in our stories (a person such as Benjamin Netanyahu, or an organisation such as NATO), it records **how many people read its Wikipedia article each day, and how many edits it got**. It does this in the 8 most-read Wikipedia languages, and it also saves each language's daily list of its 1,000 most-read articles.
-
-Here is the 2026 Israeli election as an example. Three days before polling day, reading of the story's articles (Netanyahu, Bennett, Lapid, the Knesset…) had already doubled, and edits were up almost 3×. That's the kind of early warning the forecast is looking for.
+When something is about to become big news, people start looking it up. They read the Wikipedia articles on the people, places and organisations involved, and editors start updating those articles. This code collects that signal. For each **entity** in our stories (a person, an organisation, a place), it records **how many people read its Wikipedia article each day, and how many edits it got**. It does this in the 8 most-read Wikipedia languages, and it also saves each language's daily list of its 1,000 most-read articles. Reading and editing often pick up a few days before a story peaks in the news, and that early warning is what the forecast is looking for.
 
 ## Why it's useful to the project
 
@@ -24,7 +22,7 @@ Here is the 2026 Israeli election as an example. Three days before polling day, 
 | **Edits** | How many times an article was changed on a given day. A burst of edits usually means something is happening. |
 | **Top-1000** | Wikipedia's own daily list of its 1,000 most-read articles, per language. |
 | **Title** | An article's name in a URL, with underscores: `Barack_Obama`. |
-| **Wikidata ID (QID)** | A language-independent ID for a topic. `Q76` is Barack Obama in every language. We use it to find the same article in Japanese (`バラク・オバマ`), German, Russian, and so on. |
+| **Wikidata ID (QID)** | A language-independent ID for a topic. `Q76` is Barack Obama in every language. We use it to find the same article in Japanese (`バラク・オバマ`), Russian (`Обама,_Барак`), and so on. |
 | **Entity** | One topic (one QID), with its articles in all 8 languages added together. |
 | **Day** | A UTC calendar day. |
 
@@ -35,14 +33,14 @@ Here is the 2026 Israeli election as an example. Three days before polling day, 
 ## How it works, step by step
 
 ```
-"benjamin netanyahu"            a name, as GDELT gives it
+"barack obama"                  a name, as GDELT gives it
         │  1. resolve: find the English article
         ▼
-Benjamin_Netanyahu              English Wikipedia title
+Barack_Obama                    English Wikipedia title
         │  2. link: look it up on Wikidata
         ▼
-Q43723  →  en: Benjamin_Netanyahu   ja: ベンヤミン・ネタニヤフ   de: Benjamin_Netanjahu
-           fr: Benyamin_Netanyahou  ru: Нетаньяху,_Биньямин  es: … it: … zh: …
+Q76  →  en: Barack_Obama   ja: バラク・オバマ   ru: Обама,_Барак   zh: 巴拉克·奧巴馬
+        de / fr / es / it: Barack_Obama
         │  3. fetch: daily pageviews and edits for each of the 8 articles
         ▼
 wiki_pageviews.parquet / wiki_edits.parquet     one row per language, article and day
@@ -55,9 +53,9 @@ Separately, and with no names needed, `wiki_top` downloads each language's top-1
 
 ### Step 1: name → English article (`wiki_resolve.py`)
 
-GDELT gives us names like `barack obama`, `idf` or `john smith`. For each one:
+GDELT gives us names like `barack obama`, `un` or `john smith`. For each one:
 
-1. **Try the obvious titles first:** `Barack Obama`, and `IDF` for short names. If the title is a redirect, follow it (`IDF` → `Israel_Defense_Forces`). About 16 names are checked in a single request.
+1. **Try the obvious titles first:** `Barack Obama`, and `UN` for short names. If the title is a redirect, follow it (`UN` → `United_Nations`). About 16 names are checked in a single request.
 2. **If the obvious title is a "disambiguation" page** (a page listing several things with the same name, as for `John Smith`), the name is too vague. We return **nothing** instead of guessing.
 3. **If no obvious title exists, search** Wikipedia. Take the first result that isn't a disambiguation page and actually resembles the name. `zelensky` finds `Volodymyr_Zelenskyy`; `asdfgh qwerty` finds nothing.
 4. **Remember every answer** in `data/cache/wiki_resolve.json`, including "nothing found", so no name is looked up twice. Network errors are not remembered, so those names are retried next time.
@@ -117,22 +115,22 @@ Everything lives in `data/`, which is not in git. Share it through the team driv
 
 ### `data/processed/wiki_entity_daily.parquet`: **start here**
 
-One row per entity per day, all languages added together. Only complete days are included.
+One row per entity per day, all languages added together. Only complete days are included. The examples are a real row (Barack Obama, 4 November 2026).
 
 | Column | Example | Meaning |
 |---|---|---|
-| `qid` | `Q43723` | Wikidata ID. If an article has no Wikidata entry, it's `en:<title>` instead. |
-| `title_en` | `Benjamin_Netanyahu` | English title |
-| `day` | `2026-10-28` | |
-| `views` | `176981` | readers across all languages |
-| `edits` | `9` | edits across all languages |
+| `qid` | `Q76` | Wikidata ID. If an article has no Wikidata entry, it's `en:<title>` instead. |
+| `title_en` | `Barack_Obama` | English title |
+| `day` | `2026-11-04` | |
+| `views` | `111251` | readers across all languages |
+| `edits` | `3` | edits across all languages |
 | `n_langs` | `8` | how many of the 8 languages have an article on this entity |
-| `views_en` … `views_zh` | `124772` | readers in each language (empty if there's no article in that language) |
-| `edits_en` … `edits_zh` | `2` | edits in each language |
+| `views_en` … `views_zh` | `75834` (en) | readers in each language (empty if there's no article in that language) |
+| `edits_en` … `edits_zh` | `0` (en) | edits in each language |
 
 ### `data/processed/wiki_pageviews.parquet` and `wiki_edits.parquet`
 
-The per-language detail: `lang, title, day, views` (or `edits`), plus `complete`. Note that the same title can exist in several languages (`Knesset` is the same in en, de, fr and it), so always filter by `lang` as well as `title`.
+The per-language detail: `lang, title, day, views` (or `edits`), plus `complete`. The same title can exist in several languages (`Barack_Obama` is the title in English, German, French, Spanish and Italian), so always filter by `lang` as well as `title`.
 
 ### `data/processed/wiki_top.parquet`
 
@@ -161,7 +159,7 @@ All commands run from the repo root. Each one is safe to stop and run again.
 uv run python -m undercurrent.ingest.wiki_top --days 60
 
 # 2. Names → English titles (also links them to the other languages).
-#    names.txt: one name per line, e.g. the top people/orgs of each story.
+#    The names file has one name per line, e.g. the top people/orgs of each story.
 uv run python -m undercurrent.ingest.wiki_resolve --names-file data/processed/story_entities.txt \
     --out-titles data/processed/wiki_titles.txt
 
@@ -229,11 +227,11 @@ wiki.fetch(["Barack_Obama"], start, end)   # downloads, then rebuilds the three 
 
 ## Known limitations
 
-- **Redirects are counted separately.** Someone who reads `Netanyahu` (a redirect to `Benjamin_Netanyahu`) is counted under `Netanyahu`, and we don't add those views in. Totals are a bit low for entities that are often reached through a short name.
+- **Redirects are counted separately.** Someone who reads `UN` (a redirect to `United_Nations`) is counted under `UN`, and we don't add those views in. Totals are a bit low for entities that are often reached through a short name.
 - **Renamed articles lose their history.** Views are recorded under the title at the time, so if an article was renamed recently, its earlier views sit under the old title.
-- **New articles start at zero.** For example, the Japanese article on the 2026 Israeli election was only created the day after the vote. This is correct, but it means `n_langs` counts languages that have an article *today*, not on each day.
+- **New articles start at zero.** An article written after an event (common in non-English Wikipedias, which often follow English) shows no views before it was created. This is correct, but it means `n_langs` counts languages that have an article *today*, not on each day.
 - **Only desktop bots are caught.** Automated traffic disguised as mobile (for example `Hanuman_Ansh`) isn't flagged.
 - **The name matcher prefers "don't know" to a wrong answer.** Vague names and some acronyms come back empty. It can still occasionally choose the wrong article for a single common word, so check the top stories by eye.
 - **Big topics dominate totals.** `Donald_Trump` gets far more views than most entities. Compare growth rates, not raw counts.
 - **Recent days arrive late.** Pageviews for the last 1–2 days, and yesterday's desktop top-1000, may not be published yet. Running again the next day fills them in.
-- **8 languages only.** Arabic, Persian, Ukrainian, Hebrew and others matter for geopolitics but aren't in the top 8 by readership. Add them with `--langs` if needed. Each one adds about 2 requests per entity.
+- **8 languages only.** Portuguese, Arabic, Persian, Ukrainian and others matter for geopolitics but aren't in the top 8 by readership. Add them with `--langs` if needed. Each one adds about 2 requests per entity.
