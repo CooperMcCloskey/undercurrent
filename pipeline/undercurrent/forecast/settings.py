@@ -37,6 +37,29 @@ TOP_FACTORS = 3
 STORY_CHUNK = 5000
 
 
+# Neural model: how many days of each story's history it reads (the window ending at day t).
+SEQ_DAYS = 28
+
+
+@dataclass(frozen=True)
+class NNParams:
+    """Settings for the neural model (neural.py). Like HGBParams: tune on the earlier folds,
+    never on the final test period."""
+
+    hidden: int = 64
+    dropout: float = 0.1
+    epochs: int = 15
+    batch_size: int = 512
+    learning_rate: float = 2e-3
+    weight_decay: float = 1e-4
+    patience: int = 3  # stop after this many epochs without a better validation loss
+    val_fraction: float = 0.1  # the most recent share of training DAYS, kept for early stopping
+    seeds: int = 1  # train this many networks with different seeds and average them
+    pretrain_epochs: int = 5  # epochs on the auxiliary data (if given) before fine-tuning
+    pretrain_learning_rate: float = 1e-3
+    device: str = "auto"  # "auto" = cuda, then mps, then cpu
+
+
 @dataclass(frozen=True)
 class HGBParams:
     """Gradient boosting settings. Tuned by the backtest, not by hand: change them on the

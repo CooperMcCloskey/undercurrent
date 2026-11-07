@@ -282,6 +282,55 @@ FEATURES: list[str] = list(_REGISTRY)
 CATEGORICAL: list[str] = ["category"]
 
 
+# ---- daily history for the neural model --------------------------------------------------------
+
+# One value per story and day, in this order. The neural model reads the last SEQ_DAYS of them.
+# Like the features, a value on day d only uses data up to d (Wikipedia views up to d - lag).
+SEQ_CHANNELS = [
+    "log_count",  # log2(articles + 1)
+    "log_domains",  # log2(distinct domains + 1), 0 on days without articles
+    "log_countries",
+    "tone",  # mean tone, 0 on days without articles
+    "log_wiki_views",  # lagged, log2(views + 1), 0 when unknown
+    "log_wiki_edits",
+    "alive",  # 1 from the day the story first appeared
+    "wiki_known",  # 1 when the Wikipedia numbers for that day are known
+]
+
+
+def sequence_channels(d: Dense) -> np.ndarray:
+    """(stories, days, channels) float32, for gathering each row's recent history."""
+
+    def unknown_to_zero(x: np.ndarray) -> np.ndarray:
+        return np.nan_to_num(x, nan=0.0)
+
+    views = shift(d.metrics["wiki_views"], settings.WIKI_VIEWS_LAG_DAYS)
+    edits = shift(d.metrics["wiki_edits"], settings.WIKI_EDITS_LAG_DAYS)
+    t = np.arange(d.counts.shape[1])[None, :]
+    channels = [
+        np.log2(d.counts + 1),
+        np.log2(unknown_to_zero(d.metrics["n_domains"]) + 1),
+        np.log2(unknown_to_zero(d.metrics["n_countries"]) + 1),
+        unknown_to_zero(d.metrics["tone_mean"]),
+        np.log2(unknown_to_zero(views) + 1),
+        np.log2(unknown_to_zero(edits) + 1),
+        np.broadcast_to((t >= d.first_idx[:, None]).astype(np.float32), d.counts.shape),
+        np.isfinite(views).astype(np.float32),
+    ]
+    return np.stack(channels, axis=-1).astype(np.float32)
+
+
+def gather_windows(
+    channels: np.ndarray, s_idx: np.ndarray, t_idx: np.ndarray, length: int
+) -> np.ndarray:
+    """For each (story, day t): the `length` days ending at t, oldest first; zeros before the
+    data starts. float16 to keep a year of rows in memory."""
+    cols = t_idx[:, None] + np.arange(-length + 1, 1)[None, :]
+    window = channels[s_idx[:, None], np.maximum(cols, 0)]
+    window *= (cols >= 0)[..., None]
+    return window.astype(np.float16)
+
+
 def compute_features(d: Dense) -> dict[str, np.ndarray]:
     """All registered features for a chunk of stories: name -> (stories x days) float32."""
     ctx = Context(d)

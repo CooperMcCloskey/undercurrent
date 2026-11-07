@@ -17,6 +17,7 @@ so nothing the model trains or calibrates on overlaps the days it is scored on. 
 """
 
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -26,9 +27,9 @@ from undercurrent import contracts
 from undercurrent.forecast import settings
 from undercurrent.forecast.baselines import AgeCategoryMedian, damped_momentum
 from undercurrent.forecast.models import (
-    MODELS,
     apply_offset,
     conformal_offset,
+    resolve,
     row_weights,
 )
 from undercurrent.forecast.schema import CATEGORIES, DAY, STORY
@@ -76,27 +77,64 @@ def live_fold(last_day: pd.Timestamp, horizons: list[int], cal_days: int) -> Fol
     return Fold("live", cal_start, test_start, test_start)
 
 
+def _blend(parts: list[np.ndarray], weights: np.ndarray) -> np.ndarray:
+    """Weighted average of (n, 3) predictions. Averaging keeps low <= median <= high."""
+    return sum(w * p for w, p in zip(weights, parts, strict=True))
+
+
+def _auxiliary(
+    aux: tuple[pd.DataFrame, np.ndarray], usable: list[int], fold: Fold
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray | None] | None:
+    """Auxiliary data to pretrain a joint model on, cut by the same rule as the real training
+    rows: a target is only used if its outcome was known before calibration started. Without
+    this, pretraining would quietly let the model see the days it is scored on."""
+    aux_rows, aux_seq = aux
+    Y = np.column_stack(
+        [
+            np.where(
+                aux_rows[f"y_{h}"].notna()
+                & (aux_rows[DAY] + pd.Timedelta(days=h) < fold.cal_start),
+                aux_rows[f"y_{h}"],
+                np.nan,
+            )
+            for h in usable
+        ]
+    )
+    keep = np.isfinite(Y).any(axis=1)
+    if not keep.any():
+        return None
+    chosen = aux_rows.loc[keep]
+    return chosen, aux_seq[keep], Y[keep], row_weights(chosen)
+
+
 def run_fold(
     rows: pd.DataFrame,
     fold: Fold,
     horizons: list[int],
     *,
-    model_name: str,
+    models: Sequence[str],
     interval: float,
-    params: settings.HGBParams,
+    model_params: Mapping[str, object],
     predict_mask: pd.Series,
     source: str,
+    seq: np.ndarray | None = None,
+    aux: tuple[pd.DataFrame, np.ndarray] | None = None,
+    blend: Sequence[float] | None = None,
     explain_from: pd.Timestamp | None = None,
     seed: int = 0,
 ) -> pd.DataFrame:
-    """Train per horizon on rows that finished before the fold, calibrate, predict `predict_mask`.
-    One row per (story, day, horizon); horizons without enough data are skipped."""
-    out: list[pd.DataFrame] = []
+    """Train on rows that finished before the fold, calibrate, predict `predict_mask`.
+
+    `models` are trained separately and averaged (equal weights unless `blend` says otherwise);
+    the blend is then calibrated as one. One row per (story, day, horizon) comes out, with each
+    model's own median in `med_<name>` so the report can compare them. Horizons without enough
+    rows are skipped. `seq` (row for row with `rows`) is for models that read daily history, and
+    `aux` is optional extra data to pretrain them on."""
     day = rows[DAY]
+    masks: dict[int, tuple[pd.Series, pd.Series]] = {}
     for h in horizons:
         delta = pd.Timedelta(days=h)
-        y = rows[f"y_{h}"]
-        known = y.notna()
+        known = rows[f"y_{h}"].notna()
         train = known & (day + delta < fold.cal_start)
         cal = known & (day >= fold.cal_start) & (day + delta < fold.test_start)
         if train.sum() < settings.MIN_TRAIN_ROWS or cal.sum() < settings.MIN_CAL_ROWS:
@@ -108,15 +146,67 @@ def run_fold(
                 cal.sum(),
             )
             continue
-        if not predict_mask.any():
-            continue
-        model = MODELS[model_name](interval, params, seed)
-        model.fit(rows.loc[train], y[train].to_numpy(), row_weights(rows.loc[train]))
-        cal_pred = model.predict(rows.loc[cal])
-        offset = conformal_offset(cal_pred, y[cal].to_numpy(), interval)
+        masks[h] = (train, cal)
+    if not masks or not predict_mask.any():
+        return pd.DataFrame()
+    usable = list(masks)
+    target = rows.loc[predict_mask]
+    target_seq = seq[predict_mask.to_numpy()] if seq is not None else None
 
-        target = rows.loc[predict_mask]
-        pred = apply_offset(model.predict(target), offset)
+    cal_preds: dict[str, dict[int, np.ndarray]] = {}
+    tgt_preds: dict[str, dict[int, np.ndarray]] = {}
+    fitted: dict[str, dict[int, object]] = {}
+    for name in models:
+        kind, factory = resolve(name)
+        cal_preds[name], tgt_preds[name], fitted[name] = {}, {}, {}
+        if kind == "horizon":
+            for h in usable:
+                train, cal = masks[h]
+                model = factory(interval, model_params.get(name), seed)
+                fit_rows = rows.loc[train]
+                model.fit(fit_rows, rows.loc[train, f"y_{h}"].to_numpy(), row_weights(fit_rows))
+                cal_preds[name][h] = model.predict(rows.loc[cal])
+                tgt_preds[name][h] = model.predict(target)
+                fitted[name][h] = model
+            continue
+        if seq is None:
+            raise ValueError(
+                f"Model {name!r} reads each story's daily history: build the dataset with "
+                "build_dataset(..., seq_len=...) and pass seq."
+            )
+        in_train = np.zeros(len(rows), dtype=bool)
+        in_cal = np.zeros(len(rows), dtype=bool)
+        for h in usable:
+            in_train |= masks[h][0].to_numpy()
+            in_cal |= masks[h][1].to_numpy()
+        # One network for all horizons: each target is NaN where that horizon may not train on it.
+        Y = np.column_stack(
+            [
+                np.where(
+                    masks[h][0].to_numpy()[in_train], rows[f"y_{h}"].to_numpy()[in_train], np.nan
+                )
+                for h in usable
+            ]
+        )
+        fit_rows = rows.loc[in_train]
+        model = factory(interval, usable, model_params.get(name), seed)
+        pretrain = _auxiliary(aux, usable, fold) if aux is not None else None
+        model.fit(fit_rows, seq[in_train], Y, row_weights(fit_rows), pretrain)
+        cal_all = model.predict(rows.loc[in_cal], seq[in_cal])
+        tgt_all = model.predict(target, target_seq)
+        for j, h in enumerate(usable):
+            cal_preds[name][h] = cal_all[masks[h][1].to_numpy()[in_cal], j]
+            tgt_preds[name][h] = tgt_all[:, j]
+
+    weights = np.ones(len(models)) if blend is None else np.asarray(blend, dtype=float)
+    weights = weights / weights.sum()
+    out: list[pd.DataFrame] = []
+    for h in usable:
+        train, cal = masks[h]
+        cal_blend = _blend([cal_preds[n][h] for n in models], weights)
+        tgt_blend = _blend([tgt_preds[n][h] for n in models], weights)
+        offset = conformal_offset(cal_blend, rows.loc[cal, f"y_{h}"].to_numpy(), interval)
+        pred = apply_offset(tgt_blend, offset)
         age_cat = AgeCategoryMedian().fit(rows.loc[train], h)
         frame = pd.DataFrame(
             {
@@ -138,16 +228,20 @@ def run_fold(
                 "source": source,
             }
         )
+        for n in models:
+            frame[f"med_{n}"] = tgt_preds[n][h][:, 1]
         frame["factors"] = [[] for _ in range(len(frame))]
-        if explain_from is not None and hasattr(model, "explain"):
+        explainer = next(
+            (m for n in models if hasattr(m := fitted[n].get(h), "explain")), None
+        )  # only per-horizon models can explain themselves
+        if explain_from is not None and explainer is not None:
             recent = (target[DAY] >= explain_from).to_numpy()
             if recent.any():
-                explained = model.explain(target.loc[recent])
-                idx = np.flatnonzero(recent)
-                for i, factors in zip(idx, explained, strict=True):
+                explained = explainer.explain(target.loc[recent])
+                for i, factors in zip(np.flatnonzero(recent), explained, strict=True):
                     frame.at[i, "factors"] = factors
         out.append(frame)
-    return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+    return pd.concat(out, ignore_index=True)
 
 
 # ---- scoring -----------------------------------------------------------------------------------
@@ -173,7 +267,8 @@ def horizon_metrics(preds: pd.DataFrame) -> list[contracts.HorizonMetrics]:
 
 
 def baseline_table(preds: pd.DataFrame) -> dict[int, dict[str, float]]:
-    """MAE per horizon for the model and each baseline, side by side."""
+    """MAE per horizon for the model (the calibrated blend), each baseline, and each model on its
+    own (uncalibrated median), side by side. This is how you tell whether a model earns its place."""
     table = {}
     for h, p in preds[preds["y"].notna()].groupby("days"):
         y = p["y"].to_numpy()
@@ -183,6 +278,9 @@ def baseline_table(preds: pd.DataFrame) -> dict[int, dict[str, float]]:
             "momentum": float(np.abs(p["momentum"].to_numpy() - y).mean()),
             "age_category": float(np.abs(p["agecat"].to_numpy() - y).mean()),
         }
+        for column in p.columns:
+            if column.startswith("med_"):
+                table[int(h)][column[4:]] = float(np.abs(p[column].to_numpy() - y).mean())
     return table
 
 
@@ -262,9 +360,12 @@ def run_backtest(
     rows: pd.DataFrame,
     horizons: list[int],
     *,
-    model_name: str = "hgb",
+    models: Sequence[str] = ("hgb",),
     interval: float = 0.8,
-    params: settings.HGBParams | None = None,
+    model_params: Mapping[str, object] | None = None,
+    seq: np.ndarray | None = None,
+    aux: tuple[pd.DataFrame, np.ndarray] | None = None,
+    blend: Sequence[float] | None = None,
     n_folds: int = settings.N_FOLDS,
     final_test_days: int = settings.FINAL_TEST_DAYS,
     fold_days: int = settings.FOLD_DAYS,
@@ -273,7 +374,13 @@ def run_backtest(
     factor_days: int = settings.FACTOR_DAYS,
     seed: int = 0,
 ) -> BacktestResult:
-    params = params or settings.HGBParams()
+    """`models`: one or more names (see models.all_model_names()); several are averaged.
+    `model_params`: {model name: its params object}. `seq`: each row's recent daily history
+    (from build_dataset(seq_len=...)), for models that read it. `aux`: (rows, seq) to pretrain
+    them on, cut by the same time rules as the real training rows."""
+    model_params = model_params or {}
+    if seq is not None and len(seq) != len(rows):
+        raise ValueError("seq must have one entry per row of `rows`")
     first_day, last_day = rows[DAY].min(), rows[DAY].max()
     folds = make_folds(
         first_day,
@@ -301,11 +408,14 @@ def run_backtest(
                 rows,
                 fold,
                 horizons,
-                model_name=model_name,
+                models=models,
                 interval=interval,
-                params=params,
+                model_params=model_params,
                 predict_mask=in_window,
                 source="walkforward",
+                seq=seq,
+                aux=aux,
+                blend=blend,
                 explain_from=explain_from if fold.name == "final" else None,
                 seed=seed,
             )
@@ -320,11 +430,14 @@ def run_backtest(
         rows,
         live_fold(last_day, horizons, cal_days),
         horizons,
-        model_name=model_name,
+        models=models,
         interval=interval,
-        params=params,
+        model_params=model_params,
         predict_mask=rows[DAY] == last_day,
         source="live",
+        seq=seq,
+        aux=aux,
+        blend=blend,
         explain_from=last_day,
         seed=seed,
     )
@@ -332,7 +445,9 @@ def run_backtest(
     final = walk[walk["fold"] == "final"] if len(walk) else walk
     metrics = None
     report: dict = {
-        "model": model_name,
+        "models": list(models),
+        "blend": None if blend is None else list(blend),
+        "pretrained_on_auxiliary_data": aux is not None,
         "interval": interval,
         "horizons": horizons,
         "folds": [],
@@ -347,7 +462,7 @@ def run_backtest(
                 "metrics": [m.model_dump() for m in horizon_metrics(part)] if len(part) else [],
             }
         )
-    model_version = f"{model_name}-{last_day:%Y%m%d}"
+    model_version = f"{'+'.join(models)}-{last_day:%Y%m%d}"
     if len(final) and final["y"].notna().any():
         scored = final[final["y"].notna()]
         metrics = contracts.ModelMetrics(

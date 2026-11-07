@@ -4,10 +4,19 @@ A model predicts three numbers per row for one horizon: the low end of the range
 the high end, all as log2 change (0 = stays as it is, 1 = doubles). Everything else (turning
 that into article counts, the contract, the backtest) lives outside the model.
 
-To add a model: write a class with fit(X, y, weight) and predict(X) -> (n, 3), decorate it with
-@register("name"), and run with --model name. HGBQuantile below is the reference.
+There are two kinds of model, and the backtest handles both:
+
+- Per-horizon (like HGBQuantile): a class with fit(X, y, weight) and predict(X) -> (n, 3),
+  decorated with @register("name"). One instance is trained per horizon, on the features table.
+- Joint (like neural.GRUQuantile): a class with fit(rows, seq, Y, weight) and
+  predict(rows, seq) -> (n, horizons, 3), decorated with @register_joint("name"). One instance
+  is trained for all horizons at once, on the features table and each story's recent daily
+  history (`seq`). Y is (n, horizons) with NaN wherever that target must not be trained on.
+
+Run one or several with --model (several are averaged, then calibrated together).
 """
 
+import importlib
 from collections.abc import Callable
 from typing import Protocol
 
@@ -29,7 +38,27 @@ class QuantileModel(Protocol):
         ...
 
 
+class JointModel(Protocol):
+    name: str
+
+    def fit(
+        self,
+        rows: pd.DataFrame,
+        seq: np.ndarray,
+        Y: np.ndarray,
+        weight: np.ndarray | None = None,
+        pretrain: tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray | None] | None = None,
+    ) -> None: ...
+
+    def predict(self, rows: pd.DataFrame, seq: np.ndarray) -> np.ndarray:
+        """(n, horizons, 3): low, median, high in log2 change, for the horizons it was built with."""
+        ...
+
+
 MODELS: dict[str, Callable[..., QuantileModel]] = {}
+JOINT_MODELS: dict[str, Callable[..., JointModel]] = {}
+# Models that import heavy libraries (PyTorch) are only imported when asked for.
+LAZY_MODULES = {"gru": "undercurrent.forecast.neural"}
 
 
 def register(name: str) -> Callable[[type], type]:
@@ -38,6 +67,29 @@ def register(name: str) -> Callable[[type], type]:
         return cls
 
     return add
+
+
+def register_joint(name: str) -> Callable[[type], type]:
+    def add(cls: type) -> type:
+        JOINT_MODELS[name] = cls
+        return cls
+
+    return add
+
+
+def all_model_names() -> list[str]:
+    return sorted({*MODELS, *JOINT_MODELS, *LAZY_MODULES})
+
+
+def resolve(name: str) -> tuple[str, Callable]:
+    """("horizon" | "joint", constructor) for a model name."""
+    if name not in MODELS and name not in JOINT_MODELS and name in LAZY_MODULES:
+        importlib.import_module(LAZY_MODULES[name])
+    if name in MODELS:
+        return "horizon", MODELS[name]
+    if name in JOINT_MODELS:
+        return "joint", JOINT_MODELS[name]
+    raise ValueError(f"Unknown model {name!r}. Available: {', '.join(all_model_names())}")
 
 
 def interval_quantiles(interval: float) -> tuple[float, float, float]:

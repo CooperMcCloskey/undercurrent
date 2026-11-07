@@ -20,10 +20,13 @@ from undercurrent.forecast import settings
 from undercurrent.forecast.features import (
     CATEGORICAL,
     FEATURES,
+    SEQ_CHANNELS,
     Dense,
     compute_features,
     ffill,
+    gather_windows,
     lead,
+    sequence_channels,
 )
 from undercurrent.forecast.schema import (
     CATEGORIES,
@@ -39,7 +42,7 @@ from undercurrent.forecast.schema import (
     normalise_wiki,
 )
 
-__all__ = ["CATEGORICAL", "FEATURES", "build_rows", "target_columns", "to_dense"]
+__all__ = ["CATEGORICAL", "FEATURES", "build_dataset", "build_rows", "target_columns", "to_dense"]
 
 
 def target_columns(horizons: list[int]) -> list[str]:
@@ -111,7 +114,7 @@ def to_dense(
     )
 
 
-def build_rows(
+def build_dataset(
     panel: pd.DataFrame,
     horizons: list[int],
     *,
@@ -120,9 +123,14 @@ def build_rows(
     min_articles: int = settings.MIN_ARTICLES_7D,
     burn_in: int = settings.BURN_IN_DAYS,
     chunk: int = settings.STORY_CHUNK,
-) -> pd.DataFrame:
+    seq_len: int = 0,
+) -> tuple[pd.DataFrame, np.ndarray | None]:
     """One row per (story, day t) with FEATURES, a7, and for each horizon h the target y_h and
-    the actual a7 at t + h (NaN when t + h is beyond the data)."""
+    the actual a7 at t + h (NaN when t + h is beyond the data).
+
+    With seq_len > 0 also returns, row for row, each story's last `seq_len` days of history as a
+    (rows, seq_len, len(SEQ_CHANNELS)) float16 array, for the neural model. Same no-lookahead rule
+    as the features."""
     panel = normalise_panel(panel)
     totals_s = normalise_totals(totals)
     wiki_df = normalise_wiki(wiki)
@@ -132,7 +140,7 @@ def build_rows(
     story = panel[STORY].to_numpy()
     starts = np.flatnonzero(np.r_[True, story[1:] != story[:-1]])
     bounds = np.r_[starts, len(panel)]
-    parts = []
+    parts, seq_parts = [], []
     for lo in range(0, len(starts), chunk):
         sub = panel.iloc[bounds[lo] : bounds[min(lo + chunk, len(starts))]]
         sub_wiki = None
@@ -158,9 +166,19 @@ def build_rows(
             data[f"actual_{h}"] = future[s_idx, t_idx]
             data[f"y_{h}"] = np.log2((future[s_idx, t_idx] + 1) / (a7[s_idx, t_idx] + 1))
         parts.append(pd.DataFrame(data))
+        if seq_len:
+            seq_parts.append(gather_windows(sequence_channels(dense), s_idx, t_idx, seq_len))
     if not parts:
         empty = {c: [] for c in [STORY, DAY, "a7", *FEATURES, *target_columns(horizons)]}
-        return pd.DataFrame(empty)
+        no_seq = np.zeros((0, seq_len, len(SEQ_CHANNELS)), dtype=np.float16) if seq_len else None
+        return pd.DataFrame(empty), no_seq
     rows = pd.concat(parts, ignore_index=True)
     rows[DAY] = pd.to_datetime(rows[DAY])
-    return rows.sort_values([DAY, STORY]).reset_index(drop=True)
+    order = rows.sort_values([DAY, STORY]).index.to_numpy()
+    seq = np.concatenate(seq_parts)[order] if seq_len else None
+    return rows.iloc[order].reset_index(drop=True), seq
+
+
+def build_rows(panel: pd.DataFrame, horizons: list[int], **kwargs) -> pd.DataFrame:
+    """build_dataset without the sequences (what the tree model needs)."""
+    return build_dataset(panel, horizons, **kwargs)[0]

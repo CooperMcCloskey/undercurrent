@@ -63,7 +63,7 @@ def test_training_never_overlaps_what_it_is_scored_on(synthetic) -> None:
 
     MODELS["recorder"] = Recorder
     try:
-        run_backtest(rows, H, model_name="recorder", n_folds=1, factor_days=1, **SMALL)
+        run_backtest(rows, H, models=["recorder"], n_folds=1, factor_days=1, **SMALL)
     finally:
         del MODELS["recorder"]
 
@@ -110,7 +110,7 @@ def test_calibration_fixes_ranges_that_are_too_narrow_or_too_wide() -> None:
 
 def test_end_to_end_on_synthetic_data(synthetic, tmp_path) -> None:
     panel, rows = synthetic
-    result = run_backtest(rows, H, params=QUICK, n_folds=0, factor_days=7, **SMALL)
+    result = run_backtest(rows, H, model_params={"hgb": QUICK}, n_folds=0, factor_days=7, **SMALL)
 
     metrics = result.metrics
     assert isinstance(metrics, contracts.ModelMetrics)
@@ -152,7 +152,7 @@ def test_end_to_end_on_synthetic_data(synthetic, tmp_path) -> None:
 def test_not_enough_history_says_so(synthetic) -> None:
     _, rows = synthetic
     with pytest.raises(ValueError, match="Not enough history"):
-        run_backtest(rows, H, params=QUICK, final_test_days=400)
+        run_backtest(rows, H, model_params={"hgb": QUICK}, final_test_days=400)
 
 
 def test_command_line_trial_run_stays_out_of_the_real_outputs(tmp_path, capsys) -> None:
