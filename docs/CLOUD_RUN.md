@@ -174,9 +174,16 @@ uv run python -m undercurrent.forecast.run --source stories --model hgb gru --de
 
 `pipeline/undercurrent/forecast/README.md` says when each model earns its place.
 
-### 4d. Export to the globe: **not built yet**
+### 4d. Export to the globe
 
-Nothing writes real stories into `data/export/` yet. The forecast side is ready (`forecast/export.py`: `load_forecasts()`, `meta_horizons()`), but B's story exporter is the one missing link between this run and the globe. It must add each story's location, footprint and entities (the tracker writes id, label, category and size) and export the top N stories per day (`README.md`, "Clustering", "Still to do for B"). **Start building it during steps 3–4**, against the 60-day stories. Then:
+`stories/export.py` turns the tracker output, the articles and the forecast into `data/export/`: the top 300 stories of each day, with location, footprint, forecast and outcome, plus one detail file per story. It runs on the CPU in seconds to a minute or two (1.2 million assignments took 2 seconds), so run it after every tracker or forecast run:
+
+```bash
+uv run python -m undercurrent.stories.export                    # every tracked day
+uv run pytest pipeline/tests/test_contracts.py                  # validates data/export/
+```
+
+Re-run the forecast after re-running the tracker, before exporting: story ids change between tracker runs, and the exporter counts any forecast whose actuals don't match the snapshots ("stale forecast?" in its output). Expect about 7 MB of JSON per 30 days exported; for a smaller demo export use `--start` and `--top`. Then:
 
 ```bash
 gcloud storage rsync -r data/export gs://$BUCKET/export        # on the VM

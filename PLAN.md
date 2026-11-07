@@ -118,10 +118,10 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 - [x] Cluster the news at the size of a real day (`stories/cluster.py`: FAISS neighbours, connected components, Louvain inside each, a split kept only if it makes the groups tighter). 120,000 synthetic items in about 8 seconds. Still to do: eyeball 20 real clusters and calibrate before trusting it
 - [x] Story tracking (`stories/tracker.py`, run by `python -m undercurrent.stories.track`): match items to story centroids, start new stories from the leftovers, merge duplicates (lineage), retire the idle; resumable
-- [ ] Story label (done: most central headline) and category (done), primary location (most-mentioned GDELT location), top entities
-- [ ] Footprint for the heatmap: the story's location mentions, weighted by share, with `radius_km` set from GDELT's location type (see `docs/ARCHITECTURE.md`)
+- [x] Story label (most central headline), category, primary location (most-mentioned GDELT place, or that country's top city) and top entities (GDELT names only, no Wikipedia titles yet), all in the exporter
+- [x] Footprint for the heatmap (`stories/footprint.py`): the story's location mentions over the last 7 days, weighted by share, with `radius_km` set from GDELT's location type
 - [ ] Attach Bluesky/Reddit posts and Wikipedia items to the nearest story centroid, using V's per-source thresholds (`vectors.threshold()`)
-- [ ] Exporter: write `meta.json`, `snapshots/<day>.json` and `stories/<id>.json` to `data/export/`, then run `uv run pytest`
+- [x] Exporter (`python -m undercurrent.stories.export`): writes `meta.json`, `snapshots/<day>.json` and `stories/<id>.json` to `data/export/`, merging C's forecasts, outcomes and model card. Then run `uv run pytest`. Tested on synthetic data only
 - [x] Point-in-time: stories as of day t use only data from day t or earlier (C depends on this). A test checks that earlier days' output doesn't change when later days are added
 
 **Needs from others:** V: calibrated cutoffs in `vectors/thresholds.py` (the news–news value is a placeholder). A: `articles.parquet` with `id`, `title`, `day` and `locations` (the tracker's only knowledge of A's schema is `day_meta()` in `stories/track.py`).
@@ -130,6 +130,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - Measured on synthetic data only: about 200,000 items a day takes 13–37 seconds and 2.3 GB; every assignment was correct and no noise was placed in a story. On the 102 hand-labelled demo headlines, `--min-size 2` finds 16 of 27 stories at 92% purity (the demo has about 2 headlines per story per day, so the default of 3 finds 2). Never run on real data.
 - A story starts when at least `min_size` items about it arrive on the same day; slow trickles are missed. Kept deliberately (point-in-time); carrying leftovers over a few days would need an `assigned_on` column.
 - The forecast code doesn't apply `story_lineage` yet (a merged story's earlier rows keep the old id).
+- The exporter counts `article_count_7d` the same way as the forecast (no lineage), and takes outcomes from its own later snapshots. If C's actuals disagree it reports "stale forecast?": re-run the forecast after every tracker run. 1.2M synthetic assignments (30 days, 3000 stories) export in 2 seconds, about 7 MB.
 
 ### C: Forecast (owner: ____)
 
