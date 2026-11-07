@@ -49,7 +49,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 |---|---|---|
 | H+2 | **M0: everyone running** | The mock globe works on all 4 laptops, and 1 day of GDELT has been downloaded and parsed |
 | H+8 | **M1: real stories on the globe** | The last 7 days of GDELT are clustered into stories, exported, and visible on the globe |
-| H+16 | **M2: forecast backtest** | About 60 days of history; model vs persistence baseline (error and range coverage per horizon) is written to `meta.json` |
+| H+16 | **M2: forecast backtest** | The newest 60 days of stories first, then the 12-month run; model vs persistence baseline (error and range coverage per horizon) is written to `meta.json` |
 | H+20 | **M3: replay and live** | The time slider shows predicted vs actual; live Bluesky posts attach to stories |
 | H+20 to the end | **Feature freeze** | Bug fixes, polish, demo script, Devpost write-up and two rehearsals only |
 
@@ -60,26 +60,22 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Goal:** clean, resumable inputs for everyone else.
 **Writes:** `data/raw/`, `data/processed/articles.parquet`, `wiki_*.parquet`, `bluesky/*.parquet`
 
-- [ ] GDELT GKG 2.1 downloader for **both feeds**, English and translated (`masterfilelist.txt` / `lastupdate.txt` and their `-translation` versions): `--start/--end`, resumable, with a `--sample-per-hour` option for backfill (same rate on both feeds)
+- [ ] GDELT GKG 2.1 downloader for **both feeds**, English and translated (`masterfilelist.txt` / `lastupdate.txt` and their `-translation` versions): `--start/--end`, resumable, full resolution by default (`--sample-per-hour` is a fallback only, with the same rate on both feeds)
 - [ ] GKG parser (both feeds) → `articles.parquet` with these columns:
   - `id`, `url`, `domain`, `published_at`
   - `title`, taken from `<PAGE_TITLE>` in V2EXTRASXML
   - `locations`, with lat/lon and **FIPS→ISO2** country codes
   - `persons`, `orgs`, `themes`
   - `tone`
-<<<<<<< HEAD
   - `translated` (from the translated feed?) and `lang` (source language from TranslationInfo; null for English)
 - [ ] Deduplicate articles across both feeds together (same URL; syndicated copies with the same title)
-- [ ] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet`
-- [ ] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet`
-- [ ] Entity name → Wikipedia title resolver, cached (B and C both need it)
-=======
-- [ ] Deduplicate articles (same URL; syndicated copies with the same title)
 - [x] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet` (`ingest/wiki.py`)
 - [x] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet` (`ingest/wiki.py`)
 - [x] Entity name → Wikipedia title resolver, cached (B and C both need it) (`ingest/wiki_resolve.py`)
 - [x] Wikipedia daily top-1000 (bulk signal, bot-flagged) → `wiki_top.parquet` (`ingest/wiki_top.py`)
->>>>>>> ingest-wiki
+- [ ] Measure one full day of both feeds (rows, unique titles, zipped size; a BigQuery dry-run if we are on Google Cloud) and write it in Notes
+- [ ] **12-month backfill at full resolution** (every 15-minute file of both feeds): the newest 60 days first, then going backwards. Run it on the cloud machine, one file per day in the bucket, skipping days that exist. The VPS checklist and the details are in "Scaling up" in `README.md`
+- [ ] Wikipedia at scale: entity tiers, bulk pageviews, and the top-1000 history for the whole range (`README.md`, "Wikipedia: what the data agent (A) should do now")
 - [ ] Bluesky Jetstream consumer → `bluesky/*.parquet`, plus an in-process hook that D can use for `/api/live`
 - [ ] (stretch) Reddit, only if API access was approved
 
@@ -103,12 +99,12 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - [ ] Wikipedia "Current events" bullets for the backfill range → `wiki_events.parquet`
 - [ ] Vectors for A's last 7 days, embedded day by day as they land (H+6)
 - [ ] Thresholds per source pair (news–news, bluesky–news, wiki_events–news), from ~50 labelled pairs each (H+8)
-- [ ] Vectors for the backfill, day by day as A parses it (H+11)
+- [ ] Vectors for the backfill (newest 60 days first, then the rest), day by day as A parses it, kept in the bucket (H+11 for the first 60 days)
 - [ ] Bluesky vectors; `embed()` fast enough for live posts
 - [ ] New Wikipedia event articles → `wiki_new.parquet` → vectors
 - [ ] Linking-precision numbers for the pitch
 
-**Needs from others:** A: `articles.parquet` (1 day by H+2, 7 days by H+5, backfill by H+10), Bluesky parquet (H+12)
+**Needs from others:** A: `articles.parquet` (1 day by H+2, 7 days by H+5, the newest 60 days by H+10, the rest of the 12 months after that), Bluesky parquet (H+12)
 **Notes:**
 
 ### B: Stories (owner: ____)
@@ -133,14 +129,14 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Reads:** B's stories, A's Wikipedia tables. **Writes:** `forecast` and `outcome` in the snapshots, and `model` in `meta.json`
 
 - [ ] Fix the target and write the final definition in Notes: `article_count_7d` on day t+h, modelled as `log2((future + 1) / (now + 1))` (see `docs/ARCHITECTURE.md`). Decide which stories get a forecast (for example ≥ 20 articles in the previous 7 days); the rest have `forecast = None` and are drawn unchanged
-- [ ] Build targets with no lookahead: take the story's centroid at day t, and count future articles as the ones closest to that centroid
+- [ ] Build targets with no lookahead: take the story's centroid at day t, and count future articles as the ones closest to that centroid. At 12-month scale that recount is expensive; the alternative is to count from the tracker's append-only `story_assignments` (`README.md`, "Vectors"). Decide, and write it in Notes
 - [ ] Baselines: persistence, and momentum (persistence scaled by `growth_7d`). Report the typical miss (`mae_log2`) per horizon
 - [ ] Features:
   - volume, growth and acceleration
   - number of distinct domains and countries
   - tone, and change in tone
   - Wikipedia pageview and edit growth for the story's entities
-- [ ] Models: ridge regression first, then `HistGradientBoostingRegressor` (quantile loss for the range). One model per horizon. Use a time-based split (train on the early weeks, test on the last 2 weeks)
+- [ ] Models: ridge regression first, then `HistGradientBoostingRegressor` (quantile loss for the range). One model per horizon. Use a fixed test period (the latest 3–6 months) and time-ordered folds by quarter, with a gap between train and test (`README.md`, "Forecast model")
 - [ ] Range coverage per horizon (should be near 80%), plus `ModelMetrics` written to `meta.json`; per-story `forecast` (with top `factors` per horizon) and `outcome` (horizons that have already happened) written to the snapshots
 - [ ] Find 2 or 3 strong examples for the pitch (stories whose surge was projected early)
 - [ ] **Unblock yourself:** until B has stories, build the label/feature/backtest code on proxy stories (for example GKG theme × country counts), then switch to B's stories
@@ -187,7 +183,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Python pipeline + TypeScript web, one repo | The ML libraries are Python and the globe libraries are JavaScript |
 | One Pydantic contract with generated TS types, and JSON export in API shape | Four people can work in parallel against mock data; shape drift is caught by pytest and tsc |
 | Embed titles, not full article text | GDELT has no article text; scraping is slow and hits paywalls |
-| Embedding model chosen by V at H+2 from a speed and quality benchmark; multilingual MiniLM is the default (`config.EMBEDDING_MODEL`) | GDELT is multilingual, and the backfill has to embed in about an hour. Changing the model later means re-embedding everything |
+| Embedding model chosen by V at H+2 from a speed and quality benchmark; multilingual MiniLM is the default (`config.EMBEDDING_MODEL`) | GDELT is multilingual, and the 12-month backfill has to embed in a few hours on a GPU machine. Changing the model later means re-embedding everything |
 | One vector store and one `threshold()` for every source, owned by V | Similarity scales differ between models and sources, so cutoffs must come from one calibrated place, not be hardcoded in each workstream |
 | Story categories by embedding similarity to a few example headlines per category (`vectors/categories.py`) | Needs no training data or extra model, works for every source and language, and reuses the vectors we already compute. GDELT theme tags can add a second vote later |
 | Stories = Louvain communities of a kNN cosine-similarity graph (`stories/graph.py`) | It's the "link items by the angle between vectors" idea without chaining; it recovered all 9 demo stories, including two separate stories in the same city |
@@ -202,11 +198,14 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Ingest both English and translated GKG feeds from the start | English-only would bias stories towards Anglophone sources; same sampling rate on both keeps growth ratios comparable |
 | The forecast is a projection of `article_count_7d` at several horizons with a range, not a yes/no "will it double" probability | The future globe needs a size to draw. `article_count_7d` is exactly what the heat is drawn from, so a projected day draws like a real snapshot, and the outcome is the later snapshot's own number |
 | Forecast error is judged in log2 units against a persistence baseline, per horizon | Counts span orders of magnitude; "it stays the same" is the honest bar for news attention, and per-horizon results say how far ahead the model can be trusted |
+| Full-resolution GDELT for 12 months first (older years only if the learning curve says they help), extracted on the cloud, instead of a 60-day hourly sample | More distinct stories is the biggest lever on forecast quality, and sampling makes small-story counts noisy. With $50–200 of compute, GPUs are cheap; wall-clock time and clustering that doesn't scale are the real limits |
+| Item vectors are kept in cloud storage (fp16, one file per day), not thrown away, and never go in git or onto laptops | Retuning the clustering then means rerunning the tracker, not re-embedding everything (hours and $5–50 each time). Storing them costs a few dollars |
+| Story tracking is online: assign each day's items to existing story centroids, cluster only the leftovers | The batch prototype (`stories/graph.py`) was tested on 57 items and can't handle hundreds of thousands of articles a day. Assignments are never revised, so they are point-in-time |
 
 ## Open questions
 
 - Hackathon schedule, and the rules on code prepared beforehand
 - Who owns which workstream: Cooper owns V. B (Stories) needs an owner
 - **What do we predict?** `Humans.md` says "Wikipedia views, edits and new articles in the cluster"; this plan and `docs/WORKPLAN.md` say "the story's news volume (`article_count_7d`) over the next 1–14 days", with Wikipedia as features. The contract now follows the news-volume version, because the future globe draws that number. Confirm it before C starts: the target code, the model card and the pitch all depend on it. News volume has the most history to backtest on; a Wikipedia pageview spike is closer to "the public notices"
-- How many days of GDELT to backfill. Measure the size of a single day of GKG first, for both feeds (see `docs/ARCHITECTURE.md`)
+- Backfill depth is decided: 12 months at full resolution first, then older years only if the learning curve says they help (`README.md`). Still open: measure one full day of both feeds (rows, unique titles, size) and write it here, because every size and cost estimate depends on it
 - Is `<PAGE_TITLE>` original-language or English in the translated feed? (A to check)

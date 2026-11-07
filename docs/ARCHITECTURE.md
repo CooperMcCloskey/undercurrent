@@ -57,7 +57,7 @@ Until `data/export/meta.json` exists, the API serves `web/public/mock/` instead.
 - **No article text.** The headline is in `<PAGE_TITLE>` inside the Extras field. Don't scrape articles.
 - **Location format.** `V1Locations` entries look like `type#name#countrycode#adm1#lat#lon#featureid`, separated by `;`.
 - **Country codes are FIPS 10-4, not ISO.** Several codes clash: `UK`→`GB`, `GM`→`DE`, `CH`→China (ISO `CH` is Switzerland), `SZ`→Switzerland, `AS`→Australia, `RS`→Russia. Use a mapping table and convert everything to ISO alpha-2 at ingest time.
-- **Size.** GKG is large. Download one day and measure it before planning a backfill. For history, take one 15-minute file per hour. Growth ratios still hold on a consistent sample, which cuts the download by 4×. Use every file for the last few days, which are shown live.
+- **Size.** GKG is large. Download one day and measure it before planning a backfill. The plan is full resolution (every file), extracted on the cloud machine: see "Scaling up" in `README.md`. Taking one 15-minute file per hour cuts the download by 4×, and growth ratios still hold on a consistent sample, but it makes small-story counts noisy, so it is a fallback only.
 - Syndicated stories appear many times (the same wire copy on many domains). Deduplicate before counting volume, or count unique domains instead.
 - **Translated feed.**
   - It doubles the file count. Measure **both** feeds' file sizes for one day before planning a backfill.
@@ -104,12 +104,12 @@ You need an approved OAuth "script" app and you're rate limited. Pushshift is go
 
 The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `threshold()` in `undercurrent.vectors`.
 
-- **One space for every source.** Headlines, posts and Wikipedia text are embedded by the same model (`config.EMBEDDING_MODEL`), L2-normalised, so cosine similarity is a dot product. Store them per source and day as float16.
+- **One space for every source.** Headlines, posts and Wikipedia text are embedded by the same model (`config.EMBEDDING_MODEL`), L2-normalised, so cosine similarity is a dot product. Store them per source and day as float16, in cloud storage, not git or laptops (see "Vectors" in `README.md` for why we keep them).
 - **Clean before embedding; this matters more than the choice of model.** GDELT titles carry site-name suffixes (" - BBC News") and boilerplate ("Home", "Subscribe to read") that would otherwise form their own clusters. Posts carry URLs, @mentions and hashtags.
 - **Cache by text hash.** Wire stories repeat the same headline on many sites and days, so identical text is embedded once.
 - **Thresholds are per source pair and per model.** A short post and a headline about the same event score lower than two headlines do, and models differ (e5 models put almost everything between 0.7 and 1.0). Calibrate each cutoff on about 50 labelled pairs. Everyone else calls `threshold()`.
 - **Point-in-time:** a vector depends only on its own text, so embeddings never leak the future. Anything *fitted* on the corpus (PCA, UMAP, topic models) must be fitted on training-period data only.
-- **Throughput:** measure titles per second on the laptop at H+0 to H+2 (`device="mps"` on Apple Silicon). Backfill size × that rate must fit in about an hour, or pick a faster model.
+- **Throughput:** measure titles per second on the GPU machine as well as the laptop (`device="mps"` on Apple Silicon). Backfill size × that rate must fit in a few hours (days are independent, so add machines), or pick a faster model.
 
 ## Stories (Stories workstream)
 
@@ -120,7 +120,7 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
    - Run Louvain community detection; each community is a story, and groups smaller than `min_size` are noise.
    - Louvain maximises modularity, so it doesn't *chain* the way connected components do: two dense groups joined by one weak link stay separate.
    - On the demo items (`uv run python -m undercurrent.demo`), it recovers all 9 hand-labelled stories exactly: two different Rotterdam stories stay apart, French/Spanish/Dutch headlines join their English stories, and noise stays out. That holds for `min_sim` 0.40–0.45, `k` 8–10 and resolution 1.0–2.0, with MiniLM.
-   - `min_sim` is model-specific, so recalibrate it on real data. For very large days, swap the block matmul in `knn_edges` for a FAISS index; networkx Louvain handles a few hundred thousand edges.
+   - `min_sim` is model-specific, so recalibrate it on real data. This prototype won't scale to a real day (hundreds of thousands of articles): see "Clustering: needs a rewrite to scale" in `README.md`.
 3. **Track stories** day to day. Match each new cluster to the existing story with the most similar centroid, above a threshold, so the id stays the same. Otherwise create a new story. Ids are slugs, matching `contracts.STORY_ID_PATTERN`.
 4. **Attach other sources** (posts, Wikipedia event text) to the nearest story centroid, above `vectors.threshold(<source>, "news")`.
 5. **Location** of a story: the GDELT location mentioned most often in its articles. This anchors the story's marker.
@@ -138,7 +138,7 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
   - **Output per horizon:** the median `articles_7d`, plus a `low`–`high` range that should hold `config.FORECAST_INTERVAL` (80%) of outcomes. One way: `HistGradientBoostingRegressor` with quantile loss at 0.1, 0.5 and 0.9. Cheaper with little data: one point model, plus residual quantiles from a validation block.
   - **The future globe** is the snapshot of the latest day with every story's `article_count_7d` swapped for the chosen horizon's `articles_7d`, drawn by the usual heat code (the `low`/`high` give the uncertainty). Scrubbing back to day t and stepping forward shows the same projections next to the `outcome`. A story with no forecast is drawn unchanged.
   - **What it can't show:** stories that don't exist yet. The future view is today's stories continuing or fading in their current footprint.
-  - **Horizons:** 1, 3, 7 and 14 days to start. Single stories a month out mostly just end, so add 30 only with months of history, or forecast an aggregate (category × region) instead. A 60-day backfill gives about 40 usable label days at 7 days and about 33 at 14 (the features need 13 days of history, and the target needs h days of future), and a 30-day horizon leaves about 17.
+  - **Horizons:** 1, 3, 7 and 14 days to start. Single stories a month out mostly just end, so add 30 only with months of history, or forecast an aggregate (category × region) instead. This is why we use 12+ months of history: a 60-day backfill would give only about 40 usable label days at 7 days and about 33 at 14 (the features need 13 days of history, and the target needs h days of future), and a 30-day horizon would leave about 17.
 - **No lookahead.** Features at day t use only data from day t or earlier. Story membership must be point-in-time too. If you cluster all of history at once and then backtest, the future leaks into which story an article belongs to.
   - Clean method: freeze each story's centroid at day t, then count future articles as the ones whose nearest centroid is that story.
 - **Baseline:** persistence (`articles_7d(t+h) = articles_7d(t)`), and also momentum (persistence scaled by `growth_7d`). News attention fades fast, so persistence is harder to beat than it looks. If the model doesn't beat the baseline at a horizon, report that honestly and don't present that horizon as a forecast; HRT judges will respect that more than an unexplained score.

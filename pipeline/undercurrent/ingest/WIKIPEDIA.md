@@ -2,6 +2,8 @@
 
 **Owner:** A (Ingest) · **Code:** `pipeline/undercurrent/ingest/wiki*.py` · **Tests:** `pipeline/tests/test_wiki*.py`
 
+> **Scale-up:** this doc is sized for a few thousand entities and 60 days. For 12+ months of stories, per-entity calls are too slow. Follow "Wikipedia: what the data agent (A) should do now" in the main `README.md` (entity tiers, bulk pageviews, a long top-1000 history). Where it disagrees with this file, the README wins.
+
 ## In one paragraph
 
 When something is about to become big news, people start looking it up. They read the Wikipedia articles on the people, places and organisations involved, and editors start updating those articles. This code collects that signal. For each **entity** in our stories (a person, an organisation, a place), it records **how many people read its Wikipedia article each day, and how many edits it got**. It does this in the 8 most-read Wikipedia languages, and it also saves each language's daily list of its 1,000 most-read articles. Reading and editing often pick up a few days before a story peaks in the news, and that early warning is what the forecast is looking for.
