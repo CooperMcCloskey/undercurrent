@@ -135,7 +135,7 @@ def site_info(client: WikiClient, lang: str) -> dict:
     """
     path = SITEINFO_DIR / f"{lang}.json"
     if path.exists():
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     payload = client.get_json(
         action_url(lang),
         params={
@@ -159,7 +159,7 @@ def site_info(client: WikiClient, lang: str) -> dict:
         "namespaces": sorted("_".join(n.split()) for n in names if n),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(info, ensure_ascii=False, indent=1))
+    path.write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
     return info
 
 

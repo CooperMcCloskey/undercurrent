@@ -113,7 +113,7 @@ def update_title(
 ) -> str:
     """Make sure the cache for one article covers [start, end]. Returns a status word."""
     path = cache_path(kind, lang, title)
-    cached = json.loads(path.read_text()) if path.exists() else None
+    cached = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
     if cached and cached["start"] <= start.isoformat() and cached["complete_to"] >= end.isoformat():
         return "cached"
     if cached:  # refetch the union in one request rather than stitching ranges
@@ -130,7 +130,7 @@ def update_title(
         "daily": daily,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, ensure_ascii=False))
+    path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
     return "fetched"
 
 
@@ -156,7 +156,7 @@ def build_table(kind: str) -> pd.DataFrame:
     value_col = KINDS[kind][0]
     rows = []
     for p in sorted((RAW / "wiki" / kind).glob("*.json")):
-        rows += record_rows(json.loads(p.read_text()), value_col)
+        rows += record_rows(json.loads(p.read_text(encoding="utf-8")), value_col)
     df = pd.DataFrame(rows, columns=["lang", "title", "day", value_col, "complete"])
     out = PROCESSED / f"wiki_{kind}.parquet"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -253,7 +253,7 @@ def _all_cached_en_titles() -> list[str]:
     titles = set()
     for kind in KINDS:
         for p in (RAW / "wiki" / kind).glob("*.json"):
-            rec = json.loads(p.read_text())
+            rec = json.loads(p.read_text(encoding="utf-8"))
             if rec["lang"] == "en":
                 titles.add(rec["title"])
     return sorted(titles)
@@ -270,7 +270,11 @@ def main() -> None:
 
     titles = list(args.titles)
     if args.titles_file:
-        titles += [ln.strip() for ln in args.titles_file.read_text().splitlines() if ln.strip()]
+        titles += [
+            ln.strip()
+            for ln in args.titles_file.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        ]
     if not titles:
         p.error("give --titles or --titles-file")
     start, end = date_range(args)

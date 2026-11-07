@@ -76,7 +76,7 @@ def plausible(name: str, title: str) -> bool:
 def _load() -> dict[str, str | None]:
     global _cache
     if _cache is None:
-        _cache = json.loads(CACHE_FILE.read_text()) if CACHE_FILE.exists() else {}
+        _cache = json.loads(CACHE_FILE.read_text(encoding="utf-8")) if CACHE_FILE.exists() else {}
     return _cache
 
 
@@ -85,7 +85,7 @@ def _save() -> None:
     with _lock:
         data = json.dumps(_load(), ensure_ascii=False, indent=0, sort_keys=True)
     tmp = CACHE_FILE.with_suffix(".tmp")
-    tmp.write_text(data)
+    tmp.write_text(data, encoding="utf-8")
     tmp.replace(CACHE_FILE)
 
 
@@ -240,14 +240,16 @@ def resolve(name: str) -> str | None:
 def _load_links() -> dict[str, dict]:
     global _links
     if _links is None:
-        _links = json.loads(LINKS_FILE.read_text()) if LINKS_FILE.exists() else {}
+        _links = json.loads(LINKS_FILE.read_text(encoding="utf-8")) if LINKS_FILE.exists() else {}
     return _links
 
 
 def _save_links() -> None:
     LINKS_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = LINKS_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(_load_links(), ensure_ascii=False, indent=0, sort_keys=True))
+    tmp.write_text(
+        json.dumps(_load_links(), ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8"
+    )
     tmp.replace(LINKS_FILE)
 
 
@@ -372,7 +374,11 @@ def main() -> None:
 
     names = list(args.names)
     if args.names_file:
-        names += [ln.strip() for ln in args.names_file.read_text().splitlines() if ln.strip()]
+        names += [
+            ln.strip()
+            for ln in args.names_file.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        ]
     if not names:
         p.error("give --names or --names-file")
 
@@ -389,7 +395,7 @@ def main() -> None:
             print(f"  {name!r:28} -> None")
     if args.out_titles:
         args.out_titles.parent.mkdir(parents=True, exist_ok=True)
-        args.out_titles.write_text("".join(f"{t}\n" for t in hits))
+        args.out_titles.write_text("".join(f"{t}\n" for t in hits), encoding="utf-8")
         print(f"wrote {args.out_titles}")
 
 

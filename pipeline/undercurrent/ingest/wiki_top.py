@@ -80,7 +80,7 @@ def download(client: WikiClient, lang: str, access: str, day: dt.date) -> str:
     if payload is None:
         return "not published yet"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return "downloaded"
 
 
@@ -95,8 +95,8 @@ def build_table(client: WikiClient) -> pd.DataFrame:
                 clean_top(
                     lang,
                     dt.date.fromisoformat(p.stem),
-                    json.loads(p.read_text()),
-                    json.loads(desk.read_text()) if desk.exists() else None,
+                    json.loads(p.read_text(encoding="utf-8")),
+                    json.loads(desk.read_text(encoding="utf-8")) if desk.exists() else None,
                     info,
                 )
             )
