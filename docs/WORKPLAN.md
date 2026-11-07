@@ -65,21 +65,26 @@ One row per **deduplicated** article. A may also write it partitioned (`processe
 
 ### 3.2 Wikipedia tables (A → B, C)
 
+Full guide: `pipeline/undercurrent/ingest/WIKIPEDIA.md`. Covers 8 languages (en ja de fr ru es it zh), linked through Wikidata IDs.
+
 | File | Columns |
 |---|---|
-| `processed/wiki_pageviews.parquet` | `title: str, day: date, views: int` |
-| `processed/wiki_edits.parquet` | `title: str, day: date, edits: int` |
-| `processed/wiki_top.parquet` | `day: date, rank: int, title: str, views: int` (daily top-1000 bulk) |
-| `cache/wiki_resolve.json` | `{ "<normalised name>": "<Wikipedia title>" or null }` |
+| `processed/wiki_entity_daily.parquet` | `qid, title_en, day, views, edits, n_langs, views_<lang>…, edits_<lang>…`: **one row per entity and day, languages summed. Start here.** |
+| `processed/wiki_pageviews.parquet` | `lang, title, day, views, complete` |
+| `processed/wiki_edits.parquet` | `lang, title, day, edits, complete` |
+| `processed/wiki_top.parquet` | `lang, day, rank, title, views, desktop_share, suspect_bot` (daily top-1000 per language) |
+| `cache/wiki_resolve.json` | `{ "<normalised name>": "<English title>" or null }` |
+| `cache/wiki_links.json` | `{ "<English title>": {"qid", "titles": {lang: title}, "checked"} }` |
 
 Python API, in `undercurrent.ingest.wiki_resolve`:
 
 ```python
-def resolve(name: str) -> str | None: ...                     # cached, offline-safe once cached
+def resolve(name: str) -> str | None: ...                     # English title; cached
 def resolve_many(names: list[str]) -> dict[str, str | None]: ...
+def resolve_entities(names: list[str]) -> dict[str, dict | None]: ...  # {"qid", "title", "titles": {lang: title}}
 ```
 
-Wikipedia fetch CLI, which B and C call with their entity lists:
+Wikipedia fetch CLI, which B (or A on B's behalf) runs with the stories' resolved entity titles. Allow about 5 seconds per entity: Wikimedia allows 200 requests per minute.
 
 ```
 uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --start ... --end ...

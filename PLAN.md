@@ -72,10 +72,10 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 **Needs from others:** none yet
 **Notes:**
-- Wikipedia is query-on-demand + disk cache, not dumps (dumps are tens of GB for 60 days). Everything lands in `data/`, so later runs and the demo are offline.
-- `wiki_top.parquet` (day, rank, title, views, desktop_share, suspect_bot): 60 days (2026-09-08..11-06) downloaded. Filter `~suspect_bot`; bot traffic is ~all desktop (e.g. `Neatsville,_Kentucky`, `JSON-LD`).
-- Resolver: `from undercurrent.ingest.wiki_resolve import resolve, resolve_many`. Titles come back in underscore form (`Barack_Obama`); ambiguous names (`john smith`) give `None`. CLI writes a titles file with `--out-titles`.
-- Pageviews/edits: `uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --days 60` (or `wiki.fetch(titles, start, end, ["pageviews", "edits"])`). About 4 titles/s. Zero-filled per day; the last ~2 days of pageviews may be missing until Wikimedia publishes them.
+- Wikipedia: full guide in `pipeline/undercurrent/ingest/WIKIPEDIA.md`. Query on demand + disk cache, not dumps (dumps are about 42 GB for 60 days). After fetching, everything works offline.
+- **8 languages** (en ja de fr ru es it zh, the most-read Wikipedias), linked by Wikidata ID. Start from `wiki_entity_daily.parquet`: one row per entity and day, languages summed, with per-language columns.
+- **Wikimedia rate limit: 200 requests/min total, at most 3 at once** (new in 2026). About 5 s per entity (8 languages × pageviews + edits), so 1,000 entities take about 1.5 h. Pick entities carefully and start early.
+- `wiki_top.parquet`: 8 languages × 60 days (2026-09-08..11-06) downloaded, with likely bots flagged (`suspect_bot`).
 
 ### B: Stories (owner: ____)
 
