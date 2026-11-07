@@ -23,7 +23,10 @@ This is a living document. Each workstream owner, and their agent, edits **only 
 - [x] **Heatmap instead of towers**: stories have a `footprint` (weighted places, each with a radius) in the contract and in the mock data. The globe draws them as a heatmap (`web/src/globe/heat.ts`), with a small flat marker per story coloured by forecast. Story titles in tooltips are HTML-escaped
 - [x] Contract test: `uv run pytest` validates mock and exported data against the contract
 - [x] Agent rules (`AGENTS.md`), architecture notes (`docs/ARCHITECTURE.md`) and this plan
-- Verified so far: ruff, pytest (2 passed), API smoke test, typecheck and production build all pass. **The globe hasn't been looked at in a browser yet.**
+- [x] Detailed hand-offs and timeline in `docs/WORKPLAN.md`
+- [x] **Vectors → stories prototype, end to end** (`uv run python -m undercurrent.demo`). 57 hand-written items (news, posts, Wikipedia; 4 languages; 9 stories plus noise) are embedded (`vectors/embed.py`) and clustered with a similarity graph + Louvain (`stories/graph.py`). It recovers the 9 hand-labelled stories exactly, then exports to `data/export/`, so `npm run dev` shows them
+- [x] **One colour per story** on the globe: heat, markers and legend (`web/src/globe/storyColors.ts`)
+- Verified so far: ruff, pytest, API smoke test, typecheck and production build all pass. The globe code (land, heat, markers) was rendered and screenshotted in a browser with the mock data.
 
 ### Not done
 
@@ -31,11 +34,12 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 ## Before the event
 
-- [ ] Assign workstream owners (fill in the names below)
+- [ ] Assign workstream owners (fill in the names below). There are five workstreams for four people, so someone takes two: see `docs/WORKPLAN.md` section 2
+- [ ] Agree on the prediction target (see open questions)
 - [ ] Everyone: clone, run `npm install && uv sync`, then run `npm run dev:mock` and check you see the globe
 - [ ] Check the rules on code written before the event, and say in the Devpost that this scaffolding was prepared in advance
 - [ ] A: apply for Reddit API access now (approval can take days), or decide to cut Reddit
-- [ ] B: download the embedding model once (it's cached in `data/cache/`) so it doesn't eat event wifi
+- [ ] V: download the candidate embedding models once (they're cached in `data/cache/`) so they don't eat event wifi
 - [ ] Everyone: read your section of `docs/ARCHITECTURE.md`
 
 ## Milestones (H = hours since hacking starts; adjust once we know the schedule)
@@ -73,17 +77,36 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Needs from others:** none yet
 **Notes:**
 
+### V: Vectors (owner: Cooper)
+
+**Goal:** every piece of text (GDELT headlines, Bluesky posts, Wikipedia event summaries and new articles) as a vector in one shared space, plus calibrated "same story" thresholds.
+**Reads:** `articles.parquet`, `bluesky/*.parquet`; fetches the Wikipedia text itself. **Writes:** `data/processed/vectors/`, `wiki_events.parquet`, `wiki_new.parquet`, `pipeline/undercurrent/vectors/thresholds.py`. Interface: `docs/WORKPLAN.md` sections 3.4 and 3.9.
+
+- [ ] Text cleaning per source, versioned. Started: `clean_text()` strips site-name suffixes from GDELT, and URLs and @mentions from posts. Still to do: drop boilerplate titles
+- [x] `embed()` (`vectors/embed.py`)
+- [ ] `load()` and `threshold()`; store per source and day (float16, L2-normalised), cached by text hash
+- [ ] Model benchmark (speed on your laptop + ~100 labelled pairs) → set `config.EMBEDDING_MODEL`, **locked at the H+2 sync**
+- [ ] Wikipedia "Current events" bullets for the backfill range → `wiki_events.parquet`
+- [ ] Vectors for A's last 7 days, embedded day by day as they land (H+6)
+- [ ] Thresholds per source pair (news–news, bluesky–news, wiki_events–news), from ~50 labelled pairs each (H+8)
+- [ ] Vectors for the backfill, day by day as A parses it (H+11)
+- [ ] Bluesky vectors; `embed()` fast enough for live posts
+- [ ] New Wikipedia event articles → `wiki_new.parquet` → vectors
+- [ ] Linking-precision numbers for the pitch
+
+**Needs from others:** A: `articles.parquet` (1 day by H+2, 7 days by H+5, backfill by H+10), Bluesky parquet (H+12)
+**Notes:**
+
 ### B: Stories (owner: ____)
 
 **Goal:** turn articles and posts into stable, sensible stories.
-**Reads:** `articles.parquet`, `bluesky/*.parquet`. **Writes:** `data/processed/stories*`, and `data/export/` (snapshots and story details)
+**Reads:** V's vectors and thresholds, `articles.parquet`. **Writes:** `data/processed/stories*`, and `data/export/` (snapshots and story details)
 
-- [ ] Embed titles with `config.EMBEDDING_MODEL` in batches, cached to `data/processed/embeddings/` by article id
-- [ ] Cluster the news over a trailing window (for example 3 days). Try HDBSCAN on normalised vectors; eyeball 20 clusters before tuning anything
+- [ ] Cluster the news over a trailing window (for example 3 days), starting from the prototype in `stories/graph.py` (perfect on the demo items). Eyeball 20 real clusters and recalibrate `min_sim` before trusting it
 - [ ] Story tracking: match each day's clusters to existing stories by centroid similarity, so story ids stay stable; unmatched clusters become new stories
 - [ ] Story label (most central headline), primary location (most-mentioned GDELT location), top entities
 - [ ] Footprint for the heatmap: the story's location mentions, weighted by share, with `radius_km` set from GDELT's location type (see `docs/ARCHITECTURE.md`)
-- [ ] Attach Bluesky/Reddit posts and Wikipedia pages to the nearest story centroid, with **a separate threshold per source**, calibrated by eyeballing about 50 pairs
+- [ ] Attach Bluesky/Reddit posts and Wikipedia items to the nearest story centroid, using V's per-source thresholds (`vectors.threshold()`)
 - [ ] Exporter: write `meta.json`, `snapshots/<day>.json` and `stories/<id>.json` to `data/export/`, then run `uv run pytest`
 - [ ] Point-in-time: stories as of day t use only data from day t or earlier (C depends on this)
 
@@ -108,14 +131,15 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - [ ] Find 2 or 3 strong examples for the pitch (stories flagged early that then blew up)
 - [ ] **Unblock yourself:** until B has stories, build the label/feature/backtest code on proxy stories (for example GKG theme × country counts), then switch to B's stories
 
-**Needs from others:** B: point-in-time story centroids per day. A: entity → Wikipedia title mapping.
+**Needs from others:** B: point-in-time story centroids per day. V: vectors and the news–news threshold. A: entity → Wikipedia title mapping.
 **Notes:**
 
 ### D: Web and API (owner: ____)
 
 **Goal:** the demo. Build against mock data (`npm run dev:mock`) until B exports real data.
 
-- [ ] Globe: stories as points or rings, sized by volume and coloured by `p_grow`; hover labels; country outlines (`world-atlas`)
+- [x] Globe: vector countries, heatmap of story footprints, flat markers coloured by forecast, hover labels (done in setup)
+- [ ] Click a marker to select a story; rings for stories about to break
 - [ ] Story panel showing:
   - title and timeline chart (articles, posts, pageviews)
   - items grouped by source
@@ -149,9 +173,11 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Python pipeline + TypeScript web, one repo | The ML libraries are Python and the globe libraries are JavaScript |
 | One Pydantic contract with generated TS types, and JSON export in API shape | Four people can work in parallel against mock data; shape drift is caught by pytest and tsc |
 | Embed titles, not full article text | GDELT has no article text; scraping is slow and hits paywalls |
-| Multilingual MiniLM embeddings (`config.EMBEDDING_MODEL`) | GDELT is multilingual; the model is fast on a laptop CPU |
+| Embedding model chosen by V at H+2 from a speed and quality benchmark; multilingual MiniLM is the default (`config.EMBEDDING_MODEL`) | GDELT is multilingual, and the backfill has to embed in about an hour. Changing the model later means re-embedding everything |
+| One vector store and one `threshold()` for every source, owned by V | Similarity scales differ between models and sources, so cutoffs must come from one calibrated place, not be hardcoded in each workstream |
+| Stories = Louvain communities of a kNN cosine-similarity graph (`stories/graph.py`) | It's the "link items by the angle between vectors" idea without chaining; it recovered all 9 demo stories, including two separate stories in the same city |
 | Cluster news first, then attach social posts with per-source thresholds | Threshold-linking everything chains unrelated stories together; posts and headlines don't sit in the same part of embedding space |
-| Link Wikipedia by entity, not by embedding | Cleaner signal, and pageview/edit history is available |
+| Wikipedia two ways: pageview/edit *features* via entity → title; *items* (Current events bullets, new event articles) via embeddings | Entity linking gives clean numeric history for the model; event text embeds well against headlines and shows on the globe as a source |
 | Social posts are for display only, not model features | There's no easy historical backfill, so they can't be backtested |
 | scikit-learn gradient boosting rather than LightGBM | Avoids the libomp hassle on macOS |
 | Reddit is a stretch goal | API access needs approval |
@@ -163,6 +189,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 ## Open questions
 
 - Hackathon schedule, and the rules on code prepared beforehand
-- Who owns which workstream
+- Who owns which workstream: Cooper owns V. B (Stories) needs an owner
+- **What do we predict?** `Humans.md` says "Wikipedia views, edits and new articles in the cluster"; this plan and `docs/WORKPLAN.md` say "the story's news volume doubles in 7 days", with Wikipedia as features. Pick one before C starts: the label code, the model card and the pitch all depend on it. News volume has the most history to backtest on; a Wikipedia pageview spike is closer to "the public notices"
 - How many days of GDELT to backfill. Measure the size of a single day of GKG first, for both feeds (see `docs/ARCHITECTURE.md`)
 - Is `<PAGE_TITLE>` original-language or English in the translated feed? (A to check)

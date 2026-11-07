@@ -18,7 +18,8 @@ Undercurrent is a hackathon project (Hack the Burgh). It does three things:
 | Path | What | Owner |
 |---|---|---|
 | `pipeline/undercurrent/ingest/` | Fetch and parse GDELT, Bluesky, Wikipedia, Reddit | A: Ingest |
-| `pipeline/undercurrent/stories/` | Embeddings, clustering, story tracking, attaching posts, export | B: Stories |
+| `pipeline/undercurrent/vectors/` | Text cleaning, embeddings for every source, vector store, similarity thresholds, Wikipedia text | V: Vectors (Cooper) |
+| `pipeline/undercurrent/stories/` | Clustering, story tracking, footprints, attaching posts, export | B: Stories |
 | `pipeline/undercurrent/forecast/` | Labels, features, model, backtest | C: Forecast |
 | `pipeline/undercurrent/api/`, `web/` | FastAPI server, globe UI | D: Web |
 | `pipeline/undercurrent/contracts.py` | Shared data contract | Everyone (see below) |
@@ -110,3 +111,4 @@ When you finish a task, tick it in **your own workstream's section** of `PLAN.md
 - **Cache errors:** if uv or npm can't write to `~/.cache` or `~/.npm` (Claude Code sandbox), prefix the command with `UV_CACHE_DIR=$TMPDIR/uv-cache` or `npm_config_cache=$TMPDIR/npm-cache`.
 - **No local servers:** the Claude Code sandbox may block binding local ports. Verify the API with `fastapi.testclient.TestClient` instead of running a server.
 - **No network:** Codex's default sandbox has no network access. Your human must run downloads, or enable network access for the session.
+- **Hugging Face model download fails** with `OSStatus -26276` or a "CAS Client Error" (the Claude Code sandbox blocks the macOS keychain): set `SSL_CERT_FILE` to certifi's bundle (`uv run python -m certifi` prints the path) and `HF_HUB_DISABLE_XET=1`. Once the model is cached in `data/cache/`, set `HF_HUB_OFFLINE=1`.

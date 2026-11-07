@@ -1,6 +1,6 @@
 # Work plan: division of labour and timeline
 
-This is the step-by-step plan for the four agents (A: Ingest, B: Stories, C: Forecast, D: Web/API). It adds detail to `PLAN.md` without replacing it.
+This is the step-by-step plan for the five workstreams (A: Ingest, V: Vectors, B: Stories, C: Forecast, D: Web/API), shared by four people. **Cooper owns V.** It adds detail to `PLAN.md` without replacing it.
 
 - `PLAN.md` is the status board. Tick boxes there, in your own section only.
 - This file says **what to build, in what order, in what file, and what to hand to whom**.
@@ -18,7 +18,7 @@ This is the step-by-step plan for the four agents (A: Ingest, B: Stories, C: For
 3. **Days are UTC calendar days**, as `datetime.date`. "As of day t" means everything published up to 23:59:59 UTC on day t.
 4. **Point-in-time rule:** anything computed as of day t uses only data from day t or earlier. Every function that takes an `as_of` argument must filter its input to that date first.
 5. **Never block on someone else.** If an input doesn't exist yet, build against a stub, a fake or a proxy with the same schema, and keep going. Each section below names the stub to use.
-6. **Reading another workstream's code is fine; editing it isn't.** C may `from undercurrent.stories.embed import load_embeddings`. If you need a change there, put it under "Needs from others" in `PLAN.md`.
+6. **Reading another workstream's code is fine; editing it isn't.** C may `from undercurrent.vectors import load`. If you need a change there, put it under "Needs from others" in `PLAN.md`.
 7. Every module runs as `uv run python -m undercurrent.<area>.<module>` with `argparse`. Fetch scripts take `--start/--end` or `--days`, skip files already on disk, and default to small date ranges.
 8. Run `npm run check` before every commit. Run `git pull --rebase` before every push.
 
@@ -29,11 +29,14 @@ This is the step-by-step plan for the four agents (A: Ingest, B: Stories, C: For
 | Agent | Owns | Main outputs | Needs |
 |---|---|---|---|
 | **A: Ingest** | `pipeline/undercurrent/ingest/` | `articles.parquet`, Wikipedia tables, `resolve()`, Bluesky parquet and live generator | nothing (always unblocked) |
-| **B: Stories** | `pipeline/undercurrent/stories/` | embeddings, `stories_daily.parquet`, `story_assignments.parquet`, **all of `data/export/`**, `nearest_story()` | A's `articles.parquet`; C's `forecasts.parquet` (optional, merged if present) |
-| **C: Forecast** | `pipeline/undercurrent/forecast/` | `forecasts.parquet`, `model_metrics.json`, pitch examples, the `ModelMetrics.calibration` contract change | B's daily centroids, B's embeddings, A's Wikipedia tables |
+| **V: Vectors** (Cooper) | `pipeline/undercurrent/vectors/` | text cleaning per source, the vector store with `load()`, `embed()` (also used live), calibrated similarity thresholds, Wikipedia text tables (`wiki_events`, `wiki_new`) | A's `articles.parquet` and Bluesky parquet (V fetches the Wikipedia text itself) |
+| **B: Stories** | `pipeline/undercurrent/stories/` | `stories_daily.parquet` (with footprints), `story_assignments.parquet`, **all of `data/export/`**, `nearest_story()` | V's vectors and thresholds; A's `articles.parquet`; C's `forecasts.parquet` (optional, merged if present) |
+| **C: Forecast** | `pipeline/undercurrent/forecast/` | `forecasts.parquet`, `model_metrics.json`, pitch examples, the `ModelMetrics.calibration` contract change | B's daily centroids, V's vectors and thresholds, A's Wikipedia tables |
 | **D: Web/API** | `pipeline/undercurrent/api/`, `web/` | the globe app, `/api/live`, offline mode, **demo script and Devpost draft** | mock data until B's first export; A's and B's live hooks |
 
-D has the least blocking work early on, so D also owns the demo and submission material. That keeps A, B and C free for fixes in the last hours.
+D has the least blocking work early on, so D also owns the demo and submission material. That keeps A, V, B and C free for fixes in the last hours.
+
+**Five workstreams, four people:** B still needs an owner. Either Cooper takes B as well (clustering and tracking are vector-space work), or A takes it once ingest is stable (A's work is front-loaded). Decide before the event and fill in `PLAN.md`.
 
 ---
 
@@ -106,15 +109,23 @@ Live hook, in `undercurrent.ingest.bluesky`:
 async def stream_posts(langs: set[str] = {"en"}) -> AsyncIterator[dict]: ...  # same keys as the columns above
 ```
 
-### 3.4 Embeddings (B → C)
+### 3.4 Vectors (V → B, C, D)
 
-- `processed/embeddings/<YYYY-MM-DD>.npy`: float32 array of shape (n, 384), **L2-normalised**.
-- `processed/embeddings/<YYYY-MM-DD>.ids.parquet`: one column, `id`, in the same row order.
-- Loader, in `undercurrent.stories.embed`:
+One store for every source. `source` is one of `news`, `bluesky`, `wiki_events`, `wiki_new`, `reddit`.
+
+- `processed/vectors/<source>/<YYYY-MM-DD>.npy`: float16, shape (n, dim), **L2-normalised**. float16 halves the disk size; cosine precision is unaffected.
+- `processed/vectors/<source>/<YYYY-MM-DD>.parquet`: `id`, `text` (exactly what was embedded), in the same row order.
+- `processed/vectors/manifest.json`: `{model, dim, text_version}`. If the model or the text cleaning changes, every vector must be rebuilt, so **the model is locked at the H+2 sync**.
+- Python API, in `undercurrent.vectors`:
 
   ```python
-  def load_embeddings(days: list[date]) -> tuple[list[str], np.ndarray]: ...
+  Source = Literal["news", "bluesky", "wiki_events", "wiki_new", "reddit"]
+  def embed(texts: list[str], source: Source) -> np.ndarray: ...   # cleans + embeds; (n, dim) float32, L2-normalised. Same model as the store; used live.
+  def load(source: Source, days: list[date]) -> tuple[list[str], np.ndarray]: ...  # ids, float32 vectors
+  def threshold(a: Source, b: Source) -> float: ...  # calibrated "same story" cosine cutoff for this model
   ```
+
+- Thresholds live in git (`pipeline/undercurrent/vectors/thresholds.py`, keyed by model), not in `data/`, so every laptop gets the same ones. Similarity scales differ between models, so never hardcode a cutoff like 0.75 elsewhere: call `threshold()`.
 
 ### 3.5 `processed/stories_daily.parquet` (B → C)
 
@@ -124,9 +135,10 @@ One row per (story, day): the state of the story **as of the end of that day**, 
 |---|---|---|
 | `story_id` | str | matches `contracts.STORY_ID_PATTERN`, stable across days |
 | `day` | date | as-of day |
-| `centroid` | list<float32>[384] | L2-normalised mean of member embeddings |
+| `centroid` | list<float32>[dim] | L2-normalised mean of member vectors (`dim` from V's manifest) |
 | `label` | str | most central headline |
 | `location` | struct{name, country, lat, lon} | most-mentioned location |
+| `footprint` | list<struct{lat, lon, weight, radius_km}> | the heatmap spread; same fields as `contracts.FootprintPoint` (see `docs/ARCHITECTURE.md`) |
 | `entities` | list<str> | top persons and orgs |
 | `first_seen` | date | |
 | `n_articles_day` | int | articles assigned on this day |
@@ -157,7 +169,18 @@ In `undercurrent.stories.live_match`:
 def nearest_story(text: str) -> tuple[str, float] | None: ...  # (story_id, similarity); None if under the Bluesky threshold
 ```
 
-It loads the latest day's centroids once and reuses them.
+It loads the latest day's centroids once and reuses them, embeds the text with `vectors.embed(text, "bluesky")`, and uses `vectors.threshold("bluesky", "news")`.
+
+### 3.9 Wikipedia text (V → B, C)
+
+V fetches and embeds these; A's Wikipedia tables (3.2) stay the numeric pageview and edit series.
+
+| File | Columns |
+|---|---|
+| `processed/wiki_events.parquet` | `id: str` (`<day>:<n>`), `day: date`, `text: str` (one bullet from the daily "Current events" page), `titles: list<str>` (the articles it links to) |
+| `processed/wiki_new.parquet` | `id: str` (page id), `day: date` (created), `title: str`, `text: str` (title + first sentence) |
+
+Current-events bullets are short, curated event summaries going back years, so they embed well against headlines and work for the backfill. Their links also give B and C Wikipedia titles for free. New event articles ("2026 Kenyan election recount") are a strong "this is getting big" signal.
 
 ---
 
@@ -169,11 +192,12 @@ H = hours since hacking starts. Every phase ends with a **sync**: a 5–10 minut
 
 | Who | Task |
 |---|---|
-| All | Fill in owner names in `PLAN.md`. Run `npm install && uv sync && npm run dev:mock`, and **open the globe in a browser**. Nobody has done that yet. |
+| All | Fill in owner names in `PLAN.md`, including who takes B. Run `npm install && uv sync && npm run dev:mock`, and open the globe in a browser to check it works on your laptop. |
 | All | Read your section of `docs/ARCHITECTURE.md` and all of this file. |
 | All | If two agents share a laptop, set up one `git worktree` per agent. |
 | A | Apply for Reddit API access, or mark Reddit as cut in `PLAN.md`. |
-| B | Download and cache the embedding model: `uv run python -c "import undercurrent.config; from sentence_transformers import SentenceTransformer as S; S(undercurrent.config.EMBEDDING_MODEL)"` |
+| V | Download and cache the candidate embedding models, so they don't eat event wifi: `uv run python -c "import undercurrent.config; from sentence_transformers import SentenceTransformer as S; S('<model id>')"` for each candidate (see Phase 1). |
+| All | Agree with the team on **what we predict**. `Humans.md` says "Wikipedia views, edits and new articles in the cluster", while `PLAN.md` and C's tasks say "the story's news volume doubles". See `PLAN.md` open questions. |
 | D | Check the hackathon rules on code written beforehand. Start the Devpost note about the pre-built scaffolding. |
 
 ### Phase 1: H+0 to H+2 → M0, everyone running
@@ -181,22 +205,24 @@ H = hours since hacking starts. Every phase ends with a **sync**: a 5–10 minut
 | Agent | Tasks, in order | Files |
 |---|---|---|
 | **A** | 1. `ingest/fips.py`: FIPS 10-4 → ISO alpha-2 table (watch for UK, GM, CH, SZ, AS, RS). <br>2. `ingest/gdelt_download.py`: handles **both feeds** (read `masterfilelist.txt` and `masterfilelist-translation.txt`); `--start/--end`, `--sample-per-hour N`, `--translation`; the default run covers both feeds, and `--translation` still selects the translated feed; skip existing zips; download to `raw/gdelt/YYYYMMDD/`. <br>3. Download **one full day of both feeds**, measure each feed's size and download time, and write them in `PLAN.md` Notes. <br>4. **Start the backfill in the background right away**: 60 days of both feeds, `--sample-per-hour 1` on both (or less if the measurement says so). <br>5. `ingest/gkg_parse.py` → `articles.parquet` for that one day, with dedup **across both feeds together** (same URL; same normalised title within a day), and the `translated` and `lang` columns filled. Check whether translated-feed `<PAGE_TITLE>` is original-language or English, and write the answer in `PLAN.md` Notes. | `ingest/*.py` |
-| **B** | 1. `stories/embed.py`: embed the titles for a day in batches (batch size 256), cache `.npy` + `.ids.parquet`, `load_embeddings()`. Test it on 500 made-up or sample titles until A's day lands. <br>2. Draft `stories/cluster.py` with HDBSCAN on normalised vectors (`min_cluster_size` about 5, metric euclidean on unit vectors, which is equivalent to cosine). | `stories/embed.py`, `stories/cluster.py` |
+| **V** | 1. `vectors/clean.py`: one text recipe per source, versioned as `TEXT_VERSION`. <br>– **news:** HTML-unescape; strip site-name suffixes (" - BBC News", " \| Reuters"); drop boilerplate titles ("Home", "Login", "404 Not Found", "Subscribe to read", fewer than 4 words). Otherwise these junk titles form their own clusters. <br>– **bluesky:** remove URLs and @mentions, turn hashtags into words, drop posts under about 6 words. <br>2. `vectors/__init__.py` + `vectors/store.py`: `embed()`, `load()`, `threshold()` as in section 3.4. Write per source and day. Cache by sha1 of the cleaned text, so wire copies repeated across days are never embedded twice. Use `device="mps"` on Apple Silicon and batches of 256. <br>3. **Pick the model.** Benchmark 2–3 models on one GKG file's titles (if A's parser isn't ready, download one file and pull `<PAGE_TITLE>` yourself). Measure titles per second on your laptop, and quality on about 100 hand-labelled pairs (same story / related / unrelated). Candidates: the current default `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (fast, 384-d), `intfloat/multilingual-e5-small` (prefix every text with `"query: "`; its similarities bunch up around 0.7–1.0, so its thresholds differ), and one stronger model if throughput allows. Backfill size (both GDELT feeds) × titles/s must fit in about an hour. Set `config.EMBEDDING_MODEL`. <br>4. `vectors/wiki_events.py`: fetch the daily "Current events" pages (`Portal:Current_events/2026_November_6`) for the backfill range → `wiki_events.parquet` (section 3.9). About 60 requests. | `vectors/*.py`, `config.py` (model id only) |
+| **B** | 1. Start from the working prototype in `stories/graph.py` (kNN similarity graph + Louvain; see the Stories section of `docs/ARCHITECTURE.md`). `uv run python -m undercurrent.demo` runs it end to end on hand-labelled items and scores it. Wrap it as `stories/cluster.py` for a trailing window of real days. <br>2. `stories/footprint.py`: location mentions → `FootprintPoint`s. Weight by share of mentions; `radius_km` from the GDELT location type: city (3/4) ~75, state or region (2/5) ~250, country (1) about half its width. Test on a fake articles frame. | `stories/cluster.py`, `stories/footprint.py` |
 | **C** | 1. Write the label definition in `PLAN.md` Notes: `grew = vol(t+1..t+7) >= 2 × vol(t-6..t)`, only when `vol(t-6..t) >= 20`. <br>2. `forecast/proxy.py`: proxy stories = (top GKG theme × country) daily counts from `articles.parquet`, with the same columns that `forecast/labels.py` will need later. Until A's day lands, use a generated fake frame. <br>3. **Contract change (do it now, so D can build on it):** add an optional `calibration: list[CalibrationBin] = []` to `ModelMetrics`, where `CalibrationBin(p_pred: float, p_obs: float, n: int)`. Then `npm run gen:types`, update `mock.py`, `npm run gen:mock`, `uv run pytest`. One commit, `contract: add ModelMetrics.calibration`. Announce it. | `forecast/proxy.py`, `contracts.py`, `mock.py` |
-| **D** | 1. Zustand store: `selectedStoryId`, `currentDate`, `replayMode`, `revealOutcome`. <br>2. Globe: `pointsData` (radius ∝ sqrt(article_count_7d), colour = `p_grow` on `d3-scale-chromatic` `interpolateYlOrRd`), country outlines from `world-atlas` 110m, hover labels. <br>3. Story panel skeleton, opened by clicking a point; fetches `/api/stories/{id}`. | `web/src/**` |
+| **D** | 1. Zustand store: `selectedStoryId`, `currentDate`, `replayMode`, `revealOutcome`. <br>2. The globe is already built: vector countries (`globe/land.ts`), a heatmap of story footprints (`globe/heat.ts`), and flat markers coloured by forecast. **Don't re-add country polygons via `polygonsData`, or towers**; see the Web section of `docs/ARCHITECTURE.md`. Wire marker clicks (`onPointClick`) to `selectedStoryId`. <br>3. Story panel skeleton, opened by clicking a marker; fetches `/api/stories/{id}`. | `web/src/**` |
 
-**Sync at H+2:** confirm the schemas in section 3 as written, or announce any changes. A reports the one-day GKG size for both feeds and the backfill depth chosen.
+**Sync at H+2:** confirm the schemas in section 3 as written, or announce any changes. A reports the one-day GKG size for both feeds and the backfill depth chosen. V reports the chosen model, its dimension and titles per second; **the model is locked from here on**.
 
-**Announce:** A: "`articles.parquet` for <day> is in `data/processed/`; the backfill is running." C: "Contract changed: `ModelMetrics.calibration`. Pull and rerun gen:types if needed."
+**Announce:** A: "`articles.parquet` for <day> is in `data/processed/`; the backfill is running." V: "`vectors.embed()`/`load()` work; model is <id>, dim <n>." C: "Contract changed: `ModelMetrics.calibration`. Pull and rerun gen:types if needed."
 
 ### Phase 2: H+2 to H+8 → M1, real stories on the globe
 
-**Critical path:** A's 7 days → B's clustering and tracking → B's first export → D switches from mock data.
+**Critical path:** A's 7 days → V's vectors (day by day, as each lands) → B's clustering and tracking → B's first export → D switches from mock data.
 
 | Agent | Tasks, in order |
 |---|---|
 | **A** | 1. Parse **the last 7 days in full** (every 15-minute file of both feeds, `sampled=false`). Target H+5. **Announce.** <br>2. `ingest/wiki_top.py`: daily top-1000 pageviews over the backfill range → `wiki_top.parquet`. Needs no titles. <br>3. `ingest/wiki_resolve.py`: `resolve()`/`resolve_many()` via the search API, cached, with `config.WIKIMEDIA_USER_AGENT`, max about 10 requests per second. **Announce.** <br>4. `ingest/wiki.py`: per-title pageviews and edits for a titles file. <br>5. Keep checking on the backfill and parse each day as it finishes (the parser must work one day at a time). |
-| **B** | 1. Embed the 7 days. <br>2. Cluster a trailing 3-day window ending on each day. **Print 20 clusters with 5 titles each and read them** before tuning. Write the parameters you chose in Notes. <br>3. `stories/track.py`: for each day in order, match new clusters to the previous day's story centroids (cosine ≥ about 0.75, Hungarian or greedy best-first). Matched clusters keep their id; unmatched ones get a new slug (`slugify(label)[:40] + "-" + 4 hex characters`). Write `stories_daily.parquet` and `story_assignments.parquet`. <br>4. Labels (title closest to the centroid), location (most common location, ignoring country-level entries when a city is available), entities (`resolve_many` once A ships it; until then names only). <br>5. `stories/export.py`: build `Meta`, `Snapshot`, `StoryDetail` with the Pydantic models in `contracts.py`, write `data/export/`, run `uv run pytest`. Use `forecast=None` until `forecasts.parquet` exists. **Target H+8. Announce.** |
+| **V** | 1. Embed each of A's 7 full days as soon as it's parsed, rather than waiting for all 7. **Target H+6. Announce.** <br>2. Calibrate `threshold()` for each source pair: news–news (B uses it for tracking), bluesky–news and wiki_events–news. Label about 50 pairs spread across similarity values, and pick the cutoff that gives about 90% precision. Commit `vectors/thresholds.py`. **Target H+8. Announce.** <br>3. Embed the `wiki_events` bullets for the backfill range. |
+| **B** | 1. Cluster a trailing 3-day window ending on each day, on V's vectors (`vectors.load("news", days)`). **Print 20 clusters with 5 titles each and read them** before tuning. Write the parameters you chose in Notes. <br>2. `stories/track.py`: for each day in order, match new clusters to the previous day's story centroids (cosine ≥ `vectors.threshold("news", "news")`, Hungarian or greedy best-first). Matched clusters keep their id; unmatched ones get a new slug (`slugify(label)[:40] + "-" + 4 hex characters`). Write `stories_daily.parquet` and `story_assignments.parquet`. <br>3. Labels (title closest to the centroid), location (most common location, ignoring country-level entries when a city is available), entities (`resolve_many` once A ships it; until then names only), and the footprint (`stories/footprint.py`). <br>4. `stories/export.py`: build `Meta`, `Snapshot`, `StoryDetail` with the Pydantic models in `contracts.py`, write `data/export/`, run `uv run pytest`. Use `forecast=None` until `forecasts.parquet` exists. **Target H+8. Announce.** |
 | **C** | 1. `forecast/labels.py` on proxy stories: for each (story, t), compute past volume, future volume, `growth_ratio` and `grew`, with the minimum-volume filter. <br>2. `forecast/features.py`: volume (log), `growth_7d`, acceleration (growth this week minus last week), distinct domains, distinct countries, tone and Δtone. Wikipedia features are stubbed as NaN for now (HGB handles NaN). <br>3. `forecast/backtest.py`: time split (last 14 days = test), momentum baseline (rank by `growth_7d`; Brier score via logistic regression on `growth_7d` alone), AUC, Brier, calibration bins. Run it on the proxies end to end, so the harness is finished before real stories arrive. |
 | **D** | 1. Time slider over `meta.dates`; changing it fetches `/api/snapshots/{day}`. <br>2. Story panel: title, timeline chart (recharts: articles; posts and pageviews when present), items grouped by `kind`, entities, forecast with its factors as a signed bar list. <br>3. Model card component: AUC and Brier vs baseline, calibration chart (reliability diagram against the diagonal), reading `meta.model`. Use the mock first. <br>4. When B announces the first export, run `npm run dev` against the real data and fix whatever breaks (empty fields, long titles, too many points). |
 
@@ -207,9 +233,10 @@ H = hours since hacking starts. Every phase ends with a **sync**: a 5–10 minut
 | Agent | Tasks, in order |
 |---|---|
 | **A** | 1. Finish parsing the backfill (about 60 days, sampled). **Announce** with the exact date range. <br>2. Per-entity pageviews and edits for the titles B and C send (B writes `data/processed/wiki_titles.txt`). <br>3. `ingest/bluesky.py`: Jetstream consumer that writes daily parquet (filtered to English plus a cheap keyword prefilter), and the `stream_posts()` async generator. **Announce.** |
-| **B** | 1. Run embed → cluster → track over **the whole backfill, one day at a time in order**, so every `stories_daily` row is point-in-time. This takes a while, so start it as soon as A's backfill is parsed. **Announce** when `stories_daily.parquet` covers the backfill. <br>2. Write `wiki_titles.txt` (entities of the top stories → `resolve_many`). <br>3. `stories/attach.py`: Bluesky posts → nearest centroid. Pick the threshold by reading about 50 pairs at different similarities, and write it in Notes. Fill `post_count_7d` and `items`. <br>4. Exporter: merge `forecasts.parquet` (forecast + outcome per story-day) and `model_metrics.json` into the snapshots and `meta.json`. Add `wiki_pageviews` to the timelines. Re-export and run pytest. |
-| **C** | 1. Switch from proxies to real stories. For each (story, t), take the frozen centroid from `stories_daily` at t, and count each future article (t+1..t+7) towards the story whose **day-t** centroid is nearest, above B's threshold. Don't use `story_assignments` for future volume, because it reflects later re-clustering. <br>2. Add the Wikipedia features (pageview and edit growth over the story's entities, via `wiki_resolve`). <br>3. Logistic regression (standardised features), then `HistGradientBoostingClassifier`. Pick the better one on the test window. Report honestly if neither beats momentum. <br>4. Factors: LR coefficient × standardised value; for HGB, a per-story approximation (difference from the mean prediction with each feature set to its median), top 3–5. <br>5. Write `forecasts.parquet` (every story-day in the backfill and the live days) and `model_metrics.json`, with calibration. **Announce.** <br>6. `forecast/examples.py`: list stories with high `p_grow` at t that grew 3× or more afterwards. Pick 2–3 for the pitch and write the ids and dates in Notes. |
-| **D** | 1. Replay mode: choose a past date → show the predictions → press a key or button to reveal the outcome (ring colour or ✓/✗ for `grew`, actual growth ratio). <br>2. Rings layer for stories with `p_grow` above about 0.6 ("about to break"). <br>3. Offline fallback: check that `npm run dev` works with wifi off (no CDN globe textures; serve the globe image from `web/public/`). <br>4. Start `docs/DEMO.md`: a 2-minute script, using C's pitch examples when they land. |
+| **V** | 1. Embed the backfill day by day as A parses it. **Target H+11**, so B's tracking run can start. **Announce.** <br>2. Embed the Bluesky daily parquet when A ships it (H+12). Make `embed(..., "bluesky")` fast enough for live use: load the model once, and batch posts about once a second. <br>3. `vectors/wiki_new.py`: new event articles in the window → `wiki_new.parquet` → embed. The recentchanges API only keeps about 30 days; for older days, check the creation date of titles linked from `wiki_events`. <br>4. Pitch numbers: precision of cross-platform links at the chosen thresholds ("9 in 10 linked posts are about the same story"). |
+| **B** | 1. Run cluster → track over **the whole backfill, one day at a time in order**, so every `stories_daily` row is point-in-time. This takes a while, so start it as soon as V has embedded the backfill. **Announce** when `stories_daily.parquet` covers the backfill. <br>2. Write `wiki_titles.txt` (entities of the top stories → `resolve_many`). <br>3. `stories/attach.py`: Bluesky posts, `wiki_events` bullets and `wiki_new` articles → nearest centroid, using `vectors.threshold(<source>, "news")` (V calibrates these). Fill `post_count_7d` and `items`. <br>4. Exporter: merge `forecasts.parquet` (forecast + outcome per story-day) and `model_metrics.json` into the snapshots and `meta.json`. Add `wiki_pageviews` to the timelines. Re-export and run pytest. |
+| **C** | 1. Switch from proxies to real stories. For each (story, t), take the frozen centroid from `stories_daily` at t, and count each future article (t+1..t+7) towards the story whose **day-t** centroid is nearest, above `vectors.threshold("news", "news")`. Don't use `story_assignments` for future volume, because it reflects later re-clustering. <br>2. Add the Wikipedia features (pageview and edit growth over the story's entities, via `wiki_resolve`). <br>3. Logistic regression (standardised features), then `HistGradientBoostingClassifier`. Pick the better one on the test window. Report honestly if neither beats momentum. <br>4. Factors: LR coefficient × standardised value; for HGB, a per-story approximation (difference from the mean prediction with each feature set to its median), top 3–5. <br>5. Write `forecasts.parquet` (every story-day in the backfill and the live days) and `model_metrics.json`, with calibration. **Announce.** <br>6. `forecast/examples.py`: list stories with high `p_grow` at t that grew 3× or more afterwards. Pick 2–3 for the pitch and write the ids and dates in Notes. |
+| **D** | 1. Replay mode: choose a past date → show the predictions → press a key or button to reveal the outcome (ring colour or ✓/✗ for `grew`, actual growth ratio). <br>2. Rings layer for stories with `p_grow` above about 0.6 ("about to break"). <br>3. Offline fallback: check that `npm run dev` works with wifi off. The globe already has no CDN dependencies (the country shapes are bundled), so this should only need checking. <br>4. Start `docs/DEMO.md`: a 2-minute script, using C's pitch examples when they land. |
 
 **Sync at H+16 (M2):** `meta.json` has real model metrics; the replay works on at least one pitch example.
 
@@ -218,6 +245,7 @@ H = hours since hacking starts. Every phase ends with a **sync**: a 5–10 minut
 | Agent | Tasks |
 |---|---|
 | **A** | Keep the Jetstream consumer stable (reconnect with backoff, cursor resume). Help D wire `stream_posts()`. Then: Reddit, only if everything else is green. |
+| **V** | Support B's `live_match` and D's `/api/live`: check embedding latency under live load. If everything is green: Reddit vectors. |
 | **B** | `stories/live_match.py`: `nearest_story()`. Final full export for the demo dates. Check story titles and locations on the globe for embarrassing errors (wrong country, junk headlines) and fix the causes. |
 | **C** | Freeze the model (`model_version` string, saved under `processed/models/`). Write a short "Methodology" paragraph in `PLAN.md` Notes for the Devpost: label, split, baseline, metrics, known limits. |
 | **D** | `api/live.py`: `WS /api/live` that iterates `stream_posts()`, calls `nearest_story()`, and sends `LivePost` JSON. The web side gets a ticker plus a pulse ring on the story's location. Test with `fastapi.testclient.TestClient`. Then polish: loading and empty states, intro overlay, keyboard shortcuts (←/→ change the day, space reveals the outcome, `m` opens the model card). |
@@ -241,16 +269,21 @@ Tick these in your own `PLAN.md` section as well. Times are targets.
 | # | By | From → to | What |
 |---|---|---|---|
 | 1 | H+1 | C → all | Contract: `ModelMetrics.calibration` |
-| 2 | H+2 | A → B, C | `articles.parquet`, 1 day |
-| 3 | H+5 | A → B, C | `articles.parquet`, last 7 days in full |
-| 4 | H+6 | A → B, C | `resolve()` and `wiki_top.parquet` |
-| 5 | H+8 | B → D | first real `data/export/` (7 days) |
-| 6 | H+10 | A → B, C | backfill parsed (about 60 days) |
-| 7 | H+12 | B → C | `stories_daily.parquet` covering the backfill, plus embeddings |
-| 8 | H+12 | A → B, D | Bluesky parquet and `stream_posts()` |
-| 9 | H+15 | C → B | `forecasts.parquet` and `model_metrics.json` |
-| 10 | H+16 | B → D | export with forecasts, outcomes and model metrics |
-| 11 | H+17 | B → D | `nearest_story()` |
+| 2 | H+2 | V → B, C | `embed()` / `load()` working; **model locked** |
+| 3 | H+2 | A → V, B, C | `articles.parquet`, 1 day |
+| 4 | H+5 | A → V, B, C | `articles.parquet`, last 7 days in full |
+| 5 | H+6 | V → B, C | vectors for the last 7 days |
+| 6 | H+6 | A → B, C | `resolve()` and `wiki_top.parquet` |
+| 7 | H+8 | V → B, C | calibrated thresholds; `wiki_events` vectors |
+| 8 | H+8 | B → D | first real `data/export/` (7 days) |
+| 9 | H+10 | A → V, B, C | backfill parsed (about 60 days) |
+| 10 | H+11 | V → B, C | backfill vectors |
+| 11 | H+12 | B → C | `stories_daily.parquet` covering the backfill |
+| 12 | H+12 | A → V, B, D | Bluesky parquet and `stream_posts()` |
+| 13 | H+13 | V → B | Bluesky and `wiki_new` vectors |
+| 14 | H+15 | C → B | `forecasts.parquet` and `model_metrics.json` |
+| 15 | H+16 | B → D | export with forecasts, outcomes and model metrics |
+| 16 | H+17 | B → D | `nearest_story()` |
 
 ---
 
@@ -264,9 +297,11 @@ Tick these in your own `PLAN.md` section as well. Times are targets.
 | The model doesn't beat momentum | Report it honestly on the model card. Show where it helps (for example on low-volume stories) if that's true. |
 | Live Bluesky is flaky | Cut `/api/live`. The replay is the core of the pitch. |
 | Wikipedia rate limits | Use only `wiki_top.parquet` (bulk), and restrict per-title fetches to entities of stories in the test window. |
+| Embedding is too slow for the backfill | Use the faster model (decide at H+2; never switch mid-backfill), rely on the text cache to skip repeated wire copies, or cut the backfill to 30 days. |
+| Posts or Wikipedia items link to the wrong stories | Raise that source's threshold (fewer, better links) and show only the top few items per story. |
 
 ---
 
 ## 7. Commit messages
 
-Use these prefixes: `ingest:`, `stories:`, `forecast:`, `api:`, `web:`, `contract:`, `docs:`. For example: `stories: track story ids across days`.
+Use these prefixes: `ingest:`, `vectors:`, `stories:`, `forecast:`, `api:`, `web:`, `contract:`, `docs:`. For example: `stories: track story ids across days`.

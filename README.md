@@ -27,6 +27,7 @@ npm run dev            # API on :8000 + web on :5173
 | `npm run check` | Typecheck + ruff + pytest |
 | `npm run format` | Prettier + ruff format |
 | `uv run python -m undercurrent.<area>.<module>` | Run a pipeline step |
+| `uv run python -m undercurrent.demo` | Embed + cluster the hand-written demo items, score them, export to `data/export/` (then `npm run dev` shows them) |
 
 ## Repo map
 
@@ -36,7 +37,8 @@ pipeline/undercurrent/
   config.py        paths + shared constants
   mock.py          generates web/public/mock/
   ingest/          A: GDELT, Bluesky, Wikipedia, Reddit -> data/raw, data/processed
-  stories/         B: embeddings, clustering, story tracking -> data/export
+  vectors/         V: text cleaning + embeddings for every source -> data/processed/vectors
+  stories/         B: clustering, story tracking, footprints -> data/export
   forecast/        C: labels, features, model, backtest
   api/             D: FastAPI over data/export
 pipeline/tests/    pytest
