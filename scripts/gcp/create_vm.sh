@@ -91,7 +91,8 @@ else
           2>"${TMPDIR:-/tmp}/uc-create.err"; then
           ZONE=$Z; break 3
         fi
-        grep -m1 -E "ERROR|Quota|QUOTA|unavailable|exhausted" "${TMPDIR:-/tmp}/uc-create.err" || true
+        # The reason is on the lines after "Could not fetch resource:" (quota, out of stock...).
+        grep -vE '^\s*$|Could not fetch resource' "${TMPDIR:-/tmp}/uc-create.err" | head -2 | cut -c1-220 || true
       done
     done
     echo "== No L4 machine available right now (round $round of 6); trying again in 2 minutes"
