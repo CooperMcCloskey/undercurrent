@@ -77,7 +77,37 @@ Everything goes to Cooper's bucket, `gs://$BUCKET` (the name is in the team chat
 | ~6:00 | Upload, mark the block done, stop the VM | |
 | ~6:00–~7:00 | Cooper: merge, forecast, export | |
 
-## Runbook for each account
+## Quick start: one command per account (recommended)
+
+After step 0 below (billing upgrade, quota), open **Cloud Shell** in the console (the `>_` icon), check the project with `gcloud config get-value project`, and run, with **your block number** in place of `2`:
+
+```bash
+rm -rf undercurrent && git clone -q https://github.com/CooperMcCloskey/undercurrent.git && bash undercurrent/scripts/gcp/create_vm.sh 2
+```
+
+- **With 3 accounts,** add `3` after the block number. Cooper is block `1`, which also creates the bucket.
+- **Creating the VM** (`scripts/gcp/create_vm.sh`): it tries every `us-central1` zone and the biggest L4 machine your quota allows, and retries for about 12 minutes if L4s are out of stock.
+- **The VM then sets itself up** (`scripts/gcp/vm_startup.sh`, at every boot): it checks the driver and PyTorch, installs the code, sizes `~/block.env` to the machine, runs the dry run (and stops if it's over 2,500 GB), then starts the pull, embed and upload loops. Embedding and uploading stop by themselves when the block is done.
+- **At the end it prints** the VM's service account: send it to Cooper for bucket access.
+
+From then on, everything is one command from Cloud Shell. Replace `ZONE` with the zone it printed:
+
+| When | Command |
+|---|---|
+| Any time: progress | `gcloud compute ssh uc-gpu --zone=ZONE --command='sudo -u uc -H bash /home/uc/undercurrent/scripts/gcp/block.sh status'` |
+| After "cutoffs pushed" | the same with `track` instead of `status` (it resumes if it stops; `track-fresh` starts again) |
+| Tracking finished | the same with `finish`: uploads your own days and writes `status/block-N.done` |
+| Then | `gcloud compute instances stop uc-gpu --zone=ZONE` |
+
+If setup goes wrong, its log is readable without SSH:
+
+```bash
+gcloud compute instances get-serial-port-output uc-gpu --zone=ZONE 2>/dev/null | grep uc-startup | tail -20
+```
+
+The steps below are what the scripts do, by hand: use them to debug, or if the scripts fail.
+
+## Runbook for each account (by hand)
 
 ### 0. The account (do it now: approvals take time)
 
