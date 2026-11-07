@@ -1,9 +1,9 @@
 // Placeholder: proves the contract -> API/mock -> globe path works end to end.
 // Workstream D replaces this with the real UI.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import Globe, { type GlobeMethods } from 'react-globe.gl'
-import { MeshLambertMaterial, type Object3D } from 'three'
+import { MeshLambertMaterial, type Object3D, type PerspectiveCamera } from 'three'
 import { api } from './api/client'
 import type { StorySummary } from './api/types.gen'
 import { CATEGORY_ORDER, CATEGORY_STYLE, hexToRgb, type Category } from './globe/categories'
@@ -23,6 +23,11 @@ import {
 import { describeForecastShort } from './story/forecast'
 import { StoryPanel } from './story/StoryPanel'
 import { useArticles } from './story/useArticles'
+import { formatLong, toDay, toIndex, yearsBefore, type DayIndex } from './timeline/days'
+import { historySnapshot } from './timeline/history'
+import { HISTORY_YEARS } from './timeline/source'
+import { TimeBar } from './timeline/TimeBar'
+import { useEasedStories, type EasedStory } from './timeline/useEasedStories'
 
 // Vector globe: ocean sphere, merged land mesh (globe/land.ts), a heatmap of where stories are
 // happening coloured by category (globe/heat.ts), a marker per story, and an outline of the
@@ -42,7 +47,7 @@ const HIGHLIGHT_ALTITUDE = 0.009
 const MARKER_ALTITUDE = 0.011
 // Minimum spread of every place's heat, in km on the globe. Absolute, so the heat is a fixed
 // layer on the Earth: zooming magnifies it and never reshapes it.
-const HEAT_SPREAD_KM = 200
+const HEAT_SPREAD_KM = 120
 // Marker size in degrees of arc; the hovered one grows.
 const MARKER_RADIUS = 0.6
 const MARKER_RADIUS_HOVERED = 1.1
@@ -61,6 +66,12 @@ const LABEL_ALTITUDE = 0.012
 // Leaving a marker ends its hover this long afterwards, so the pointer can cross the gap from
 // the marker to one of its article dots without the dots vanishing.
 const HOVER_LEAVE_MS = 200
+// Depth precision. globe.gl's camera has a fixed near plane of 0.05, so zoomed out the depth
+// buffer can't separate the land (0.5 units above the sea) from the ocean, and they flicker into
+// each other. Instead the near plane follows the camera: half its distance to the outermost layer
+// (the atmosphere, ~1.18 radii), so nothing visible is ever clipped.
+const NEAR_CLEARANCE_RADIUS = 120 // globe radius is 100
+const MIN_NEAR = 0.05
 
 // PERFORMANCE: everything passed to <Globe> must keep the same identity between renders.
 // react-globe.gl re-processes a whole layer whenever a data or accessor prop changes, and inline
@@ -76,31 +87,45 @@ interface Marker {
   story: StorySummary
   lat: number
   lng: number
+  /** Size, 0..1, eased: the marker grows in as its story arrives and shrinks as it fades. */
+  level: number
 }
 const marker = (o: object) => o as Marker
 const pointLat = (o: object) => marker(o).lat
 const pointLng = (o: object) => marker(o).lng
 const pointColor = (o: object) => colorOf(marker(o).story)
+// Markers smaller than this aren't drawn.
+const MIN_MARKER_LEVEL = 0.02
 
-/** Stories anchored at the same place (two Rotterdam stories) are fanned out in a small ring. */
-function placeMarkers(stories: StorySummary[]): Marker[] {
-  const byPlace = new Map<string, StorySummary[]>()
-  for (const s of stories) {
-    const key = `${s.location.lat.toFixed(2)},${s.location.lon.toFixed(2)}`
-    byPlace.set(key, [...(byPlace.get(key) ?? []), s])
+/**
+ * One marker per story; stories anchored at the same place (two Rotterdam stories) are fanned out
+ * in a small ring. Each story keeps its marker object (`cache`) from frame to frame, so the
+ * globe updates the marker in place while it grows or fades rather than rebuilding it.
+ */
+function placeMarkers(eased: readonly EasedStory[], cache: Map<string, Marker>): Marker[] {
+  const byPlace = new Map<string, EasedStory[]>()
+  for (const e of eased) {
+    if (e.level < MIN_MARKER_LEVEL) continue
+    const key = `${e.story.location.lat.toFixed(2)},${e.story.location.lon.toFixed(2)}`
+    byPlace.set(key, [...(byPlace.get(key) ?? []), e])
   }
-  return [...byPlace.values()].flatMap((group) =>
-    group.map((story, i) => {
+  const markers = [...byPlace.values()].flatMap((group) =>
+    group.map(({ story, level }, i) => {
       const angle = (2 * Math.PI * i) / group.length
       const r = group.length > 1 ? 2 * MARKER_RADIUS : 0 // degrees
       const { lat, lon } = story.location
-      return {
+      const m = cache.get(story.id) ?? ({} as Marker)
+      return Object.assign(m, {
         story,
+        level,
         lat: lat + r * Math.sin(angle),
         lng: lon + (r * Math.cos(angle)) / Math.max(Math.cos((lat * Math.PI) / 180), 0.2),
-      }
+      })
     }),
   )
+  cache.clear()
+  for (const m of markers) cache.set(m.story.id, m)
+  return markers
 }
 
 // Tooltips are inserted as HTML, and titles come from scraped headlines: always escape.
@@ -144,9 +169,12 @@ const layerObject = (d: object) => (d as { object: Object3D }).object
 const keepLayerObject = () => {}
 const loadLandLayer = () => loadLand({ altitude: LAND_ALTITUDE, ...COLORS })
 
-/** Each story's heat is its article count, spread over its footprint, in its category colour. */
-function heatPoints(stories: StorySummary[]): HeatPoint[] {
-  return stories.flatMap((s) => {
+/**
+ * Each story's heat is its article count (eased between days, see useEasedStories), spread over
+ * its footprint, in its category colour.
+ */
+function heatPoints(items: readonly { story: StorySummary; count: number }[]): HeatPoint[] {
+  return items.flatMap(({ story: s, count }) => {
     const color = hexToRgb(colorOf(s))
     const footprint = s.footprint.length
       ? s.footprint
@@ -154,7 +182,7 @@ function heatPoints(stories: StorySummary[]): HeatPoint[] {
     return footprint.map((p) => ({
       lat: p.lat,
       lon: p.lon,
-      weight: s.article_count_7d * p.weight,
+      weight: count * p.weight,
       radiusKm: p.radius_km,
       color,
     }))
@@ -163,19 +191,40 @@ function heatPoints(stories: StorySummary[]): HeatPoint[] {
 
 export default function App() {
   const meta = useQuery({ queryKey: ['meta'], queryFn: api.meta })
-  const day = meta.data?.latest
+  // The day on the time bar (null = the latest). Days the pipeline exported are real; the rest
+  // of the range comes from the illustrative archive (timeline/history.ts).
+  const latest = meta.data ? toIndex(meta.data.latest) : null
+  const realDays = useMemo(() => new Set((meta.data?.dates ?? []).map(toIndex)), [meta.data])
+  const [pickedDay, setPickedDay] = useState<DayIndex | null>(null)
+  const barDay = pickedDay ?? latest
+  // Computing a day is cheap, so the globe follows the bar straight away; useEasedStories then
+  // smooths the change on screen.
+  const shownDay = barDay
+  const isRealDay = shownDay !== null && realDays.has(shownDay)
+  const day = shownDay === null ? undefined : toDay(shownDay)
   const snapshot = useQuery({
     queryKey: ['snapshot', day],
     queryFn: () => api.snapshot(day!),
-    enabled: !!day,
+    enabled: !!day && isRealDay,
+    placeholderData: keepPreviousData,
   })
+  const archive = useMemo(
+    () => (shownDay !== null && !isRealDay ? historySnapshot(shownDay) : null),
+    [shownDay, isRealDay],
+  )
   const land = useQuery({
     queryKey: ['land'],
     queryFn: loadLandLayer,
     staleTime: Infinity,
     structuralSharing: false,
   })
-  const stories = snapshot.data?.stories ?? NO_STORIES
+  const stories = (isRealDay ? snapshot.data?.stories : archive?.snapshot.stories) ?? NO_STORIES
+  // How present each story is (0..1) on this day: archive stories fade in and out around their
+  // threshold; pipeline stories are simply there.
+  const presenceOf = useCallback(
+    (s: StorySummary) => (isRealDay ? 1 : (archive?.presence.get(s.id) ?? 1)),
+    [isRealDay, archive],
+  )
 
   // Category filter: categories in `hidden` are left off the globe.
   const [hidden, setHidden] = useState<ReadonlySet<Category>>(() => new Set())
@@ -212,14 +261,36 @@ export default function App() {
     [hoverStory],
   )
   const pointRadius = useCallback(
-    (o: object) => (marker(o).story.id === active?.id ? MARKER_RADIUS_HOVERED : MARKER_RADIUS),
+    (o: object) =>
+      (marker(o).story.id === active?.id ? MARKER_RADIUS_HOVERED : MARKER_RADIUS) * marker(o).level,
     [active],
   )
 
-  const markers = useMemo(() => placeMarkers(visible), [visible])
+  // What's drawn: the visible stories, with sizes and heat easing toward the day's values, so
+  // stories grow in and fade out as the time bar moves instead of popping.
+  const eased = useEasedStories(visible, presenceOf)
+  const markerCache = useRef(new Map<string, Marker>())
+  const markers = useMemo(() => placeMarkers(eased, markerCache.current), [eased])
 
   // Selecting a story: fly to it and open its panel.
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
+  // Runs before every frame, so it also covers pointOfView fly-tos, not just mouse zooming.
+  useEffect(() => {
+    const globe = globeRef.current
+    if (!globe) return
+    const scene = globe.scene()
+    const camera = globe.camera() as PerspectiveCamera
+    scene.onBeforeRender = () => {
+      const near = Math.max(MIN_NEAR, (camera.position.length() - NEAR_CLEARANCE_RADIUS) / 2)
+      if (Math.abs(near - camera.near) > near * 0.01) {
+        camera.near = near
+        camera.updateProjectionMatrix()
+      }
+    }
+    return () => {
+      scene.onBeforeRender = () => {}
+    }
+  }, [])
   const reachRef = useRef<{ storyId: string; deg: number } | null>(null) // how far the dots spread
   const [pickedId, setPickedId] = useState<string | null>(null) // article dot clicked on the globe
   const [highlightedId, setHighlightedId] = useState<string | null>(null) // article dot/row hovered
@@ -323,10 +394,13 @@ export default function App() {
     return { layer, item: { object: layer.object } }
   }, [])
   useEffect(() => {
-    heat.layer.update(heatPoints(visible), HEAT_SPREAD_KM)
-  }, [heat, visible])
+    heat.layer.update(heatPoints(eased), HEAT_SPREAD_KM)
+  }, [heat, eased])
   useEffect(() => {
-    highlight.layer.update(active ? heatPoints([active]) : [], HEAT_SPREAD_KM)
+    highlight.layer.update(
+      active ? heatPoints([{ story: active, count: active.article_count_7d }]) : [],
+      HEAT_SPREAD_KM,
+    )
     heat.layer.setOpacity(active ? HEAT_OPACITY_DIMMED : HEAT_OPACITY)
   }, [heat, highlight, active])
 
@@ -341,7 +415,7 @@ export default function App() {
     [landItem, heat, highlight, constellation],
   )
 
-  const error = meta.error ?? snapshot.error ?? land.error
+  const error = meta.error ?? (isRealDay ? snapshot.error : null) ?? land.error
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -367,6 +441,8 @@ export default function App() {
         pointAltitude={MARKER_ALTITUDE}
         pointRadius={pointRadius}
         pointColor={pointColor}
+        // Markers change on every step of the time bar: no grow-in animation, or they flicker.
+        pointsTransitionDuration={0}
         pointLabel={pointLabel}
         onPointHover={onPointHover}
         onPointClick={onPointClick}
@@ -393,18 +469,49 @@ export default function App() {
           onClose={deselect}
         />
       )}
+      {latest !== null && barDay !== null && (
+        <TimeBar
+          start={yearsBefore(latest, HISTORY_YEARS)}
+          end={latest}
+          value={barDay}
+          onChange={setPickedDay}
+          // Full width along the bottom; the legend and the story panel sit above it.
+          className="absolute bottom-4 left-6 right-6"
+        />
+      )}
       <header className="pointer-events-none absolute left-6 top-5">
         <h1 className="text-2xl font-semibold tracking-tight">Undercurrent</h1>
-        <p className="text-sm text-slate-400">
-          {error
-            ? `Error: ${error.message}`
-            : day
-              ? `${visible.length === stories.length ? stories.length : `${visible.length} of ${stories.length}`} stories as of ${day}`
-              : 'Loading…'}
-        </p>
+        {error ? (
+          <p className="text-sm text-slate-400">Error: {error.message}</p>
+        ) : barDay !== null ? (
+          <>
+            {/* The bar's day, straight away; the stories catch up a moment later. */}
+            <p className="mt-1 text-lg font-medium tabular-nums text-slate-100">
+              {formatLong(barDay)}
+            </p>
+            <p className="text-sm text-slate-400">
+              {visible.length === stories.length
+                ? stories.length
+                : `${visible.length} of ${stories.length}`}{' '}
+              {stories.length === 1 ? 'story' : 'stories'}
+              {!isRealDay && (
+                <span
+                  className="text-amber-300/80"
+                  title="Real events with made-up coverage numbers, until the backfill reaches this date"
+                >
+                  {' '}
+                  · illustrative archive
+                </span>
+              )}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-slate-400">Loading…</p>
+        )}
       </header>
       {legend.length > 0 && (
-        <aside className="absolute bottom-5 left-6 max-h-[70vh] w-80 overflow-y-auto rounded-lg bg-slate-900/80 p-3 text-xs backdrop-blur">
+        // Sits on top of the time bar.
+        <aside className="absolute bottom-16 left-6 max-h-[calc(100vh-13rem)] w-80 overflow-y-auto rounded-lg bg-slate-900/90 p-3 text-xs">
           <div className="mb-2 flex items-center justify-between text-slate-400">
             <span>Click a category to hide or show it</span>
             {hidden.size > 0 && (

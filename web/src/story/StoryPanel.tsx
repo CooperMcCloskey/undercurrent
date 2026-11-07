@@ -80,7 +80,7 @@ export function StoryPanel({
   const kinds = KIND_ORDER.filter((k) => counts[k])
 
   return (
-    <aside className="absolute bottom-5 right-5 top-5 z-10 flex w-[26rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg bg-slate-900/90 text-slate-100 shadow-xl backdrop-blur">
+    <aside className="absolute bottom-16 right-6 top-5 z-10 flex w-[26rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg bg-slate-900/95 text-slate-100 shadow-xl">
       <header className="border-b border-slate-700/60 p-4 pb-3">
         <div className="mb-1.5 flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 font-medium" style={{ color }}>

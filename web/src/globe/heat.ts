@@ -178,7 +178,9 @@ const fillShader =
     vec3 hue = evenHue(texel.rgb, t, 0.55);
     vec3 color = hue * mix(0.25, 1.0, smoothstep(0.0, 0.6, t));
     color = mix(color, vec3(1.0), 0.65 * smoothstep(0.65, 1.0, t));
-    gl_FragColor = vec4(color, uOpacity * smoothstep(0.0, 0.3, t));
+    // Fade in from t = 0.05, not 0: trims the faint outer haze so stories glow less far, while
+    // small stories (low peak t) stay visible.
+    gl_FragColor = vec4(color, uOpacity * smoothstep(0.05, 0.35, t));
   }
 `
 

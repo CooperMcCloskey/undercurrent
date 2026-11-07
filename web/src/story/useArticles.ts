@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../api/client'
+import { loadStory } from '../timeline/source'
 import { rankArticles, type Article } from './articles'
 
 const NONE: Article[] = []
@@ -12,7 +12,7 @@ const NONE: Article[] = []
 export function useArticles(storyId: string | undefined) {
   const query = useQuery({
     queryKey: ['story', storyId],
-    queryFn: () => api.story(storyId!),
+    queryFn: () => loadStory(storyId!),
     enabled: !!storyId,
   })
   const articles = useMemo(() => (query.data ? rankArticles(query.data.items) : NONE), [query.data])
