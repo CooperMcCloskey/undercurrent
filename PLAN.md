@@ -63,14 +63,19 @@ Everything below. No real data has been fetched yet, and there's no clustering o
   - `persons`, `orgs`, `themes`
   - `tone`
 - [ ] Deduplicate articles (same URL; syndicated copies with the same title)
-- [ ] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet`
-- [ ] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet`
-- [ ] Entity name → Wikipedia title resolver, cached (B and C both need it)
+- [x] Wikipedia daily pageviews for given titles, cached → `wiki_pageviews.parquet` (`ingest/wiki.py`)
+- [x] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet` (`ingest/wiki.py`)
+- [x] Entity name → Wikipedia title resolver, cached (B and C both need it) (`ingest/wiki_resolve.py`)
+- [x] Wikipedia daily top-1000 (bulk signal, bot-flagged) → `wiki_top.parquet` (`ingest/wiki_top.py`)
 - [ ] Bluesky Jetstream consumer → `bluesky/*.parquet`, plus an in-process hook that D can use for `/api/live`
 - [ ] (stretch) Reddit, only if API access was approved
 
 **Needs from others:** none yet
 **Notes:**
+- Wikipedia is query-on-demand + disk cache, not dumps (dumps are tens of GB for 60 days). Everything lands in `data/`, so later runs and the demo are offline.
+- `wiki_top.parquet` (day, rank, title, views, desktop_share, suspect_bot): 60 days (2026-09-08..11-06) downloaded. Filter `~suspect_bot`; bot traffic is ~all desktop (e.g. `Neatsville,_Kentucky`, `JSON-LD`).
+- Resolver: `from undercurrent.ingest.wiki_resolve import resolve, resolve_many`. Titles come back in underscore form (`Barack_Obama`); ambiguous names (`john smith`) give `None`. CLI writes a titles file with `--out-titles`.
+- Pageviews/edits: `uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --days 60` (or `wiki.fetch(titles, start, end, ["pageviews", "edits"])`). About 4 titles/s. Zero-filled per day; the last ~2 days of pageviews may be missing until Wikimedia publishes them.
 
 ### B: Stories (owner: ____)
 
