@@ -9,6 +9,8 @@
 
 The vector store (`vectors.store`), the story tracker (`stories.track`) and the forecast proxy (`forecast.run --source proxy`) read these files as they are. `pipeline/tests/test_ingest_gdelt.py` checks that.
 
+**No BigQuery?** `python -m undercurrent.ingest.gdelt_zip` writes the same files from GDELT's 15-minute zip files, through the same `gkg.py`. It's described in "From the zip files" below, and it's what `docs/ONE_YEAR_EACH.md` uses.
+
 ## One-time setup
 
 1. **A Google Cloud project.** Create one at console.cloud.google.com. Without billing, the BigQuery sandbox still lets you query public data, up to 1 TB a month free. Turn billing on before pulling more than that.
@@ -62,6 +64,43 @@ uv run python -m undercurrent.ingest.gdelt_bq --start 2025-11-01 --end 2026-09-0
 - **Today is never pulled.** The command stops at yesterday (UTC), whose last files may still be loading. Re-run with `--force` for the last day or two if they look short.
 - **Run it on a Google Cloud VM in the US** for the big pull: the GDELT dataset lives in the US multi-region, so downloads there are fast and cheap. Then sync `data/processed/articles/` to the bucket (`data/README.md`).
 
+## From the zip files (`gdelt_zip.py`, no BigQuery)
+
+The same articles and totals, built from the files GDELT publishes every 15 minutes (`masterfilelist.txt` and `masterfilelist-translation.txt`). It needs no Google account and has no BigQuery bill. It's CPU work, so run it on a CPU machine, not the GPU one.
+
+```bash
+uv run python -m undercurrent.ingest.gdelt_zip --start 2026-11-05                      # one day: measure first
+uv run python -m undercurrent.ingest.gdelt_zip --start 2025-10-10 --end 2026-11-06 \
+    --sync-to gs://$BUCKET/processed                                                  # a year, uploading as it goes
+uv run python -m undercurrent.ingest.gdelt_zip --status                                # progress and GDELT gaps
+```
+
+**Measured** on 2026-11-01..05, on a 12-core machine with 10 workers:
+
+| | Per day |
+|---|---|
+| Download, both feeds | 1.39 GB zipped (0.51 GB English, 0.88 GB translated), 192 files |
+| GKG rows | about 341,000 (116k English, 225k translated) |
+| Articles after dedupe | 248–281k on weekdays, 156k on a Sunday |
+| From the translated feed | 71–77% of articles. **Its titles are in the original language**, not English |
+| `articles` Parquet | 50–57 MB, so about 20 GB a year |
+| Time | about 20 s a day when several days are in flight (about 180 days an hour); limited by the download, not the CPU |
+| Memory | about 3.5 GB while a day is built, so use a standard machine, not a highcpu one |
+
+**How it works.**
+- **Per file:** a process pool (`--workers`, default one per CPU) downloads one 15-minute file, checks its md5 against the index and unzips it in memory. It then keeps the same 11 columns the BigQuery query reads (`gkg.RAW_COLUMNS`). Nothing else from the file is kept, and zips are never written to disk. The rows are staged in `data/raw/gdelt_stage/<day>/`.
+- **Per day:** once a day's 192 files are staged, one task runs `gkg.build_articles` and `gkg.daily_totals` on them together, so dedupe spans both feeds. It writes the day and clears its stage.
+- **Newest day first.**
+- **Atomic writes.** Each file is written in the stage folder and then renamed into place, the articles file last. So the day's folder appears only once it's complete, and a sync to the bucket can never upload half a day. That matters because `vectors.store` treats a day folder that exists as pulled.
+- **Resumable.** A day is done when its articles file exists, and a file is done when its staged `.json` exists. Kill the run at any point and start the same command again.
+- **Network errors and bad md5s** are retried 6 times. After that, that day fails, the rest carry on, and the run exits with code 1. Run it again to retry.
+- **Gaps.** A file GDELT lists but never serves (404) counts as missing. Missing files and days with fewer than 96 files are recorded in `data/processed/gdelt_files/<day>.json` and shown by `--status`. They are GDELT outages; the day is still written from the files that exist.
+- **Split records.** A few `Extras` fields contain raw newlines. A line that doesn't start with a record id is joined back onto the record before it.
+- **`--sync-to gs://BUCKET/processed`** runs `gcloud storage rsync` for `articles/`, `gdelt_totals/` and `gdelt_files/` after every finished day and every 10 minutes. It never deletes anything in the bucket. `--sync-to host:/path/` uses plain `rsync` instead.
+- **`--shard k/n`** splits the days across several machines, with the same rule as `vectors.store --shard`. **`--sample-per-hour N`** is the fallback from `PLAN.md`: N of the 4 files per hour, on both feeds alike, with `sampled` set.
+
+**BigQuery or zips?** Both produce identical files, so blocks pulled either way can be mixed. Choose BigQuery if you have the free terabyte and want almost no CPU work. Choose zips if you want no bill, the translated feed guaranteed (it isn't yet confirmed that the BigQuery table has it), and no Google login on the pull machine.
+
 ## Cost
 
 BigQuery bills the bytes of the columns a query reads, for every partition (day) it touches, however few rows come back. The first 1 TB a month is free, then about $6.25 per TB (on-demand, US/EU).
@@ -85,7 +124,7 @@ BigQuery bills the bytes of the columns a query reads, for every partition (day)
 | Language | `gkg.source_language` | `srclc:fra` → `fra` (three letters, from `TranslationInfo`); null for the English feed |
 | Ids | `gkg.article_id` | First 16 hex characters of sha1(url): stable across reruns |
 
-`gkg.py` doesn't know about BigQuery. A downloader for the 15-minute zip files (for other clouds) only needs to produce the same raw columns and call it.
+`gkg.py` doesn't know about BigQuery. `gdelt_zip.py` feeds it the same raw columns from the 15-minute zip files.
 
 ## Troubleshooting
 

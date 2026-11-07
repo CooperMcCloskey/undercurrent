@@ -82,7 +82,8 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - **8 languages** (en ja de fr ru es it zh, the most-read Wikipedias), linked by Wikidata ID. Start from `wiki_entity_daily.parquet`: one row per entity and day, languages summed, with per-language columns.
 - **Wikimedia rate limit: 200 requests/min total, at most 3 at once** (new in 2026). About 5 s per entity (8 languages × pageviews + edits), so 1,000 entities take about 1.5 h. Pick entities carefully and start early.
 - `wiki_top.parquet`: 8 languages × 60 days (2026-09-08..11-06) downloaded, with likely bots flagged (`suspect_bot`).
-- **GDELT, one full day measured (2026-11-05, both feeds, zip files):** 1.39 GB zipped (0.51 GB English + 0.88 GB translated), 341,088 GKG rows, 339,647 with a title. Details: `ingest/GDELT.md`.
+- **GDELT, measured on 2026-11-01..05 (both feeds, zip files, `gdelt_zip.py`):** 1.39 GB zipped a day (0.51 GB English + 0.88 GB translated), about 341k GKG rows, 248–281k articles after dedupe on weekdays (156k on the Sunday), 50–57 MB of Parquet, about 20 s a day on 10 workers. So a year is about 20 GB of articles and 2 hours on one 16-vCPU machine. Details: `ingest/GDELT.md`.
+- **The run:** one year per person, CPU pull VM → bucket → L4 embed (`docs/ONE_YEAR_EACH.md`).
 - **Translated-feed `<PAGE_TITLE>` is in the original language**, not English. About 70% of articles come from that feed; `lang` is ISO 639-3 (`spa`, `zho`, `rus`, ...).
 
 ### V: Vectors (owner: Cooper)
@@ -224,6 +225,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Full-resolution GDELT for 12 months first (older years only if the learning curve says they help), extracted on the cloud, instead of a 60-day hourly sample | More distinct stories is the biggest lever on forecast quality, and sampling makes small-story counts noisy. With $50–200 of compute, GPUs are cheap; wall-clock time and clustering that doesn't scale are the real limits |
 | Item vectors are kept in cloud storage (fp16, one file per day), not thrown away, and never go in git or onto laptops | Retuning the clustering then means rerunning the tracker, not re-embedding everything (hours and $5–50 each time). Storing them costs a few dollars |
 | Story tracking is online: assign each day's items to existing story centroids, cluster only the leftovers | The batch prototype (`stories/graph.py`) was tested on 57 items and can't handle hundreds of thousands of articles a day. Assignments are never revised, so they are point-in-time |
+| GDELT pulled from the 15-minute zip files on a separate CPU VM, one year per person (`docs/ONE_YEAR_EACH.md`); `gdelt_bq.py` stays as the alternative, with identical output | The pull is CPU and download work and the L4 VM's CPUs are needed to feed the GPU; no BigQuery bill or free-tier limit; the translated feed (about 73% of articles) is certainly included |
 
 ## Open questions
 

@@ -1,5 +1,7 @@
 # Two years of GDELT, split across 3–4 Google Cloud accounts
 
+> **Update:** the pull and embed now follow `docs/ONE_YEAR_EACH.md`: one year per person (four years in all), pulled from GDELT's zip files on a separate CPU VM, then embedded on your L4 from the bucket. Its block table replaces "The split" below, and the quick start's `create_vm.sh` doesn't apply (it pulls the old six-month blocks from BigQuery on the GPU VM). Steps 7–9 here (track, upload your own days, stop the VM) and "Cooper only" are unchanged, with your block's dates from that file.
+
 **Goal:** by the end of the hackathon, one shared bucket holds two years of news (**2024-11-07 → 2026-11-06**, 730 days) turned into stories, ready for the forecast to train on, plus the forecast and the globe export built from them.
 
 **Why split it:** each account brings its own GPU quota, its own $300 credit and its own free 1 TB of BigQuery a month. New accounts get only 1–2 GPUs, so four accounts embed and track about four times faster than one.
