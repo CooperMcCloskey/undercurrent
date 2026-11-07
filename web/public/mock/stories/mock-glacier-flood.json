@@ -199,7 +199,15 @@
       "published_at": "2026-11-06T09:00:00",
       "source": "example.com",
       "language": "en",
-      "similarity": 0.9
+      "similarity": 0.9,
+      "locations": [
+        {
+          "name": "Kathmandu",
+          "country": "NP",
+          "lat": 27.72,
+          "lon": 85.32
+        }
+      ]
     },
     {
       "id": "mock-glacier-flood-news-1",
@@ -209,7 +217,15 @@
       "published_at": "2026-11-05T10:00:00",
       "source": "example.com",
       "language": "en",
-      "similarity": 0.85
+      "similarity": 0.85,
+      "locations": [
+        {
+          "name": "Kathmandu",
+          "country": "NP",
+          "lat": 27.72,
+          "lon": 85.32
+        }
+      ]
     },
     {
       "id": "mock-glacier-flood-news-2",
@@ -219,7 +235,15 @@
       "published_at": "2026-11-04T11:00:00",
       "source": "example.com",
       "language": "en",
-      "similarity": 0.8
+      "similarity": 0.8,
+      "locations": [
+        {
+          "name": "Kathmandu",
+          "country": "NP",
+          "lat": 27.72,
+          "lon": 85.32
+        }
+      ]
     },
     {
       "id": "mock-glacier-flood-bsky-0",
@@ -229,7 +253,8 @@
       "published_at": "2026-11-06T12:00:00",
       "source": "example.bsky.social",
       "language": "en",
-      "similarity": 0.71
+      "similarity": 0.71,
+      "locations": []
     }
   ]
 }

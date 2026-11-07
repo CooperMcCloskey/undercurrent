@@ -37,23 +37,90 @@
       "tone": -2.69,
       "first_seen": "2026-10-10",
       "forecast": {
-        "p_grow": 0.676,
-        "horizon_days": 7,
         "model_version": "mock",
-        "factors": [
+        "interval": 0.8,
+        "horizons": [
           {
-            "name": "growth_7d",
-            "contribution": 0.66
+            "days": 1,
+            "articles_7d": 253.0,
+            "low": 205.5,
+            "high": 311.4,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.05
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.02
+              }
+            ]
           },
           {
-            "name": "wiki_pageview_growth",
-            "contribution": 0.68
+            "days": 3,
+            "articles_7d": 278.7,
+            "low": 211.2,
+            "high": 367.8,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.14
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.07
+              }
+            ]
+          },
+          {
+            "days": 7,
+            "articles_7d": 338.3,
+            "low": 223.2,
+            "high": 512.8,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.33
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.16
+              }
+            ]
+          },
+          {
+            "days": 14,
+            "articles_7d": 474.9,
+            "low": 245.8,
+            "high": 917.5,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.66
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.31
+              }
+            ]
           }
         ]
       },
       "outcome": {
-        "growth_ratio": 1.187,
-        "grew": false
+        "horizons": [
+          {
+            "days": 1,
+            "articles_7d": 252
+          },
+          {
+            "days": 3,
+            "articles_7d": 264
+          },
+          {
+            "days": 7,
+            "articles_7d": 286
+          }
+        ]
       }
     },
     {
@@ -95,26 +162,93 @@
       "article_count_7d": 279,
       "post_count_7d": 837,
       "growth_7d": 0.096,
-      "tone": -4.67,
+      "tone": -0.35,
       "first_seen": "2026-10-10",
       "forecast": {
-        "p_grow": 0.389,
-        "horizon_days": 7,
         "model_version": "mock",
-        "factors": [
+        "interval": 0.8,
+        "horizons": [
           {
-            "name": "growth_7d",
-            "contribution": 0.1
+            "days": 1,
+            "articles_7d": 289.6,
+            "low": 235.2,
+            "high": 356.5,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.01
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.05
+              }
+            ]
           },
           {
-            "name": "wiki_pageview_growth",
-            "contribution": -0.35
+            "days": 3,
+            "articles_7d": 312.0,
+            "low": 236.4,
+            "high": 411.6,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.02
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.14
+              }
+            ]
+          },
+          {
+            "days": 7,
+            "articles_7d": 362.0,
+            "low": 238.8,
+            "high": 548.7,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.05
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.33
+              }
+            ]
+          },
+          {
+            "days": 14,
+            "articles_7d": 469.7,
+            "low": 243.2,
+            "high": 907.5,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.1
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.66
+              }
+            ]
           }
         ]
       },
       "outcome": {
-        "growth_ratio": 0.771,
-        "grew": false
+        "horizons": [
+          {
+            "days": 1,
+            "articles_7d": 263
+          },
+          {
+            "days": 3,
+            "articles_7d": 239
+          },
+          {
+            "days": 7,
+            "articles_7d": 215
+          }
+        ]
       }
     },
     {
@@ -150,26 +284,93 @@
       "article_count_7d": 334,
       "post_count_7d": 1002,
       "growth_7d": 1.0,
-      "tone": -3.03,
+      "tone": -5.32,
       "first_seen": "2026-10-10",
       "forecast": {
-        "p_grow": 0.807,
-        "horizon_days": 7,
         "model_version": "mock",
-        "factors": [
+        "interval": 0.8,
+        "horizons": [
           {
-            "name": "growth_7d",
-            "contribution": 1.0
+            "days": 1,
+            "articles_7d": 345.9,
+            "low": 280.9,
+            "high": 425.8,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.07
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": -0.02
+              }
+            ]
           },
           {
-            "name": "wiki_pageview_growth",
-            "contribution": 0.2
+            "days": 3,
+            "articles_7d": 370.9,
+            "low": 281.1,
+            "high": 489.3,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.21
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": -0.06
+              }
+            ]
+          },
+          {
+            "days": 7,
+            "articles_7d": 426.4,
+            "low": 281.3,
+            "high": 646.3,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.5
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": -0.15
+              }
+            ]
+          },
+          {
+            "days": 14,
+            "articles_7d": 544.3,
+            "low": 281.8,
+            "high": 1051.6,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 1.0
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": -0.3
+              }
+            ]
           }
         ]
       },
       "outcome": {
-        "growth_ratio": 1.548,
-        "grew": false
+        "horizons": [
+          {
+            "days": 1,
+            "articles_7d": 341
+          },
+          {
+            "days": 3,
+            "articles_7d": 384
+          },
+          {
+            "days": 7,
+            "articles_7d": 517
+          }
+        ]
       }
     },
     {
@@ -211,26 +412,93 @@
       "article_count_7d": 513,
       "post_count_7d": 1539,
       "growth_7d": 0.183,
-      "tone": -1.29,
+      "tone": -3.03,
       "first_seen": "2026-10-10",
       "forecast": {
-        "p_grow": 0.422,
-        "horizon_days": 7,
         "model_version": "mock",
-        "factors": [
+        "interval": 0.8,
+        "horizons": [
           {
-            "name": "growth_7d",
-            "contribution": 0.18
+            "days": 1,
+            "articles_7d": 520.0,
+            "low": 422.3,
+            "high": 640.2,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.01
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.01
+              }
+            ]
           },
           {
-            "name": "wiki_pageview_growth",
-            "contribution": 0.98
+            "days": 3,
+            "articles_7d": 534.2,
+            "low": 404.8,
+            "high": 704.8,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.04
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.02
+              }
+            ]
+          },
+          {
+            "days": 7,
+            "articles_7d": 563.8,
+            "low": 372.0,
+            "high": 854.5,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.09
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.04
+              }
+            ]
+          },
+          {
+            "days": 14,
+            "articles_7d": 619.6,
+            "low": 320.7,
+            "high": 1196.9,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.18
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.09
+              }
+            ]
           }
         ]
       },
       "outcome": {
-        "growth_ratio": 0.981,
-        "grew": false
+        "horizons": [
+          {
+            "days": 1,
+            "articles_7d": 490
+          },
+          {
+            "days": 3,
+            "articles_7d": 469
+          },
+          {
+            "days": 7,
+            "articles_7d": 503
+          }
+        ]
       }
     },
     {
@@ -266,26 +534,93 @@
       "article_count_7d": 336,
       "post_count_7d": 1008,
       "growth_7d": 1.294,
-      "tone": -3.18,
+      "tone": -0.9,
       "first_seen": "2026-10-10",
       "forecast": {
-        "p_grow": 0.862,
-        "horizon_days": 7,
         "model_version": "mock",
-        "factors": [
+        "interval": 0.8,
+        "horizons": [
           {
-            "name": "growth_7d",
-            "contribution": 1.29
+            "days": 1,
+            "articles_7d": 360.9,
+            "low": 293.1,
+            "high": 444.3,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.09
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.01
+              }
+            ]
           },
           {
-            "name": "wiki_pageview_growth",
-            "contribution": 0.01
+            "days": 3,
+            "articles_7d": 416.2,
+            "low": 315.4,
+            "high": 549.2,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.28
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.03
+              }
+            ]
+          },
+          {
+            "days": 7,
+            "articles_7d": 553.7,
+            "low": 365.3,
+            "high": 839.3,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 0.65
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.07
+              }
+            ]
+          },
+          {
+            "days": 14,
+            "articles_7d": 912.6,
+            "low": 472.4,
+            "high": 1763.0,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": 1.29
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.15
+              }
+            ]
           }
         ]
       },
       "outcome": {
-        "growth_ratio": 2.19,
-        "grew": true
+        "horizons": [
+          {
+            "days": 1,
+            "articles_7d": 369
+          },
+          {
+            "days": 3,
+            "articles_7d": 458
+          },
+          {
+            "days": 7,
+            "articles_7d": 736
+          }
+        ]
       }
     },
     {
@@ -315,26 +650,93 @@
       "article_count_7d": 79,
       "post_count_7d": 237,
       "growth_7d": -0.478,
-      "tone": -4.26,
+      "tone": 0.89,
       "first_seen": "2026-10-10",
       "forecast": {
-        "p_grow": 0.138,
-        "horizon_days": 7,
         "model_version": "mock",
-        "factors": [
+        "interval": 0.8,
+        "horizons": [
           {
-            "name": "growth_7d",
-            "contribution": -0.48
+            "days": 1,
+            "articles_7d": 79.0,
+            "low": 64.2,
+            "high": 97.3,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": -0.03
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.03
+              }
+            ]
           },
           {
-            "name": "wiki_pageview_growth",
-            "contribution": -0.21
+            "days": 3,
+            "articles_7d": 79.0,
+            "low": 59.9,
+            "high": 104.2,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": -0.1
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.1
+              }
+            ]
+          },
+          {
+            "days": 7,
+            "articles_7d": 79.0,
+            "low": 52.1,
+            "high": 119.7,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": -0.24
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.24
+              }
+            ]
+          },
+          {
+            "days": 14,
+            "articles_7d": 79.0,
+            "low": 40.9,
+            "high": 152.6,
+            "factors": [
+              {
+                "name": "growth_7d",
+                "contribution": -0.48
+              },
+              {
+                "name": "wiki_pageview_growth",
+                "contribution": 0.48
+              }
+            ]
           }
         ]
       },
       "outcome": {
-        "growth_ratio": 0.873,
-        "grew": false
+        "horizons": [
+          {
+            "days": 1,
+            "articles_7d": 77
+          },
+          {
+            "days": 3,
+            "articles_7d": 70
+          },
+          {
+            "days": 7,
+            "articles_7d": 69
+          }
+        ]
       }
     }
   ]

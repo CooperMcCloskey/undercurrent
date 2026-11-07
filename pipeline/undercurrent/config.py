@@ -25,10 +25,13 @@ EMBEDDING_MODEL = os.getenv(
     "UC_EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 )
 
-# Forecast target: a story "grows" if its volume over the next HORIZON_DAYS is at least
-# GROWTH_RATIO times its volume over the previous HORIZON_DAYS.
-HORIZON_DAYS = 7
-GROWTH_RATIO = 2.0
+# Forecast target: for each story and day t, `article_count_7d` on day t + h (articles published
+# in the 7 days ending that day), for every h in HORIZONS. That is the number the globe draws a
+# story's heat from, so a projection for t + h draws exactly like the real snapshot of that day.
+# Forecasting single stories weeks ahead rarely beats "it stays as big as it is": add 30 only once
+# there are months of history and the backtest shows it beating persistence.
+HORIZONS = (1, 3, 7, 14)
+FORECAST_INTERVAL = 0.8  # each horizon's low..high should hold this share of outcomes
 
 WIKIMEDIA_USER_AGENT = os.getenv(
     "WIKIMEDIA_USER_AGENT", "undercurrent/0.1 (https://github.com/CooperMcCloskey/undercurrent)"

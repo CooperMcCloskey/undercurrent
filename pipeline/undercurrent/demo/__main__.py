@@ -58,6 +58,19 @@ def embed_items(items: list[dict]) -> np.ndarray:
     return np.stack([rows[i] for i in range(len(items))])
 
 
+def item_places(items: list[dict]) -> list[list[tuple[float, float, str | None]]]:
+    """(lat, lon, country) of every place each item mentions; the clustering uses these."""
+    return [[(loc["lat"], loc["lon"], loc["country"]) for loc in it["locations"]] for it in items]
+
+
+def item_locations(item: dict) -> list[c.Location]:
+    """Every place an item mentions (the same places its story's footprint is built from), cities first."""
+    places = sorted(item["locations"], key=lambda p: p["type"] != "city")  # stable
+    return [
+        c.Location(name=p["name"], country=p["country"], lat=p["lat"], lon=p["lon"]) for p in places
+    ]
+
+
 def build_stories(items: list[dict], vectors: np.ndarray, labels: np.ndarray) -> list[dict]:
     stories = []
     for label in sorted(set(labels.tolist()) - {-1}):
@@ -233,6 +246,7 @@ def export(items: list[dict], stories: list[dict], out: Path, force: bool) -> No
                         source=HOST[it["kind"]],
                         language=it["lang"],
                         similarity=round(min(1.0, sim), 3),
+                        locations=item_locations(it),
                     )
                     for it, sim in sorted(members, key=lambda m: -m[1])
                 ],
@@ -275,8 +289,14 @@ def main() -> None:
     )
     parser.add_argument("--min-sim", type=float, default=0.42, help="cosine cutoff for a link")
     parser.add_argument("--k", type=int, default=10, help="links per item (nearest neighbours)")
-    parser.add_argument("--resolution", type=float, default=1.25, help=">1 = smaller stories")
+    parser.add_argument("--resolution", type=float, default=3.5, help=">1 = smaller stories")
     parser.add_argument("--min-size", type=int, default=3, help="smaller groups are noise")
+    parser.add_argument(
+        "--geo-km",
+        type=float,
+        default=1000,
+        help="items further apart, sharing no country, never link",
+    )
     parser.add_argument("--out", type=Path, default=EXPORT)
     parser.add_argument("--no-export", action="store_true")
     parser.add_argument("--force", action="store_true", help="overwrite a non-demo export")
@@ -286,7 +306,13 @@ def main() -> None:
     items = data["items"]
     vectors = embed_items(items)
     labels = cluster(
-        vectors, k=args.k, min_sim=args.min_sim, resolution=args.resolution, min_size=args.min_size
+        vectors,
+        places=item_places(items),
+        k=args.k,
+        min_sim=args.min_sim,
+        resolution=args.resolution,
+        min_size=args.min_size,
+        geo_km=args.geo_km,
     )
     stories = build_stories(items, vectors, labels)
     print(f"{len(items)} items, {vectors.shape[1]}-d vectors -> {len(stories)} stories")

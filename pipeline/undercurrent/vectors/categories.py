@@ -12,12 +12,17 @@ Later, GDELT's own theme tags (ELECTION, PROTEST, NATURAL_DISASTER, ECON_*...) c
 second vote for news-heavy stories.
 """
 
+import hashlib
+import json
+import os
 from functools import cache
+from pathlib import Path
 
 import numpy as np
 
+from undercurrent import config
 from undercurrent.contracts import Category
-from undercurrent.vectors.embed import embed
+from undercurrent.vectors.embed import TEXT_VERSION, embed
 
 CATEGORY_EXAMPLES: dict[Category, list[str]] = {
     "politics": [
@@ -25,7 +30,7 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
         "Parliament passes a new law after a heated debate",
         "President names new ministers in a cabinet reshuffle",
         "Supreme court overturns the election result",
-        "Coalition government collapses after party quits",
+        "Parliament is dissolved ahead of early elections",
         "Opposition leader calls for a referendum",
         "Foreign ministers hold talks on a diplomatic dispute",
         "Prime minister faces a confidence vote",
@@ -45,10 +50,10 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
         "Trade war escalates as both sides raise duties",
         "Stock markets fall on recession fears",
         "Oil prices jump as producers cut output",
-        "Currency slides to a record low against the dollar",
+        "Government cuts fuel subsidies to save money",
         "Fuel and food prices climb again",
         "Trade talks collapse over export quotas",
-        "Company announces thousands of job cuts",
+        "Unemployment rises for the third month in a row",
     ],
     "society": [
         "Airline staff strike over working hours",
@@ -56,7 +61,7 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
         "Union calls a nationwide general strike",
         "Rights groups condemn the crackdown on activists",
         "Migrants and refugees stranded at the border",
-        "Teachers and nurses stage a walkout",
+        "Teachers stage a walkout over class sizes",
         "Court ruling sparks demonstrations",
         "Police clash with protesters in the streets",
     ],
@@ -65,8 +70,8 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
         "Forest fires rage across the countryside",
         "Earthquake kills hundreds and flattens buildings",
         "Hurricane makes landfall with destructive winds",
-        "Volcano erupts, covering towns in ash",
-        "Typhoon brings torrential rain and a storm surge",
+        "Avalanche buries part of a ski resort",
+        "Tsunami warning issued after an undersea quake",
         "Landslide buries a mountain village",
         "Heatwave and drought scorch the region",
     ],
@@ -75,16 +80,18 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
         "Hospitals overwhelmed as virus cases surge",
         "Health officials declare an epidemic",
         "New vaccine approved for emergency use",
-        "Cholera cases rise after the floods",
+        "Measles spreads among unvaccinated children",
         "Shortage of medicines hits pharmacies",
     ],
     "technology": [
-        "Cyberattack shuts down government websites",
+        "Hackers leak millions of customer passwords",
         "New artificial intelligence model released",
-        "Rocket launch puts satellites into orbit",
+        "Space agency tests a reusable booster",
+        "Astronauts return to Earth after six months on the space station",
+        "Space telescope captures images of a distant galaxy",
         "Social media platform fined over user data",
         "Tech company suffers a major data breach",
-        "Undersea internet cable cut, disrupting connections",
+        "Streaming service suffers a worldwide outage",
     ],
 }
 
@@ -92,15 +99,35 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
 MIN_SIMILARITY = 0.2
 
 
+def _cache_path() -> Path:
+    """Where the prototypes are kept on disk. The key covers the model, the text cleaning and
+    the examples, so editing any of them makes a new file instead of using stale vectors."""
+    key = json.dumps([config.EMBEDDING_MODEL, TEXT_VERSION, CATEGORY_EXAMPLES], sort_keys=True)
+    digest = hashlib.sha1(key.encode()).hexdigest()[:16]
+    return config.CACHE / "category_prototypes" / f"{digest}.npy"
+
+
 @cache
 def prototypes() -> tuple[tuple[Category, ...], np.ndarray]:
-    """One L2-normalised prototype vector per category (cached per process)."""
+    """One L2-normalised prototype vector per category (cached per process, and on disk).
+
+    The disk cache means a process that only needs categories (the story tracker) never has to
+    load the embedding model, and PyTorch and FAISS can crash each other in one process."""
     names = tuple(CATEGORY_EXAMPLES)
+    path = _cache_path()
+    if path.exists():
+        return names, np.load(path)
     rows = []
     for name in names:
         mean = embed(CATEGORY_EXAMPLES[name]).mean(axis=0)
         rows.append(mean / np.linalg.norm(mean))
-    return names, np.stack(rows)
+    stacked = np.stack(rows).astype(np.float32)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    with open(tmp, "wb") as f:
+        np.save(f, stacked)
+    os.replace(tmp, path)
+    return names, stacked
 
 
 def categorize(vectors: np.ndarray) -> tuple[list[Category], np.ndarray]:
