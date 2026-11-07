@@ -13,6 +13,7 @@
 # The VM sets itself up when it boots (scripts/gcp/vm_startup.sh): driver check, code, a dry run,
 # then the pull, embed and upload loops. Nothing else needs to be typed on it.
 set -euo pipefail
+trap 'echo "create_vm.sh stopped at line $LINENO (exit $?). Paste the output above to the team." >&2' ERR
 
 BLOCK=${1:?usage: create_vm.sh BLOCK [ACCOUNTS]   (BLOCK 1 is the newest; see docs/TWO_YEAR_RUN.md)}
 ACCOUNTS=${2:-4}
@@ -57,13 +58,22 @@ if [ -n "$EXISTING" ]; then
   [ "$STATUS" = TERMINATED ] && gcloud compute instances start "$VM" --zone="$ZONE"
 else
   # PyTorch in uv.lock is built for CUDA 13, which needs NVIDIA driver 580+: prefer a CUDA 13 image.
+  echo "== Finding the Deep Learning VM image"
   FAMILIES=$(gcloud compute images list --project=deeplearning-platform-release --no-standard-images \
-    --filter="family~^common-cu1" --format="value(family)" | sort -uV)
-  FAMILY=$(echo "$FAMILIES" | grep '^common-cu13' | tail -1)
-  [ -n "$FAMILY" ] || { FAMILY=$(echo "$FAMILIES" | tail -1); echo "No CUDA 13 image; using $FAMILY (the VM upgrades its driver if it's too old)"; }
-  [ -n "$FAMILY" ] || { echo "Couldn't find a Deep Learning VM image with CUDA" >&2; exit 1; }
+    --format="value(family)" | grep -E '^common-cu[0-9]' | sort -uV || true)
+  FAMILY=$(echo "$FAMILIES" | grep -E '^common-cu1[3-9]' | tail -1 || true)
+  if [ -z "$FAMILY" ]; then
+    FAMILY=$(echo "$FAMILIES" | tail -1)
+    [ -n "$FAMILY" ] && echo "No CUDA 13 image; using $FAMILY (the VM upgrades its driver at boot if it's too old)"
+  fi
+  if [ -z "$FAMILY" ]; then
+    echo "Couldn't find a Deep Learning VM image. Families on offer:" >&2
+    gcloud compute images list --project=deeplearning-platform-release --no-standard-images \
+      --format="value(family)" | sort -u | head -40 >&2
+    exit 1
+  fi
   ZONES=$(gcloud compute accelerator-types list --filter="name=nvidia-l4 AND zone~^$REGION" \
-    --format="value(zone.basename())" | sort -u)
+    --format="value(zone.basename())" | sort -u || true)
   ZONES=${ZONES:-"$REGION-a $REGION-b $REGION-c"}
   DISK=$([ "$BLOCK" = 1 ] && echo 400GB || echo 250GB)  # block 1 also holds the merge
   echo "== Creating $VM (image $FAMILY, disk $DISK); trying zones: $(echo $ZONES)"
