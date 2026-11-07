@@ -19,7 +19,7 @@ import datetime as dt
 import json
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import models_json_schema
 
 SourceKind = Literal["news", "bluesky", "reddit", "wikipedia"]
@@ -89,10 +89,29 @@ class Outcome(_Model):
     grew: bool
 
 
+class FootprintPoint(_Model):
+    """One place a story is happening. A story's footprint (several of these) is how far it
+    spreads on the heatmap. Build it from the story's GDELT location mentions."""
+
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    weight: float = Field(gt=0, description="Share of the story's attention here; sums to 1")
+    radius_km: float = Field(
+        150,
+        gt=0,
+        description="How far this mention spreads. Use GDELT's location type: city ~75, "
+        "state/region ~250, whole country ~half its width (300-1000)",
+    )
+
+
 class StorySummary(_Model):
     id: str = Field(pattern=STORY_ID_PATTERN, description="Stable across days")
     title: str
-    location: Location
+    location: Location = Field(description="Main location: anchor for the marker and label")
+    footprint: list[FootprintPoint] = Field(
+        default_factory=list,
+        description="Where the story is happening, for the heatmap. Empty means just `location`.",
+    )
     article_count_7d: int
     post_count_7d: int = 0
     growth_7d: float = Field(description="log2(volume last 7 days / volume previous 7 days)")
@@ -100,6 +119,14 @@ class StorySummary(_Model):
     first_seen: dt.date
     forecast: Forecast | None = None
     outcome: Outcome | None = None
+
+    @field_validator("footprint")
+    @classmethod
+    def _weights_sum_to_one(cls, footprint: list[FootprintPoint]) -> list[FootprintPoint]:
+        total = sum(p.weight for p in footprint)
+        if footprint and abs(total - 1) > 0.01:
+            raise ValueError(f"footprint weights must sum to 1, got {total:.3f}")
+        return footprint
 
 
 class Snapshot(_Model):

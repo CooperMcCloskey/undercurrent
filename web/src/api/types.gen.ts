@@ -26,6 +26,25 @@ export interface Factor {
   contribution: number;
 }
 /**
+ * One place a story is happening. A story's footprint (several of these) is how far it
+ * spreads on the heatmap. Build it from the story's GDELT location mentions.
+ *
+ * This interface was referenced by `UndercurrentContract`'s JSON-Schema
+ * via the `definition` "FootprintPoint".
+ */
+export interface FootprintPoint {
+  lat: number;
+  lon: number;
+  /**
+   * Share of the story's attention here; sums to 1
+   */
+  weight: number;
+  /**
+   * How far this mention spreads. Use GDELT's location type: city ~75, state/region ~250, whole country ~half its width (300-1000)
+   */
+  radius_km: number;
+}
+/**
  * This interface was referenced by `UndercurrentContract`'s JSON-Schema
  * via the `definition` "Forecast".
  */
@@ -146,7 +165,11 @@ export interface StorySummary {
    */
   id: string;
   title: string;
-  location: Location;
+  location: Location1;
+  /**
+   * Where the story is happening, for the heatmap. Empty means just `location`.
+   */
+  footprint: FootprintPoint[];
   article_count_7d: number;
   post_count_7d: number;
   /**
@@ -160,6 +183,18 @@ export interface StorySummary {
   first_seen: string;
   forecast: Forecast | null;
   outcome: Outcome | null;
+}
+/**
+ * Main location: anchor for the marker and label
+ */
+export interface Location1 {
+  name: string;
+  /**
+   * ISO 3166-1 alpha-2. GDELT uses FIPS 10-4 codes (UK, GM, CH...): convert in ingest.
+   */
+  country: string | null;
+  lat: number;
+  lon: number;
 }
 /**
  * This interface was referenced by `UndercurrentContract`'s JSON-Schema
