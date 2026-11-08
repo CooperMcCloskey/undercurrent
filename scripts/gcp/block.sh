@@ -71,6 +71,10 @@ _embed-loop)
   done
   ;;
 _upload-loop)
+  # A backup, so it must not starve the embedder: lowest CPU priority, and one gcloud process
+  # (by default gcloud storage starts a copy process per CPU, which swamps a 4-vCPU VM).
+  renice -n 19 $$ >/dev/null
+  export CLOUDSDK_STORAGE_PROCESS_COUNT=1 CLOUDSDK_STORAGE_THREAD_COUNT=4
   while true; do
     last=no  # decided before syncing, so the final pass includes everything
     [ -f "$L/EMBED_DONE" ] && [ "$(running embed)" = 0 ] && last=yes
