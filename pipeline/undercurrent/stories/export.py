@@ -37,6 +37,11 @@ serves half of it. It only replaces an export this command or the demo wrote (--
   keeps the tracker's category. `--no-title-categories` skips the classifier (it loads the
   embedding model). The tracker's own category (its centroid against hand-written prototypes) was
   far too often "other", and had no sport or culture before 2026-11-08.
+- **Wikipedia topics** (`stories/wiki_topics.py`, run at the end of the command when
+  `wiki_events.parquet` is in --processed; `--no-wiki-topics` skips it): a story whose headlines
+  match one Wikipedia current-events topic closely is named after it ("2026 Kolkata Durga Puja
+  crowd crush"); one under a topic many stories share ("Middle Eastern crisis") keeps its headline
+  and gets "Part of: <topic>" as its summary.
 - **Junk stories are left off the globe** (`--keep-all-stories` to keep them): a story is shown
   only if at least NAME_SHARE_MIN of its articles share a person or organisation, or at least
   COUNTRY_SHARE_MIN have the same first-named country. The tracker groups by embedding alone,
@@ -957,6 +962,11 @@ def main() -> None:
         help="don't classify stories from their headlines (loads the embedding model): use GDELT "
         "themes and the tracker's category only",
     )
+    parser.add_argument(
+        "--no-wiki-topics",
+        action="store_true",
+        help="don't name stories after Wikipedia topics (needs wiki_events.parquet in --processed)",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     classify = None
@@ -964,7 +974,7 @@ def main() -> None:
         from undercurrent.vectors.categories import classify_titles
 
         classify = classify_titles
-    run(
+    out = run(
         args.processed,
         args.out,
         args.start,
@@ -976,6 +986,19 @@ def main() -> None:
         args.keep_all_stories,
         classify,
     )
+
+    wiki = args.processed / "wiki_events.parquet"
+    if not args.no_wiki_topics and wiki.exists():
+        from undercurrent.stories.wiki_topics import name_stories
+
+        named = name_stories(out, wiki)
+        specific = sum(n.specific for n in named.values())
+        print(
+            f"  Wikipedia topics: {specific} stories named after one, "
+            f"{len(named) - specific} filed under an umbrella topic"
+        )
+    elif not args.no_wiki_topics:
+        print(f"  Wikipedia topics: skipped, no {wiki}")
 
 
 if __name__ == "__main__":
