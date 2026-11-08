@@ -177,7 +177,7 @@ uv run python -m undercurrent.forecast.run --source stories --model hgb gru --de
 
 ### 4d. Export to the globe
 
-`stories/export.py` turns the tracker output, the articles and the forecast into `data/export/`: the top 300 stories of each day, with location, footprint, forecast and outcome, plus one detail file per story. It runs on the CPU in seconds to a minute or two (1.2 million assignments took 2 seconds), so run it after every tracker or forecast run:
+`stories/export.py` turns the tracker output, the articles and the forecast into `data/export/`: the top 750 stories of each day, with location, footprint, forecast and outcome, plus one detail file per story. It runs on the CPU in seconds to a minute or two (1.2 million assignments took 2 seconds), so run it after every tracker or forecast run:
 
 ```bash
 uv run python -m undercurrent.stories.export                    # every tracked day
