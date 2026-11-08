@@ -55,7 +55,9 @@ def test_recategorize_rewrites_snapshots(tmp_path: Path, monkeypatch) -> None:
     for day in days:
         stories = {
             s["id"]: s["category"]
-            for s in json.loads((tmp_path / f"snapshots/{day}.json").read_text())["stories"]
+            for s in json.loads((tmp_path / f"snapshots/{day}.json").read_text(encoding="utf-8"))[
+                "stories"
+            ]
         }
         assert stories == {"match": "sport", "junk": "technology", "same": "politics"}
 
@@ -68,6 +70,6 @@ def test_dry_run_writes_nothing(tmp_path: Path, monkeypatch) -> None:
         c.Snapshot(as_of=day, stories=[story("a", "Goal", "other")]),
     )
     monkeypatch.setattr(recategorize, "classify_titles", lambda t: {k: ("sport", 0.9) for k in t})
-    before = (tmp_path / f"snapshots/{day}.json").read_text()
+    before = (tmp_path / f"snapshots/{day}.json").read_text(encoding="utf-8")
     assert recategorize.recategorize(tmp_path, dry_run=True) == {"other -> sport": 1}
-    assert (tmp_path / f"snapshots/{day}.json").read_text() == before
+    assert (tmp_path / f"snapshots/{day}.json").read_text(encoding="utf-8") == before

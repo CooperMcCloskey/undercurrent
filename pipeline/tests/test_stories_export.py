@@ -180,7 +180,7 @@ def add_forecasts(root: Path, horizons=(1, 3)) -> None:
 
 
 def load(out: Path, rel: str) -> dict:
-    return json.loads((out / rel).read_text())
+    return json.loads((out / rel).read_text(encoding="utf-8"))
 
 
 def snapshot(out: Path, day: dt.date) -> dict[str, dict]:

@@ -102,7 +102,7 @@ def build(tmp: Path) -> tuple[Path, Path]:
 
 
 def titles(export: Path, day: dt.date) -> dict[str, str]:
-    snap = json.loads((export / f"snapshots/{day}.json").read_text())
+    snap = json.loads((export / f"snapshots/{day}.json").read_text(encoding="utf-8"))
     return {s["id"]: s["title"] for s in snap["stories"]}
 
 
@@ -123,7 +123,7 @@ def test_specific_topics_name_a_story_and_umbrellas_only_label_it(tmp_path: Path
     # umbrellas and unmatched stories keep their headlines
     assert titles(export, D3)["vote-2"] == "Vote result disputed"
     assert titles(export, D3)["fire-1"] == "Fire at the port"
-    detail_of = lambda sid: json.loads((export / f"stories/{sid}.json").read_text())  # noqa: E731
+    detail_of = lambda sid: json.loads((export / f"stories/{sid}.json").read_text(encoding="utf-8"))  # noqa: E731
     assert detail_of("quake-1")["title"] == "2026 Coastal earthquake"
     assert detail_of("quake-1")["summary"] == "Latest headline: Quake hits the coast | NewsRadio 99"
     assert detail_of("vote-1")["title"] == "Vote count begins"
@@ -138,15 +138,15 @@ def test_running_it_again_starts_from_the_headlines(tmp_path: Path) -> None:
     wiki_topics.name_stories(export, wiki, embed)
     assert {d: titles(export, d) for d in (D1, D2, D3)} == first
     # the sidecar keeps the headlines it replaced
-    original = json.loads((export / wiki_topics.SIDECAR).read_text())
+    original = json.loads((export / wiki_topics.SIDECAR).read_text(encoding="utf-8"))
     assert original["quake-1"][str(D2)] == "Quake hits the coast | NewsRadio 99"
 
 
 def test_dry_run_writes_nothing(tmp_path: Path) -> None:
     export, wiki = build(tmp_path)
-    before = (export / f"snapshots/{D3}.json").read_text()
+    before = (export / f"snapshots/{D3}.json").read_text(encoding="utf-8")
     assert wiki_topics.name_stories(export, wiki, embed, dry_run=True)
-    assert (export / f"snapshots/{D3}.json").read_text() == before
+    assert (export / f"snapshots/{D3}.json").read_text(encoding="utf-8") == before
     assert not (export / wiki_topics.SIDECAR).exists()
 
 

@@ -46,7 +46,9 @@ def recategorize(export: Path, dry_run: bool = False) -> Counter[str]:
     files = sorted((export / "snapshots").glob("*.json"))
     if not files:
         raise SystemExit(f"No snapshots under {export}/snapshots")
-    snapshots = {f.stem: c.Snapshot.model_validate(json.loads(f.read_text())) for f in files}
+    snapshots = {
+        f.stem: c.Snapshot.model_validate(json.loads(f.read_text(encoding="utf-8"))) for f in files
+    }
     verdicts = classify_titles(story_titles(snapshots))
     moved: Counter[str] = Counter()
     seen: set[str] = set()

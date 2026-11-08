@@ -105,7 +105,9 @@ def read_snapshots(export: Path) -> dict[str, c.Snapshot]:
     files = sorted((export / "snapshots").glob("*.json"))
     if not files:
         raise SystemExit(f"No snapshots under {export}/snapshots")
-    return {f.stem: c.Snapshot.model_validate(json.loads(f.read_text())) for f in files}
+    return {
+        f.stem: c.Snapshot.model_validate(json.loads(f.read_text(encoding="utf-8"))) for f in files
+    }
 
 
 def name_stories(
@@ -122,7 +124,7 @@ def name_stories(
     # Start from the headlines, not from names this wrote on an earlier run.
     sidecar = export / SIDECAR
     original: dict[str, dict[str, str]] = (
-        json.loads(sidecar.read_text()) if sidecar.exists() else {}
+        json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.exists() else {}
     )
     for day, snap in snapshots.items():
         for story in snap.stories:
@@ -178,12 +180,14 @@ def name_stories(
                     kept.setdefault(story.id, {})[day] = story.title
                     story.title = result[story.id].topic
         write_json(export, f"snapshots/{day}.json", snap)
-    sidecar.write_text(json.dumps({**original, **kept}, ensure_ascii=False) + "\n")
+    sidecar.write_text(
+        json.dumps({**original, **kept}, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     for sid, naming in result.items():
         path = export / "stories" / f"{sid}.json"
         if not path.exists():
             continue
-        detail = c.StoryDetail.model_validate(json.loads(path.read_text()))
+        detail = c.StoryDetail.model_validate(json.loads(path.read_text(encoding="utf-8")))
         if naming.specific:
             detail.title = naming.topic
             detail.summary = f"Latest headline: {naming.headline}"
