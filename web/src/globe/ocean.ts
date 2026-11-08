@@ -1,5 +1,5 @@
-// The sea: a shader instead of a flat colour. It shades from warm turquoise in the tropics to deep
-// navy at the poles, lets slow ripples drift across the surface (value noise moving through the
+// The sea: a shader instead of a flat colour. It shades from a bright ocean blue in the tropics to
+// deep navy at the poles, lets slow ripples drift across the surface (value noise moving through the
 // sphere's own coordinates, so there is no texture and no seam), catches a few faint glints, and
 // lightens toward the rim like a thick layer of air. All of it is quiet on purpose: the stories
 // are the bright things on the globe.
@@ -65,8 +65,8 @@ const fragmentShader = /* glsl */ `
     float facing = clamp(dot(n, normalize(vToCamera)), 0.0, 1.0);
     float diffuse = 0.72 + 0.38 * clamp(dot(n, normalize(vec3(-0.45, 0.55, 0.7))), 0.0, 1.0);
     color *= diffuse;
-    color += vec3(0.55, 0.85, 0.95) * glint * 0.22 * facing;
-    color = mix(color, vec3(0.22, 0.55, 0.65), pow(1.0 - facing, 3.0) * 0.4);
+    color += vec3(0.75, 0.88, 1.0) * glint * 0.16 * facing;
+    color = mix(color, vec3(0.32, 0.55, 0.92), pow(1.0 - facing, 3.0) * 0.45);
 
     gl_FragColor = vec4(color, 1.0);
   }
@@ -82,9 +82,9 @@ export function createOcean(): Ocean {
   const material = new ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uPolar: { value: new Color('#0a1d3d') },
-      uTemperate: { value: new Color('#0c3550') },
-      uTropic: { value: new Color('#0f5560') },
+      uPolar: { value: new Color('#0a2a55') },
+      uTemperate: { value: new Color('#0b3d72') },
+      uTropic: { value: new Color('#0e4f8a') },
     },
     vertexShader,
     fragmentShader,

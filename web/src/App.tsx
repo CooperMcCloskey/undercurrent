@@ -51,8 +51,8 @@ import { useEasedStories, type EasedStory } from './timeline/useEasedStories'
 // stays the big thing; globe/constellation.ts), with its busiest places labelled (globe/labels.ts).
 // Hovering only outlines the story and shows its title, so browsing stays uncluttered.
 const COLORS = {
-  border: '#5d7068', // country borders and coasts: a pale green-grey
-  atmosphere: '#78cbe6',
+  border: '#8a9ba3', // country borders and coasts: a soft grey
+  atmosphere: '#6aaef0',
 }
 // Layers stack outwards, as a fraction of the globe radius.
 const LAND_ALTITUDE = 0.005

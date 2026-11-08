@@ -194,22 +194,63 @@ export function buildLandArrays(topo: CountriesTopology, altitude: number): Land
   }
 }
 
-// The land's colour by latitude (distance from the equator, degrees): rainforest green, dry olive
-// and sand in the subtropics, green again, grey-green for the northern forests, then ice. Dark and
-// muted, so the story markers stay the brightest things on the globe.
+// The land's colour: natural greens by latitude (rainforest, savanna, temperate green, northern
+// forest, tundra, ice), with the big deserts in tan so it isn't a set of flat bands. Dark enough that the story markers stay the brightest
+// things on the globe, and no more muted than it has to be: grey-olive earth looked dusty.
 const LAND_STOPS: [number, string][] = [
-  [0, '#37503a'],
-  [18, '#4b5438'],
-  [28, '#665a41'],
-  [42, '#415239'],
-  [58, '#3b4a45'],
-  [72, '#74868f'],
-  [90, '#a9b8bf'],
+  [0, '#2c6a3b'],
+  [12, '#3c7a3f'],
+  [22, '#6a8a45'],
+  [32, '#5f8444'],
+  [45, '#3b7a46'],
+  [58, '#2e5f48'],
+  [68, '#6c8878'],
+  [75, '#cddce6'],
+  [90, '#f0f6fa'],
 ]
 const stopColors = LAND_STOPS.map(([lat, hex]) => ({ lat, color: new Color(hex) }))
+const DESERT = new Color('#b39b64')
 
-/** The land colour (linear RGB) at `lat` degrees, blended between the stops. */
-export function landColorAt(lat: number): [number, number, number] {
+/** Smooth 2D value noise in 0..1, deterministic, for where the deserts are. */
+function noise2(x: number, y: number): number {
+  const hash = (i: number, j: number) => {
+    const h = Math.sin(i * 127.1 + j * 311.7) * 43758.5453
+    return h - Math.floor(h)
+  }
+  const [ix, iy] = [Math.floor(x), Math.floor(y)]
+  const [fx, fy] = [x - ix, y - iy]
+  const [u, v] = [fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)]
+  const top = hash(ix, iy) * (1 - u) + hash(ix + 1, iy) * u
+  const bottom = hash(ix, iy + 1) * (1 - u) + hash(ix + 1, iy + 1) * u
+  return top * (1 - v) + bottom * v
+}
+
+// The big deserts, as ellipses (centre, and half-width in degrees of latitude and longitude): the
+// colour is tan inside and fades out at the edge, broken up by noise so they aren't clean ovals.
+const DESERTS: { lat: number; lng: number; rLat: number; rLng: number }[] = [
+  { lat: 23, lng: 10, rLat: 8, rLng: 27 }, // Sahara
+  { lat: 24, lng: 45, rLat: 8, rLng: 10 }, // Arabia
+  { lat: 33, lng: 55, rLat: 5, rLng: 10 }, // Iran
+  { lat: 42, lng: 95, rLat: 6, rLng: 17 }, // Gobi and Taklamakan
+  { lat: 27, lng: 71, rLat: 4, rLng: 5 }, // Thar
+  { lat: -25, lng: 134, rLat: 9, rLng: 14 }, // Australian outback
+  { lat: -24, lng: 20, rLat: 7, rLng: 7 }, // Kalahari and Namib
+  { lat: 31, lng: -111, rLat: 6, rLng: 6 }, // Sonoran and Chihuahuan
+  { lat: -23, lng: -69, rLat: 6, rLng: 3 }, // Atacama
+]
+
+function desertAmount(lat: number, lng: number): number {
+  let best = 0
+  for (const d of DESERTS) {
+    const dist = Math.hypot((lat - d.lat) / d.rLat, (lng - d.lng) / d.rLng)
+    best = Math.max(best, 1 - Math.min(1, dist))
+  }
+  const ragged = 0.6 + 0.8 * noise2(lng / 6, lat / 4) // breaks up the edge
+  return Math.min(1, Math.max(0, best * 1.6 * ragged))
+}
+
+/** The land colour (linear RGB) at a place: the latitude blend, with the deserts in tan. */
+export function landColorAt(lat: number, lng = 0): [number, number, number] {
   const a = Math.min(90, Math.abs(lat))
   let i = stopColors.findIndex((s) => s.lat >= a)
   if (i <= 0) i = 1
@@ -217,6 +258,7 @@ export function landColorAt(lat: number): [number, number, number] {
   const hi = stopColors[i]
   const k = (a - lo.lat) / (hi.lat - lo.lat)
   const c = lo.color.clone().lerp(hi.color, Math.min(1, Math.max(0, k)))
+  c.lerp(DESERT, desertAmount(lat, lng) * 0.9)
   return [c.r, c.g, c.b]
 }
 
@@ -231,7 +273,8 @@ export function landObject(arrays: LandArrays, colors: { border: string }): Grou
       arrays.fillPositions[i + 2],
     ]
     const lat = Math.asin(y / Math.hypot(x, y, z)) / DEG
-    vertexColors.set(landColorAt(lat), i)
+    const lng = 90 - Math.atan2(z, x) / DEG // the inverse of pushXYZ
+    vertexColors.set(landColorAt(lat, lng), i)
   }
   fillGeometry.setAttribute('color', new BufferAttribute(vertexColors, 3))
   fillGeometry.setAttribute('normal', new BufferAttribute(arrays.fillNormals, 3))
