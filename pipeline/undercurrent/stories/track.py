@@ -23,6 +23,8 @@ import argparse
 import datetime as dt
 import logging
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -134,6 +136,15 @@ def write_day(processed: Path, result: DayResult) -> None:
         _write(path, table)
 
 
+def make_prototypes() -> None:
+    """Make the category prototypes in a separate process, once. Making them loads PyTorch, and a
+    process that has loaded PyTorch runs FAISS on one thread (cluster.get_faiss): on the first real
+    run that made every day of tracking several times slower."""
+    code = "from undercurrent.vectors.categories import prototypes; prototypes()"
+    if subprocess.run([sys.executable, "-c", code], check=False).returncode != 0:
+        log.warning("Couldn't make the category prototypes separately; making them here instead.")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -179,10 +190,12 @@ def main(argv: list[str] | None = None) -> None:
 
     categorize = None
     if not args.no_categories:
-        # Load the category prototypes now, before FAISS is used: they come from a disk cache, and
-        # if they have to be made, PyTorch must be loaded before FAISS (see cluster.get_faiss).
-        from undercurrent.vectors.categories import categorize, prototypes
+        # Load the category prototypes now, before FAISS is used. They come from a disk cache; if
+        # that is empty they are made in another process, so this one never loads PyTorch.
+        from undercurrent.vectors.categories import cached, categorize, prototypes
 
+        if not cached():
+            make_prototypes()
         prototypes()
 
     state_path = processed / STATE

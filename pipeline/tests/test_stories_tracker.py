@@ -425,3 +425,30 @@ def test_a_day_that_produces_nothing_is_still_written_with_the_right_types(tmp_p
         table = pq.read_table(tmp_path / folder / "2026-01-01.parquet")
         assert table.num_rows == 0 and table.schema.equals(track.SCHEMAS[folder])
     assert not (tmp_path / "story_lineage").exists()  # no merge, no file
+
+
+@pytest.mark.parametrize(
+    ("is_cached", "expected"), [(False, ["made in another process", "loaded"]), (True, ["loaded"])]
+)
+def test_missing_category_prototypes_are_made_in_another_process_not_this_one(
+    is_cached: bool, expected: list[str], monkeypatch, tmp_path: Path
+) -> None:
+    """Making them loads PyTorch, which would leave FAISS on one thread for the whole run."""
+    from undercurrent.vectors import categories
+
+    events: list[str] = []
+
+    class Done:
+        returncode = 0
+
+    def run(command, check):
+        assert command[1] == "-c" and "prototypes()" in command[2]
+        events.append("made in another process")
+        return Done()
+
+    monkeypatch.setattr(categories, "cached", lambda: is_cached)
+    monkeypatch.setattr(categories, "prototypes", lambda: events.append("loaded"))
+    monkeypatch.setattr(track.subprocess, "run", run)
+    with pytest.raises(SystemExit, match="No news vectors"):  # nothing embedded: stops right after
+        track.main(["--processed", str(tmp_path), "--start", "2026-01-01", "--end", "2026-01-01"])
+    assert events == expected

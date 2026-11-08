@@ -107,6 +107,11 @@ def _cache_path() -> Path:
     return config.CACHE / "category_prototypes" / f"{digest}.npy"
 
 
+def cached() -> bool:
+    """Whether prototypes() can load from disk, without loading the embedding model."""
+    return _cache_path().exists()
+
+
 @cache
 def prototypes() -> tuple[tuple[Category, ...], np.ndarray]:
     """One L2-normalised prototype vector per category (cached per process, and on disk).
