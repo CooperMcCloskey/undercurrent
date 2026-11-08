@@ -3,10 +3,16 @@
 # next: the main section (~/block.env) and any started with extra_section.sh (/workspace/uc-home-*,
 # ~/uc-home-*).
 #
-#   bash ~/undercurrent/scripts/standalone/progress.sh
+#   bash ~/undercurrent/scripts/standalone/progress.sh           this server, in detail
 #   watch -n 60 bash ~/undercurrent/scripts/standalone/progress.sh
+#   bash ~/undercurrent/scripts/standalone/progress.sh check     one verdict per section: is its tracking
+#                                                                 the right one (started after the cutoffs)?
+#   bash ~/undercurrent/scripts/standalone/progress.sh publish   copy this server's progress to the bucket
+#                                                                 every 5 minutes (tmux session uc-report)
+#   bash ~/undercurrent/scripts/standalone/progress.sh all       every server that publishes, from anywhere
+#                                                                 gcloud is logged in (Cloud Shell too)
 #
-# A Google Cloud block VM, from Cloud Shell (after `git -C ~/undercurrent pull -q`):
+# A Google Cloud block VM, from Cloud Shell (after `git -C ~/undercurrent pull -q`); add `check` after `-s`:
 #   Z=$(gcloud compute instances list --filter=name=uc-gpu --format='value(zone.basename())')
 #   gcloud compute ssh uc-gpu --zone=$Z --command='sudo -u uc -H bash -s' < ~/undercurrent/scripts/standalone/progress.sh
 #
@@ -18,6 +24,10 @@
 CUTOFFS="2026-11-08 03:45:00 UTC" # 2ab8939: news-news 0.80 and the language filter
 CUT=$(date -ud "$CUTOFFS" +%s)
 MAIN=$HOME
+MODE=${1:-report}
+BUCKET=${BUCKET:-undercurrent-data-cooper}
+REPORTS=gs://$BUCKET/status/progress
+export PATH=$HOME/google-cloud-sdk/bin:$PATH
 
 bar() { awk -v t="$1" -v n="$2" 'BEGIN {w = int(20 * t / n); b = sprintf("%*s", w, ""); gsub(/ /, "#", b); printf "[%-20s]", b}'; }
 # python processes running module $1 in folder $2
@@ -40,6 +50,8 @@ one() { # $1 = a home folder with block.env and undercurrent/
   local h=$1
   (
     cd "$h/undercurrent" 2>/dev/null && source "$h/block.env" 2>/dev/null || exit 0
+    # finished, checked and its data deleted (verify's rm line): nothing left to show
+    [ ! -d data/processed ] && { [ -f logs/TRACK_DONE ] || [ -f logs/VERIFIED ]; } && exit 0
     real=$(readlink -f .)
     gcp=no
     [ -f logs/dryrun.ok ] || [ -n "${PULLS:-}" ] && gcp=yes
@@ -73,6 +85,32 @@ one() { # $1 = a home folder with block.env and undercurrent/
     # what is running for this section right now
     np=$(procs "ingest.gdelt_" "$real") ne=$(procs "vectors.store" "$real") nt=$(procs "stories.track" "$real")
     nl=$(loops "$real")
+    tp="" # when the running tracker process started
+    for q in $(pgrep -f "undercurrent.stories.track"); do
+      [[ "$(ps -o comm= -p "$q")" == python* ]] && [ "$(readlink -f "/proc/$q/cwd" 2>/dev/null)" = "$real" ] &&
+        { tp=$(date -d "$(ps -o lstart= -p "$q")" +%s 2>/dev/null); break; }
+    done
+    newcode=no
+    grep -q '("news", "news"): 0.80' pipeline/undercurrent/vectors/thresholds.py 2>/dev/null && newcode=yes
+
+    if [ "$MODE" = check ]; then
+      at() { date -ud "@$1" +%H:%M; }
+      if [ -n "$t0" ] && [ "$t0" -lt "$CUT" ]; then
+        v="WRONG: its timeline began $(at "$t0") UTC, before the cutoffs (03:45 UTC). Fix: $how track-fresh"
+      elif [ $newcode = no ]; then
+        v="WRONG: the code here still has the old cutoffs. Fix: $how track-fresh"
+      elif [ -n "$tp" ] && [ "$tp" -lt "$CUT" ]; then
+        v="WRONG: the running tracker started $(at "$tp") UTC, before the cutoffs. Fix: $how track-fresh"
+      elif [ -z "$t0" ] && [ -z "$tp" ]; then
+        v="NOT STARTED: nothing tracked yet. Start: $how track"
+      elif [ -z "$t0" ]; then
+        v="RIGHT: tracking its first day (tracker started $(at "$tp") UTC, after the cutoffs, 0.80 code)"
+      else
+        v="RIGHT: timeline began $(at "$t0") UTC, after the cutoffs, with the 0.80 code; $t/$n days so far"
+      fi
+      printf "%-4s %s\n" "$BLOCK" "$v"
+      exit 0
+    fi
     now=()
     [ "$np" -gt 0 ] && now+=("pull")
     [ "$ne" -gt 0 ] && now+=("embed x$ne")
@@ -87,7 +125,7 @@ one() { # $1 = a home folder with block.env and undercurrent/
     if [ -n "$t0" ] && [ "$t0" -lt "$CUT" ]; then
       ts="timeline began $since, BEFORE the cutoffs"
       next="$how track-fresh"
-    elif ! grep -q '("news", "news"): 0.80' pipeline/undercurrent/vectors/thresholds.py 2>/dev/null; then
+    elif [ $newcode = no ]; then
       ts="the code here has the old cutoffs"
       next="$how track-fresh"
     elif [ "$nt" -gt 0 ]; then
@@ -118,8 +156,46 @@ one() { # $1 = a home folder with block.env and undercurrent/
   )
 }
 
-echo "progress of each section on $(hostname), $(date -u +%H:%M) UTC (cutoffs pushed $CUTOFFS)"
-for h in "$HOME" /workspace/uc-home-* "$HOME"/uc-home-*; do
-  [ -f "$h/block.env" ] && one "$h"
-done
+sections() { # every section on this server
+  local h
+  for h in "$HOME" /workspace/uc-home-* "$HOME"/uc-home-*; do
+    [ -f "$h/block.env" ] && one "$h"
+  done
+}
+
+case "$MODE" in
+report)
+  echo "progress of each section on $(hostname), $(date -u +%H:%M) UTC (cutoffs pushed $CUTOFFS)"
+  sections
+  ;;
+check)
+  echo "is each section's tracking the right one? $(hostname), $(date -u +%H:%M) UTC"
+  sections
+  ;;
+publish)
+  SELF=$(readlink -f "$0" 2>/dev/null)
+  [ -f "$SELF" ] || { echo "Run publish from the file: bash ~/undercurrent/scripts/standalone/progress.sh publish"; exit 1; }
+  if tmux has-session -t uc-report 2>/dev/null; then
+    echo "already publishing to $REPORTS/$(hostname).txt (tmux session uc-report)"
+    exit 0
+  fi
+  OUT=/tmp/uc-progress-$(hostname).txt
+  tmux new -d -s uc-report "export PATH=$PATH; while true; do bash $SELF > $OUT 2>&1; gcloud storage cp -q $OUT $REPORTS/$(hostname).txt; sleep 300; done"
+  echo "publishing this server's progress to $REPORTS/$(hostname).txt every 5 minutes (tmux session uc-report)"
+  echo "see every server's: bash ~/undercurrent/scripts/standalone/progress.sh all"
+  ;;
+all)
+  urls=$(gcloud storage ls "$REPORTS/" 2>/dev/null | grep '\.txt$')
+  [ -n "$urls" ] || { echo "No server publishes yet. On each server: bash ~/undercurrent/scripts/standalone/progress.sh publish"; exit 1; }
+  echo "every publishing server, $(date -u +%H:%M) UTC now (each report says when it was made; they refresh every 5 minutes)"
+  for u in $urls; do
+    echo
+    gcloud storage cat "$u"
+  done
+  ;;
+*)
+  sed -n '2,20p' "$0"
+  exit 1
+  ;;
+esac
 exit 0

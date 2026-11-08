@@ -49,6 +49,7 @@ days_of() {
     # machine that has the data, the b halves anywhere, after `fetch` from the bucket.
     3a) echo "2025-04-10 2025-05-08 2025-08-06" ;;
     3b) echo "2025-07-10 2025-08-07 2025-11-06" ;;
+    4b) echo "2025-03-01 2025-03-29 2025-05-07" ;; # 4 split for tracking: 4a on its VM, 4b from the bucket
     7a) echo "2023-04-10 2023-05-08 2023-08-06" ;;
     7b) echo "2023-07-10 2023-08-07 2023-11-06" ;;
     *) return 1 ;; # 1 and 2 are running on Google Cloud; 6 is split into 6a and 6b
@@ -92,7 +93,7 @@ track_threads() {
 case "${1:-}" in
 setup)
   SECTION=${2:-}
-  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 3, 4, 5, 5a, 5b, 6a, 6b, 7-10, 3a, 3b, 7a or 7b (docs/DATA_COVERAGE.md)"; exit 1; }
+  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 3, 4, 5, 5a, 5b, 6a, 6b, 7-10, 3a, 3b, 4b, 7a or 7b (docs/DATA_COVERAGE.md)"; exit 1; }
   read -r PS OS OE <<<"$DAYS"
   echo "== section $SECTION: pulls $PS..$OE, owns $OS..$OE, into gs://$BUCKET"
   if ! command -v tmux >/dev/null || ! command -v git >/dev/null || ! command -v curl >/dev/null; then
@@ -136,7 +137,7 @@ EOF
   echo "== settings (~/block.env):"; cat "$HOME/block.env"
 
   NEXT="bash $SELF start"
-  [[ "$SECTION" =~ ^[37]b$ ]] && NEXT="bash $SELF fetch && bash $SELF track   (tracking only: its data is in the bucket)"
+  [[ "$SECTION" =~ ^[347]b$ ]] && NEXT="bash $SELF fetch && bash $SELF track   (tracking only: its data is in the bucket)"
   echo "== bucket"
   if bucket_ok; then
     echo "gs://$BUCKET is reachable as $(gcloud config get-value account 2>/dev/null). Next: $NEXT"
@@ -324,6 +325,7 @@ verify)
     BAD=1
   fi
   if [ $BAD = 0 ]; then
+    date -u >"$L/VERIFIED" # progress.sh stops listing the section once its data is deleted
     echo "Everything section $BLOCK made is in gs://$BUCKET. This server's copy is no longer needed:"
     echo "  rm -rf $R/data/processed $R/data/raw"
     echo "(or delete the server). If the cutoffs change again, 'fetch' brings the data back from the bucket."
