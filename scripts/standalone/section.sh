@@ -14,7 +14,7 @@
 #                                                                     elsewhere (3b, 7b): download its articles and vectors
 #                                                                     from the bucket, then `track` (it keeps fetching new days)
 #
-# SECTION: 3, 4, 5 (or 5a, 5b), 6a, 6b, 7-10, or the tracking halves 3a, 3b, 7a, 7b (docs/DATA_COVERAGE.md). The pull reads GDELT's 15-minute zip files
+# SECTION: 3, 4, 5 (or 5a, 5b), 6a, 6b, 7-10 (9 as 9a, 9b), or the tracking halves 3a, 3b, 7a, 7b (docs/DATA_COVERAGE.md). The pull reads GDELT's 15-minute zip files
 # (ingest/gdelt_zip.py), so no BigQuery or Google Cloud project is needed; only `gcloud` logged in
 # with write access to the bucket. Everything resumes where it stopped: after a reboot, run `start`.
 # Tracking uses every CPU the machine allows (less what this section's pull and embedders still
@@ -44,6 +44,8 @@ days_of() {
     7) echo "2023-04-10 2023-05-08 2023-11-06" ;;
     8) echo "2022-10-10 2022-11-07 2023-05-07" ;;
     9) echo "2022-04-10 2022-05-08 2022-11-06" ;;
+    9a) echo "2022-04-10 2022-05-08 2022-08-06" ;; # section 9 split in two halves, like 5: each pulls,
+    9b) echo "2022-07-10 2022-08-07 2022-11-06" ;; # embeds and tracks its own days (9b on Google Cloud)
     10) echo "2021-10-10 2021-11-07 2022-05-07" ;;
     # 3 and 7, split in two for tracking only (pulled and embedded whole): the a halves track on the
     # machine that has the data, the b halves anywhere, after `fetch` from the bucket.
@@ -93,7 +95,7 @@ track_threads() {
 case "${1:-}" in
 setup)
   SECTION=${2:-}
-  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 3, 4, 5, 5a, 5b, 6a, 6b, 7-10, 3a, 3b, 4b, 7a or 7b (docs/DATA_COVERAGE.md)"; exit 1; }
+  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 3, 4, 5, 5a, 5b, 6a, 6b, 7-10, 9a, 9b, 3a, 3b, 4b, 7a or 7b (docs/DATA_COVERAGE.md)"; exit 1; }
   read -r PS OS OE <<<"$DAYS"
   echo "== section $SECTION: pulls $PS..$OE, owns $OS..$OE, into gs://$BUCKET"
   if ! command -v tmux >/dev/null || ! command -v git >/dev/null || ! command -v curl >/dev/null; then
