@@ -168,6 +168,26 @@ bash ~/undercurrent/scripts/standalone/extra_section.sh 9 status       # and tra
 
 **Two new sections on a server with 2+ GPUs** (for example 5a and 5b on 2× A100, 32 vCPUs): use `scripts/standalone/multi.sh` instead (`docs/PREVIOUS_YEAR.md`, "Two sections on one server"). It gives each section its own clone, home and tmux, and half the CPUs, and keeps the total number of embedders to what one section would use on that machine.
 
+## 6b. Tracking-only sections (3b, 7b): from the bucket
+
+Sections 3 and 7 were pulled and embedded whole on one machine each, then split in two for tracking. The a halves track where the data is. The b halves track anywhere, from the bucket's copy:
+
+```bash
+git -C ~/undercurrent pull -q
+bash ~/undercurrent/scripts/standalone/extra_section.sh 3b            # or 7b; safe to rerun
+bash ~/undercurrent/scripts/standalone/extra_section.sh 3b progress
+```
+
+**What it does:** sets up the section in its own home, downloads its articles and vectors (`section.sh fetch`: only the half's 28 warm-up days and its own days), then starts `track`.
+
+**If some days aren't in the bucket yet,** as with 7b while section 7 is still embedding, the tracker stops at the first missing day. It then fetches again every 2 minutes and carries on as days arrive.
+
+**`finish`** uploads only the story tables, since the articles and vectors are already in the bucket.
+
+**Size and cost:** a half is about 35 GB on disk (120 days of vectors and articles). Downloading it to a server outside Google Cloud costs Cooper's project about $4 in egress.
+
+**Tracking is a good job to add to a busy server:** each tracker keeps about one core busy, and only briefly uses the GPU.
+
 ## 7. Google Cloud block VMs (`create_vm.sh`)
 
 Run these from Cloud Shell. First update Cloud Shell's copy of the repo with `git -C ~/undercurrent pull -q`, then run `bash ~/undercurrent/scripts/gcp/vm.sh <command>`. It finds the VM and its zone itself.

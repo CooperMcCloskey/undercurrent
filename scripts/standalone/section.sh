@@ -9,8 +9,11 @@
 #   bash ~/undercurrent/scripts/standalone/section.sh track-fresh [N] the same, starting the timeline again (after the
 #                                                                     cutoffs changed); the old story tables are moved aside
 #   bash ~/undercurrent/scripts/standalone/section.sh finish          upload the section's own story days, mark it done
+#   bash ~/undercurrent/scripts/standalone/section.sh fetch           instead of `start`, for a section pulled and embedded
+#                                                                     elsewhere (3b, 7b): download its articles and vectors
+#                                                                     from the bucket, then `track` (it keeps fetching new days)
 #
-# SECTION: 3, 4, 5 (or 5a, 5b), 6a, 6b or 7-10 (docs/DATA_COVERAGE.md). The pull reads GDELT's 15-minute zip files
+# SECTION: 3, 4, 5 (or 5a, 5b), 6a, 6b, 7-10, or the tracking halves 3a, 3b, 7a, 7b (docs/DATA_COVERAGE.md). The pull reads GDELT's 15-minute zip files
 # (ingest/gdelt_zip.py), so no BigQuery or Google Cloud project is needed; only `gcloud` logged in
 # with write access to the bucket. Everything resumes where it stopped: after a reboot, run `start`.
 # Tracking uses every CPU the machine allows (less what this section's pull and embedders still
@@ -41,6 +44,12 @@ days_of() {
     8) echo "2022-10-10 2022-11-07 2023-05-07" ;;
     9) echo "2022-04-10 2022-05-08 2022-11-06" ;;
     10) echo "2021-10-10 2021-11-07 2022-05-07" ;;
+    # 3 and 7, split in two for tracking only (pulled and embedded whole): the a halves track on the
+    # machine that has the data, the b halves anywhere, after `fetch` from the bucket.
+    3a) echo "2025-04-10 2025-05-08 2025-08-06" ;;
+    3b) echo "2025-07-10 2025-08-07 2025-11-06" ;;
+    7a) echo "2023-04-10 2023-05-08 2023-08-06" ;;
+    7b) echo "2023-07-10 2023-08-07 2023-11-06" ;;
     *) return 1 ;; # 1 and 2 are running on Google Cloud; 6 is split into 6a and 6b
   esac
 }
@@ -82,7 +91,7 @@ track_threads() {
 case "${1:-}" in
 setup)
   SECTION=${2:-}
-  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 3, 4, 5, 5a, 5b, 6a, 6b or 7-10 (docs/DATA_COVERAGE.md)"; exit 1; }
+  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 3, 4, 5, 5a, 5b, 6a, 6b, 7-10, 3a, 3b, 7a or 7b (docs/DATA_COVERAGE.md)"; exit 1; }
   read -r PS OS OE <<<"$DAYS"
   echo "== section $SECTION: pulls $PS..$OE, owns $OS..$OE, into gs://$BUCKET"
   if ! command -v tmux >/dev/null || ! command -v git >/dev/null || ! command -v curl >/dev/null; then
@@ -125,15 +134,34 @@ export PULL_WORKERS=$([ "$CPUS" -ge 12 ] && echo 8 || echo 4)
 EOF
   echo "== settings (~/block.env):"; cat "$HOME/block.env"
 
+  NEXT="bash $SELF start"
+  [[ "$SECTION" =~ ^[37]b$ ]] && NEXT="bash $SELF fetch && bash $SELF track   (tracking only: its data is in the bucket)"
   echo "== bucket"
   if bucket_ok; then
-    echo "gs://$BUCKET is reachable as $(gcloud config get-value account 2>/dev/null). Next: bash $SELF start"
+    echo "gs://$BUCKET is reachable as $(gcloud config get-value account 2>/dev/null). Next: $NEXT"
   else
     echo "Can't reach gs://$BUCKET yet. Log in with a Google account Cooper has given write access:"
     echo "  gcloud auth login --no-launch-browser"
     echo "(Cooper: gcloud storage buckets add-iam-policy-binding gs://$BUCKET --member=user:EMAIL --role=roles/storage.objectAdmin)"
-    echo "Then: bash $SELF start"
+    echo "Then: $NEXT"
   fi
+  ;;
+fetch)
+  # A section pulled and embedded on another machine: copy its articles and vectors, from its first
+  # warm-up day to its last day, out of the bucket. rsync, so a rerun only fetches what's missing or
+  # incomplete; `track` reruns it while it waits for days that aren't in the bucket yet.
+  bucket_ok || { echo "Can't reach gs://$BUCKET: gcloud auth login --no-launch-browser"; exit 1; }
+  export CLOUDSDK_STORAGE_PROCESS_COUNT=4 CLOUDSDK_STORAGE_THREAD_COUNT=8 # nothing to starve here
+  DATES=$(d=$PULL_START; while [[ ! "$d" > "$OWN_END" ]]; do printf '%s|' "$d"; d=$(date -ud "$d + 1 day" +%F); done)
+  DATES=${DATES%|}
+  mkdir -p data/processed/articles data/processed/vectors
+  touch "$L/FETCHED" # before the copy: an interrupted fetch must still be retried by `track`
+  gcloud storage rsync -r -q -x "^(?!day=($DATES)/)" "gs://$BUCKET/processed/articles" data/processed/articles &&
+    gcloud storage rsync -r -q -x "^(?!manifest\.json\$|news/($DATES)\.(npy|parquet)\$)" \
+      "gs://$BUCKET/processed/vectors" data/processed/vectors
+  OK=$?
+  echo "$(date -u) fetched from gs://$BUCKET: articles $(pulled)/$(expected) days, vectors $(embedded)/$(expected)"
+  exit $OK
   ;;
 start)
   bucket_ok || echo "WARNING: gs://$BUCKET isn't reachable yet; work carries on locally and uploads retry."
@@ -204,6 +232,7 @@ _track)
   # The tracker stops at the first day without vectors; carry on from there until the section is done.
   # The thread count is worked out again on each run, so it grows as the pull and embedders finish.
   until
+    [ -f "$L/FETCHED" ] && bash "$SELF" fetch >>"$L/fetch.log" 2>&1 # days uploaded since the last try
     N=$([ "$T" = auto ] && track_threads || echo "$T")
     echo "$(date -u) tracking with $N threads" >>"$L/track.log"
     OMP_NUM_THREADS=$N uv run python -m undercurrent.stories.track --start "$PULL_START" --end "$OWN_END" $F >>"$L/track.log" 2>&1
@@ -231,10 +260,14 @@ finish)
   for T in story_assignments stories_daily story_lineage; do
     gcloud storage rsync -r -q "$HOME/own/$T" "gs://$BUCKET/processed/$T"
   done
-  for T in articles gdelt_totals gdelt_files; do
-    [ -d "data/processed/$T" ] && gcloud storage rsync -r -q "data/processed/$T" "gs://$BUCKET/processed/$T"
-  done
-  gcloud storage rsync -r -q -x '.*\.tmp[0-9]+$' data/processed/vectors "gs://$BUCKET/processed/vectors"
+  if [ -f "$L/FETCHED" ]; then
+    echo "(articles and vectors came from the bucket: not uploading them again)"
+  else
+    for T in articles gdelt_totals gdelt_files; do
+      [ -d "data/processed/$T" ] && gcloud storage rsync -r -q "data/processed/$T" "gs://$BUCKET/processed/$T"
+    done
+    gcloud storage rsync -r -q -x '.*\.tmp[0-9]+$' data/processed/vectors "gs://$BUCKET/processed/vectors"
+  fi
   echo "section $BLOCK $OWN_START..$OWN_END done $(date -u)" | gcloud storage cp - "gs://$BUCKET/status/block-$BLOCK.done"
   echo "Uploaded. Mark section $BLOCK done in docs/DATA_COVERAGE.md and post it in the chat."
   ;;

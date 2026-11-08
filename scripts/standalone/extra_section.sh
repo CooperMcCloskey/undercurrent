@@ -4,7 +4,8 @@
 # logs and tmux. The first section's files and loops are never touched. Everything here runs at
 # lower CPU priority, so the first section's tracking keeps the CPUs it needs.
 #
-#   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION            set up and start (safe to rerun)
+#   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION            set up and start (safe to rerun); for
+#                                                                            3b or 7b: fetch from the bucket and track
 #   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION progress   % pulled, embedded, tracked
 #   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION status     or track, track-fresh, finish
 #
@@ -32,7 +33,12 @@ go)
   nice -n 10 bash "$SEC" setup "$S" || exit 1
   gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q . ||
     gcloud auth login --no-launch-browser || exit 1
-  nice -n 10 bash "$SEC" start
+  if [[ "$S" =~ ^[37]b$ ]]; then # tracking only: the data is in the bucket
+    nice -n 10 bash "$SEC" fetch # if some days aren't uploaded yet, `track` fetches them as they arrive
+    nice -n 10 bash "$SEC" track
+  else
+    nice -n 10 bash "$SEC" start
+  fi
   echo "Section $S is in $HOME/undercurrent. Watch it: bash $0 $S progress   (or status)"
   ;;
 progress)
