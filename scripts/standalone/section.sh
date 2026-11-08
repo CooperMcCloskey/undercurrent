@@ -9,7 +9,7 @@
 #   bash ~/undercurrent/scripts/standalone/section.sh track-fresh     the same, starting the timeline again
 #   bash ~/undercurrent/scripts/standalone/section.sh finish          upload the section's own story days, mark it done
 #
-# SECTION: 6a, 6b or 5 (docs/PREVIOUS_YEAR.md). The pull reads GDELT's 15-minute zip files
+# SECTION: 3, 4, 5, 6a, 6b or 7-10 (docs/DATA_COVERAGE.md). The pull reads GDELT's 15-minute zip files
 # (ingest/gdelt_zip.py), so no BigQuery or Google Cloud project is needed; only `gcloud` logged in
 # with write access to the bucket. Everything resumes where it stopped: after a reboot, run `start`.
 set -uo pipefail
@@ -26,10 +26,16 @@ cd "$R" || exit 1
 # section -> pull start (28-day warm-up), own start, own end. Keep in step with docs/DATA_COVERAGE.md.
 days_of() {
   case "$1" in
+    3) echo "2025-04-10 2025-05-08 2025-11-06" ;;
+    4) echo "2024-10-10 2024-11-07 2025-05-07" ;;
     5) echo "2024-04-10 2024-05-08 2024-11-06" ;;
     6a) echo "2023-10-10 2023-11-07 2024-02-06" ;;
     6b) echo "2024-01-10 2024-02-07 2024-05-07" ;;
-    *) return 1 ;;
+    7) echo "2023-04-10 2023-05-08 2023-11-06" ;;
+    8) echo "2022-10-10 2022-11-07 2023-05-07" ;;
+    9) echo "2022-04-10 2022-05-08 2022-11-06" ;;
+    10) echo "2021-10-10 2021-11-07 2022-05-07" ;;
+    *) return 1 ;; # 1 and 2 are running on Google Cloud; 6 is split into 6a and 6b
   esac
 }
 
@@ -49,7 +55,7 @@ bucket_ok() { gcloud storage ls "gs://$BUCKET/processed/" >/dev/null 2>&1; }
 case "${1:-}" in
 setup)
   SECTION=${2:-}
-  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 6a, 6b or 5"; exit 1; }
+  DAYS=$(days_of "$SECTION") || { echo "Unknown section '$SECTION': use 3, 4, 5, 6a, 6b or 7-10 (docs/DATA_COVERAGE.md)"; exit 1; }
   read -r PS OS OE <<<"$DAYS"
   echo "== section $SECTION: pulls $PS..$OE, owns $OS..$OE, into gs://$BUCKET"
   if ! command -v tmux >/dev/null || ! command -v git >/dev/null || ! command -v curl >/dev/null; then

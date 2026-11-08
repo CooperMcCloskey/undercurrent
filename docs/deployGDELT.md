@@ -4,6 +4,10 @@ What each of us runs to start processing our block of the two-year plan (`docs/T
 
 **You don't need a separate CPU VM.** BigQuery does the heavy part of the pull, and the L4 VM's CPUs handle the rest alongside embedding. The bill is about 0.55 GB a day, so about 155 GB for a block: inside the free 1 TB a month each account gets.
 
+**Who is doing which section, and what's next:** `docs/DATA_COVERAGE.md` is the source of truth. The table below can be out of date, and the blocks here are its sections 1–4.
+
+**Day-to-day commands:** `bash ~/undercurrent/scripts/gcp/vm.sh status | speed | embed2 | feeds | track | finish | stop`, from Cloud Shell. It finds your VM and zone by itself; run `git -C ~/undercurrent pull -q` first. Steps 4–5 below are the same commands written out.
+
 ## The blocks
 
 | Block | Owner | Own days | Pulls from (28-day warm-up) |
