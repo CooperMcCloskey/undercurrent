@@ -5,6 +5,10 @@
 #   bash ~/undercurrent/scripts/merge.sh start     start it in tmux (survives SSH closing)
 #   bash ~/undercurrent/scripts/merge.sh status    how far it got, and the latest log lines
 #   bash ~/undercurrent/scripts/merge.sh stop      stop it (rerun `start` later: downloads are kept)
+#   bash ~/undercurrent/scripts/merge.sh demo      FAST, for the demo only: after the download step has
+#                  run, a quick forecast (trees, one test window) on the merged days from FROM
+#                  (default 2025-08-01), then a light export of START.. (default 2025-11-07, 300 a
+#                  day, without the slow optional steps) -> export-final.tgz. About 10-20 minutes.
 #   bash ~/undercurrent/scripts/merge.sh export    redo only the export and upload, from what the last
 #                  merge downloaded and trained (minutes, not an hour): after an export failure, or
 #                  for a smaller export, e.g. START=2025-11-07 bash ~/undercurrent/scripts/merge.sh export
@@ -137,6 +141,43 @@ export)
   rm -f "$L/MERGE_DONE"; : >>"$L/merge.log"
   tmux new -d -s merge -c "$R" "TOP='$TOP' START='${START:-}' EXPORT_OPTS='${EXPORT_OPTS:-}' BUCKET='$BUCKET' bash $SELF _export >> $L/merge.log 2>&1"
   echo "Re-export started (no download, no training). Watch it: bash $SELF status"
+  ;;
+demo)
+  [ -d "$M/stories_daily" ] || { echo "Nothing downloaded in $M yet: the merge's download step has to run first."; exit 1; }
+  tmux has-session -t merge 2>/dev/null && { echo "A merge is running: bash $SELF stop (its downloads are kept), then run demo again."; exit 1; }
+  rm -f "$L/MERGE_DONE"; : >>"$L/merge.log"
+  tmux new -d -s merge -c "$R" "FROM='${FROM:-2025-08-01}' START='${START:-2025-11-07}' TOP='${TOP_DEMO:-300}' BUCKET='$BUCKET' bash $SELF _demo >> $L/merge.log 2>&1"
+  echo "Demo export started (quick forecast, then a light export). Watch it: bash $SELF status"
+  ;;
+_demo)
+  set -e
+  T0=$(date +%s)
+  git pull -q --ff-only || true
+  D=$R/data/demo
+  rm -rf "$D" && mkdir -p "$D"
+  step "demo data: the merged days from $FROM, linked from $M (nothing copied)"
+  for T in story_assignments stories_daily story_lineage; do
+    mkdir -p "$D/$T"
+    for f in "$M/$T"/*.parquet; do
+      [ -e "$f" ] || continue
+      d=$(basename "$f" .parquet); [[ "$d" < "$FROM" ]] || ln -s "$f" "$D/$T/"
+    done
+  done
+  for T in articles gdelt_totals; do
+    for p in "$M/$T"/day=*; do
+      [ -d "$p" ] || continue
+      d=${p##*day=}; [[ "$d" < "$FROM" ]] && continue
+      mkdir -p "$D/$T/day=$d" && ln -s "$p"/*.parquet "$D/$T/day=$d/"
+    done
+  done
+  echo "  $(ls "$D/stories_daily" | wc -l) story days, $(ls "$D/articles" | wc -l) article days"
+  step "quick forecast for the demo: trees only, one 60-day test window, 120 trees"
+  OMP_NUM_THREADS=$(nproc) uv run python -m undercurrent.forecast.run --source stories \
+    --processed "$D" --out "$D" --model hgb --folds 0 --max-iter 120 \
+    --final-test-days 60 --cal-days 21 --min-train-days 90 ||
+    echo "!! the quick forecast failed: exporting without forecasts"
+  M=$D EXPORT_OPTS="--no-title-categories --no-episodes --no-wiki-topics ${EXPORT_OPTS:-}"
+  export_and_upload
   ;;
 _export)
   set -e
