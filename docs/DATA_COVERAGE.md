@@ -59,7 +59,19 @@ gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '
 
 ## The final merge (one command)
 
-When most sections are tracked and `finish`ed (their `status/*.done` is in the bucket), **one person** runs this on the machine with the most CPUs that can read the bucket (a 32-vCPU section server is ideal; a Google Cloud VM in us-central1 downloads fastest):
+**Schedule (2026-11-08, UTC).** Submission is at **12:00**. Data is frozen at **08:00**, so the time after that goes on the presentation, the video and Devpost.
+
+| When | What | Who |
+|---|---|---|
+| **Now** | **Trial merge** on the sections already finished. It tests the merge end to end on real data, while there's time to fix it, and gives the first real forecasts. Loading its export is optional | whoever has a free 32-vCPU server |
+| **07:00** | **Final merge**, with every section finished by then (`finish` run, `status/*.done` in the bucket). A section still tracking at 07:00 is left out: don't wait for it | the same person |
+| **About 07:40** | The final `export-final.tgz` is in the bucket. **Load it once** on the demo laptop and a backup laptop (below) | Cooper and one other |
+| **08:00** | **Data freeze.** No more exports or merges for the demo; the loaded data is what we present | everyone |
+| 08:00 → 12:00 | Presentation, a short screen recording of the demo, Devpost. Rehearse once with wifi off: the app needs no internet | everyone |
+
+**Fallback:** if the final merge fails, demo with the block 1 export already on Cooper's laptop. It has real stories (2026-05-08 → 11-06) and English titles, but no forecasts and the old categories.
+
+**The command.** **One person** runs it on the machine with the most CPUs that can read the bucket (a 32-vCPU section server is ideal; a Google Cloud VM in us-central1 downloads fastest):
 
 ```bash
 git -C ~/undercurrent pull -q && bash ~/undercurrent/scripts/merge.sh start
@@ -74,7 +86,7 @@ git -C ~/undercurrent pull -q && bash ~/undercurrent/scripts/merge.sh start
 - **Options:** `MODELS="hgb gru"` adds the neural net (on a GPU), and `START=2025-11-07` exports only the last year if the full span is too big for the web app.
 - On Cooper's VM it's `bash ~/undercurrent/scripts/gcp/vm.sh merge` from Cloud Shell, but its 4 vCPUs make it slow.
 - **For the web laptop:** download `export-final.tgz` from the [Storage browser](https://console.cloud.google.com/storage/browser/undercurrent-data-cooper), unpack it as `data/export/`, then `npm run dev`. It's the only export needed: it replaces every earlier one.
-- Sections that finish later: run the same command again. It downloads only what's new.
+- **Running it twice is cheap:** the second run (07:00) downloads only the sections that finished since the trial, then redoes the forecast and export.
 
 ## Other data
 
