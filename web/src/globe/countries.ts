@@ -15,12 +15,17 @@ export async function loadLand(options: {
   altitude: number
   land: string
   border: string
-}): Promise<{ object: Group; mask: LandMask }> {
+}): Promise<{ object: Group; mask: LandMask | null }> {
   const res = await fetch(countriesUrl)
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${res.url}`)
   const topo = (await res.json()) as CountriesTopology
-  return {
-    object: landObject(buildLandArrays(topo, options.altitude), options),
-    mask: buildLandMask(topo),
+  const object = landObject(buildLandArrays(topo, options.altitude), options)
+  // The mask only keeps crowded markers off the sea: if it can't be built, draw the land without it.
+  let mask: LandMask | null = null
+  try {
+    mask = buildLandMask(topo)
+  } catch (error) {
+    console.warn('Land mask not built; markers may be placed over the sea', error)
   }
+  return { object, mask }
 }

@@ -302,7 +302,7 @@ export default function App() {
     placeholderData: keepPreviousData,
   })
   const land = useQuery({
-    queryKey: ['land'],
+    queryKey: ['land', 'with-mask'], // a new key: the cached value had another shape
     queryFn: loadLandLayer,
     staleTime: Infinity,
     structuralSharing: false,
