@@ -220,6 +220,44 @@ export function placeLabels(dots: readonly DotPlacement[]): PlaceLabel[] {
     .sort((a, b) => b.mentions - a.mentions)
 }
 
+/**
+ * "Moscow, Moskva, Russia" -> "Moscow, Russia"; "Black Sea, Oceans (General), Oceans" -> "Black
+ * Sea". GDELT's names repeat the region and the country; a label only needs the place and where.
+ */
+export function shortPlaceName(full: string): string {
+  const parts = full
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p && !/\(general\)$/i.test(p))
+    .filter((p, i, all) => p !== all[i - 1])
+  if (parts.length <= 1) return parts[0] ?? full
+  const last = parts[parts.length - 1]
+  return last === 'Oceans' ? parts[0] : `${parts[0]}, ${last}`
+}
+
+/** At most this many place names are written on the globe, and none closer than this to another. */
+const MAX_LABELS = 5
+const LABEL_SEPARATION_DEG = 6
+
+/**
+ * The few places worth writing out: the busiest first, skipping any that sits near one already
+ * chosen (Kyiv beside Ukraine, three Istanbul districts), so the labels never pile up. Every place
+ * still has its dots, and each dot names its own place when hovered.
+ */
+export function pickLabels(labels: readonly PlaceLabel[]): PlaceLabel[] {
+  const chosen: PlaceLabel[] = []
+  for (const label of labels) {
+    const crowded = chosen.some((c) => {
+      const dx = wrapLng(label.lng - c.lng) * cosLat((label.lat + c.lat) / 2)
+      return Math.hypot(dx, label.lat - c.lat) < LABEL_SEPARATION_DEG
+    })
+    if (crowded) continue
+    chosen.push(label)
+    if (chosen.length === MAX_LABELS) break
+  }
+  return chosen
+}
+
 /** How far the farthest dot is from the marker, degrees of arc (to frame the story with the camera). */
 export function reachDeg(dots: readonly DotPlacement[], marker: Spot): number {
   const u = (p: Spot) => {

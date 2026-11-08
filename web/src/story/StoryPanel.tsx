@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, X } from 'lucide-react'
-import type { StorySummary } from '../api/types.gen'
+import type { Entity, StorySummary, TimelinePoint } from '../api/types.gen'
 import { CATEGORY_STYLE } from '../globe/categories'
 import {
   KIND_ORDER,
@@ -13,8 +13,10 @@ import {
   type Article,
   type SourceKind,
 } from './articles'
-import { describeForecast } from './forecast'
+import { describeFactor, describeForecast, headlineHorizon } from './forecast'
+import { ForecastChart, buildSeries } from './ForecastChart'
 import { KindGlyph } from './KindGlyph'
+import { toIndex } from '../timeline/days'
 
 type Sort = 'importance' | 'newest'
 
@@ -26,6 +28,9 @@ type Sort = 'importance' | 'newest'
 export function StoryPanel({
   story,
   summary,
+  timeline,
+  entities,
+  asOf,
   articles,
   status,
   error,
@@ -37,6 +42,10 @@ export function StoryPanel({
 }: {
   story: StorySummary
   summary: string | null
+  timeline: TimelinePoint[]
+  entities: Entity[]
+  /** The day the story was read on (YYYY-MM-DD): the chart's "today". */
+  asOf: string
   articles: Article[]
   status: 'pending' | 'error' | 'success'
   error: Error | null
@@ -110,9 +119,14 @@ export function StoryPanel({
             tone={ratio >= 1 ? 'up' : 'down'}
           />
         </dl>
-        {story.forecast && (
-          <p className="mt-2 text-xs text-slate-300">
-            Forecast: {describeForecast(story.forecast)}
+        <ForecastSection story={story} timeline={timeline} asOf={asOf} color={color} />
+        {entities.length > 0 && (
+          <p className="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-300">
+            {entities.slice(0, 6).map((e) => (
+              <span key={e.name} className="rounded bg-slate-800 px-1.5 py-0.5">
+                {e.name}
+              </span>
+            ))}
           </p>
         )}
       </header>
@@ -201,12 +215,65 @@ export function StoryPanel({
       </div>
 
       <footer className="border-t border-slate-700/60 px-4 py-2 text-[11px] leading-snug text-slate-500">
-        The big marker on the globe is the story. The small circles around it are its articles and
-        the small diamonds its posts, each at a place the item mentions, which is why the story's
-        heat sits where it does; items that name no place sit beside the marker.
+        Each circle on the globe is an article, each diamond a post, at a place it mentions.
         {onGlobe < articles.length && ` The globe shows the top ${onGlobe} of ${articles.length}.`}
       </footer>
     </aside>
+  )
+}
+
+/**
+ * The forecast graph: this story's articles per 7 days up to the day shown, the forecast with its
+ * range, and, for a day that has since passed, a button that reveals what actually happened.
+ */
+function ForecastSection({
+  story,
+  timeline,
+  asOf,
+  color,
+}: {
+  story: StorySummary
+  timeline: TimelinePoint[]
+  asOf: string
+  color: string
+}) {
+  const [reveal, setReveal] = useState(false)
+  const day = toIndex(asOf)
+  const { points, hasLater } = useMemo(
+    () => buildSeries(timeline, day, story.article_count_7d, story.forecast, reveal),
+    [timeline, day, story.article_count_7d, story.forecast, reveal],
+  )
+  if (timeline.length === 0) return null
+  const horizon = story.forecast ? headlineHorizon(story.forecast) : null
+  return (
+    <div className="mt-3">
+      <div className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
+        <span>Articles in the past 7 days</span>
+        {story.forecast && hasLater && (
+          <button
+            className="rounded px-1.5 py-0.5 text-emerald-300 hover:bg-slate-700"
+            onClick={() => setReveal(!reveal)}
+          >
+            {reveal ? 'Hide what happened' : 'Reveal what happened'}
+          </button>
+        )}
+      </div>
+      <ForecastChart points={points} asOf={day} color={color} />
+      {story.forecast && horizon ? (
+        <>
+          <p className="mt-1 text-xs text-slate-300">{describeForecast(story.forecast)}</p>
+          {horizon.factors.length > 0 && (
+            <p className="text-[11px] text-slate-500">
+              Mostly because of {horizon.factors.slice(0, 2).map(describeFactor).join(', ')}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="mt-1 text-[11px] text-slate-500">
+          No forecast for this story: too little history.
+        </p>
+      )}
+    </div>
   )
 }
 

@@ -18,7 +18,7 @@ npm run dev            # API on :8000 + web on :5173
 
 ## What you see
 
-- **The globe:** every story is a marker coloured by its category (politics, conflict, economy...), over a heatmap of the places it is happening. Click a category in the legend to hide or show it.
+- **The globe:** every story is a marker coloured by its category (politics, conflict, economy...), with a soft glow behind it; hover it to see the places it is happening. Click a category in the legend to hide or show it.
 - **Hover a story** to outline its area and burst out a small dot for every place each of its articles mentions, with each place named. That is why the heat is where it is. The big dots are stories; the small ones are their articles (circles) and posts (diamonds), all one size.
 - **Click a story** to fly to it and open a panel with every article, post and Wikipedia page in it, linked. Filter by source, sort by importance or date. Hovering a row lights its dots on the globe, and clicking a dot jumps to its row.
 - **A story's forecast**, when the pipeline has one, shows in its hover tooltip and in the panel: how many articles a week it should have in 7 days, with an 80% range, such as "~340 articles a week in 7 days (80% range 220–510)". The model projects 1, 3, 7 and 14 days ahead (`pipeline/undercurrent/forecast/README.md`); the web app quotes the 7-day one.
@@ -258,7 +258,7 @@ The part of the project that looks ahead. For every story and day it gives the s
 
 | Where | What | Data |
 |---|---|---|
-| **Globe, future view** | The time bar continues past `meta.latest` by `meta.horizons`: each story's heat is drawn at its forecast size | `StorySummary.forecast` in the latest snapshot |
+| **Globe, future view** | The time bar continues past `meta.latest` by `meta.horizons`: each story is drawn at its forecast size | `StorySummary.forecast` in the latest snapshot |
 | **Story panel: the forecast graph** | x: dates; y: articles in the past 7 days. The history is a solid line up to the selected day; the forecast is a dashed line through the 1/3/7/14-day estimates, with a shaded band from low to high. In replay (a past day), what actually happened is drawn on top | history: `StoryDetail.timeline` (articles per day) as a **rolling 7-day sum**; forecast: `StorySummary.forecast.horizons` of the selected day's snapshot; actual: the rest of `timeline`, or `StorySummary.outcome` |
 | **Emerging stories page** | The stories projected to grow most, ranked by projected growth: the 7-day forecast's middle estimate against today's size, `log2((articles_7d + 1) / (article_count_7d + 1))`. Each row has the title, place, category, today's size, the projection with its range, the top factor, and a small version of the forecast graph. Clicking a row opens the story on the globe. In replay, the list for a past day sits next to what those stories actually did | the selected day's snapshot: `StorySummary.forecast`, `article_count_7d`, `growth_7d` |
 | **Model card** | Per horizon, the typical miss next to persistence's, and how often the range held the outcome. Horizons that don't beat persistence are greyed out | `meta.model` |
@@ -341,7 +341,7 @@ pipeline/undercurrent/
   demo/            hand-written items -> embed -> cluster -> export (python -m undercurrent.demo)
 pipeline/tests/    pytest
 web/               D: Vite + React + react-globe.gl
-  src/globe/       the globe: land, heatmap, category colours, article dots
+  src/globe/       the globe: land, story glows, hover outline, category colours, article dots
   src/story/       story panel, article ranking, dot layout, forecast wording
 data/              gitignored; see data/README.md
 notebooks/         exploration, one folder per person

@@ -1,7 +1,7 @@
 // Heatmap of where stories are happening, as one transparent sphere over the land.
 // Each story has its own hue; intensity is shown by brightness within that hue (dark at the
 // edges, full colour in the body, near white at the core), evened out so every hue is equally
-// bright at the same heat. Where stories overlap, their hues blend by heat.
+// bright at the same heat. Where stories overlap, their lights add.
 //
 // Sizes are absolute, in km on the globe: zooming just magnifies the field, it never recomputes
 // or reshapes it. `spreadKm` adds a fixed minimum spread to every place so a story's places merge
@@ -16,8 +16,10 @@ import {
   DataTexture,
   DataUtils,
   HalfFloatType,
+  AdditiveBlending,
   LinearFilter,
   Mesh,
+  NormalBlending,
   RepeatWrapping,
   RGBAFormat,
   ShaderMaterial,
@@ -51,6 +53,8 @@ const REFERENCE_KM = 150
  * 0.5 (picked by eye on the globe) keeps a story's regional spread visible as a glow.
  */
 const FALLOFF = 0.5
+/** t = (heat / hottest) ^ HEAT_CURVE. */
+const HEAT_CURVE = 0.5
 
 /** Per cell: total heat, and the sum of colour x heat (so colour = sum / heat). */
 export interface HeatGrid {
@@ -166,21 +170,22 @@ const shaderCommon = /* glsl */ `
   }
 `
 
-// "fill": the heatmap. Brightness rises with t (dark at the edges, full colour in the body, near
-// white at the core) and opacity rises with t, so the field fades smoothly into the globe.
+// "fill": the lights. Each place glows in its story's colour, small and bright at the centre and
+// gone a short way out, like a city seen from orbit: the colour is easy to read, but it is dark
+// between the lights, so it never washes over the map. The layer is added to what is behind it
+// (additive blending), so where lights meet they brighten instead of averaging into grey.
 const fillShader =
   shaderCommon +
   /* glsl */ `
   void main() {
     vec4 texel = heatHere();
     float t = texel.a;
-    if (t < 0.01) discard;
-    vec3 hue = evenHue(texel.rgb, t, 0.55);
-    vec3 color = hue * mix(0.25, 1.0, smoothstep(0.0, 0.6, t));
-    color = mix(color, vec3(1.0), 0.65 * smoothstep(0.65, 1.0, t));
-    // Fade in from t = 0.05, not 0: trims the faint outer haze so stories glow less far, while
-    // small stories (low peak t) stay visible.
-    gl_FragColor = vec4(color, uOpacity * smoothstep(0.05, 0.35, t));
+    if (t < 0.03) discard;
+    vec3 hue = evenHue(texel.rgb, t, 0.6);
+    // Brightness follows t steeply, and only the very centre goes white.
+    vec3 color = hue * (0.5 + 0.9 * t * t);
+    color = mix(color, vec3(1.0), 0.55 * smoothstep(0.7, 1.0, t));
+    gl_FragColor = vec4(color, uOpacity * smoothstep(0.03, 0.35, t));
   }
 `
 
@@ -189,7 +194,7 @@ const fillShader =
 const outlineShader =
   shaderCommon +
   /* glsl */ `
-  const float LEVEL = 0.3; // on the sqrt scale: ~9% of the story's peak heat
+  const float LEVEL = 0.3; // on the HEAT_CURVE scale: ~9% of the story's peak heat
   void main() {
     vec4 texel = heatHere();
     float t = texel.a;
@@ -237,6 +242,7 @@ export function createHeatLayer(options: {
     fragmentShader: options.style === 'outline' ? outlineShader : fillShader,
     transparent: true,
     depthWrite: false,
+    blending: options.style === 'outline' ? NormalBlending : AdditiveBlending,
   })
   const object = new Mesh(
     new SphereGeometry(GLOBE_RADIUS * (1 + options.altitude), 128, 64),
@@ -253,8 +259,9 @@ export function createHeatLayer(options: {
       for (let i = 0; i < grid.heat.length; i++) {
         const h = grid.heat[i]
         if (!(h > 0)) continue
-        // sqrt so smaller stories stay visible next to the biggest one.
-        const t = Math.sqrt(h / max)
+        // A power below 1 so smaller stories stay visible next to the biggest one, but not so low
+        // that the faint tails of 60 stories run together into one pastel haze.
+        const t = (h / max) ** HEAT_CURVE
         const scale = t / h // colour = sum / heat, premultiplied by t
         pixels[4 * i] = half(grid.red[i] * scale)
         pixels[4 * i + 1] = half(grid.green[i] * scale)
