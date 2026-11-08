@@ -37,6 +37,14 @@ serves half of it. It only replaces an export this command or the demo wrote (--
   keeps the tracker's category. `--no-title-categories` skips the classifier (it loads the
   embedding model). The tracker's own category (its centroid against hand-written prototypes) was
   far too often "other", and had no sport or culture before 2026-11-08.
+- **Episodes** (`episode_starts`): the tracker never closes a story, so a topic that keeps coming
+  back (North Korea's missile tests: 18 separate bursts in 7 months, one story) ends up as one
+  long story. After GAP_DAYS quiet days in a row, a story that starts up again is exported as a new
+  story, `<id>-e2`, `-e3`...; the first episode keeps the tracker's id. "Quiet" is fewer than
+  QUIET_FLOOR articles, or QUIET_FRAC of the story's biggest day so far. Only past days are used
+  (an episode starts the day activity resumes), so a snapshot never depends on the future. Only
+  stories of at least MIN_STORY_ARTICLES articles are considered. A forecast made for the tracker's
+  story is attached to whichever episode is alive on that day. `--no-episodes` turns it off.
 - **Wikipedia topics** (`stories/wiki_topics.py`, run at the end of the command when
   `wiki_events.parquet` is in --processed; `--no-wiki-topics` skips it): a story whose headlines
   match one Wikipedia current-events topic closely is named after it ("2026 Kolkata Durga Puja
@@ -110,6 +118,13 @@ THEME_CATEGORIES: dict[str, tuple[str, ...]] = {
     "culture": ("TAX_FNCACT_ACTOR", "TAX_FNCACT_SINGER", "TAX_FNCACT_ARTIST", "TAX_FNCACT_MUSICIAN",
                 "MOVIE", "MUSIC", "ARTS", "ENTERTAINMENT", "CELEBRITY"),
 }  # fmt: skip
+# Episodes: see the module docstring. Chosen on the 183-day export (6,720 stories): North Korea
+# splits into 9 episodes (its 9 bursts), the Kenya cult story into 2 (conviction, sentence).
+GAP_DAYS = 7
+QUIET_FRAC = 0.05
+QUIET_FLOOR = 15
+MIN_STORY_ARTICLES = 100
+LAST_DAY = 10**7  # an ordinal later than any day
 THEME_SHARE_MIN = 0.25
 THEME_LIFT_MIN = 1.5
 
@@ -122,6 +137,31 @@ THEME_LIFT_MIN = 1.5
 TITLE_CONFIDENCE_MIN = 0.35
 TITLES_PER_STORY = 6
 Classifier = typing.Callable[[dict[str, list[str]]], dict[str, tuple[str, float]]]
+
+
+def episode_starts(days: list[int], counts: list[int]) -> list[int]:
+    """The first day (ordinal) of each episode of a story, given its days with articles (ascending)
+    and the articles on each. A day starts a new episode if at least GAP_DAYS quiet days came just
+    before it and it is not quiet itself. Uses only that day and the days before it."""
+    by_day = dict(zip(days, counts, strict=True))
+    starts = [days[0]]
+    peak, quiet_run = 0, 0
+    for day in range(days[0], days[-1] + 1):
+        n = by_day.get(day, 0)
+        if n < max(QUIET_FLOOR, QUIET_FRAC * peak):
+            quiet_run += 1
+        else:
+            if quiet_run >= GAP_DAYS and peak > 0:
+                starts.append(day)
+            quiet_run = 0
+        peak = max(peak, n)
+    return starts
+
+
+def episode_id(story_id: str, k: int) -> str:
+    """The id of a story's k-th episode (k >= 2), within the contract's 81 characters."""
+    suffix = f"-e{k}"
+    return story_id[: 81 - len(suffix)] + suffix
 
 
 def _theme_case(var: str) -> str:
@@ -247,7 +287,7 @@ def window(df: pd.DataFrame, lo: int, hi: int) -> pd.DataFrame:
 class Source:
     """The pipeline tables, joined in DuckDB. `joined` has one row per assigned article."""
 
-    def __init__(self, processed: Path) -> None:
+    def __init__(self, processed: Path, split_episodes: bool = True) -> None:
         tables = {
             name: parquet_source(processed, name)
             for name in ("story_assignments", "stories_daily", "articles")
@@ -261,6 +301,8 @@ class Source:
         self.con = duckdb.connect()
         self.con.execute("SET TimeZone = 'UTC'")
         self.daily_src = tables["stories_daily"]
+        self.origin: dict[str, str] = {}  # episode id -> the tracker's story id
+        self.build_episodes(tables["story_assignments"], split_episodes)
         have = {
             r[0]
             for r in self.con.execute(f"DESCRIBE SELECT * FROM {tables['articles']}").fetchall()
@@ -275,14 +317,56 @@ class Source:
                 cols.append(f"CAST(NULL AS {fill}) AS {col}")
         self.con.execute(
             f"""CREATE TEMP VIEW joined AS
-                SELECT s.story_id AS story_id, s.article_id AS article_id,
+                SELECT coalesce(e.episode_id, s.story_id) AS story_id, s.article_id AS article_id,
                        CAST(s.similarity AS DOUBLE) AS similarity,
                        CAST(s.day AS DATE) AS day,
                        (CAST(s.day AS DATE) - DATE '0001-01-01') + 1 AS d,
                        {", ".join(cols)}
                 FROM {tables["story_assignments"]} s JOIN {tables["articles"]} a
-                  ON a.id = s.article_id"""
+                  ON a.id = s.article_id
+                LEFT JOIN episodes e ON e.story_id = s.story_id
+                  AND (CAST(s.day AS DATE) - DATE '0001-01-01') + 1 BETWEEN e.d_lo AND e.d_hi"""
         )
+
+    def build_episodes(self, assignments: str, split: bool) -> None:
+        """Fill the `episodes` table: for each story that has later episodes, one row per later
+        episode (the first keeps the tracker's id and needs no row)."""
+        self.con.execute(
+            "CREATE TEMP TABLE episodes (story_id VARCHAR, d_lo BIGINT, d_hi BIGINT, "
+            "episode_id VARCHAR)"
+        )
+        if not split:
+            return
+        rows = self.con.execute(
+            f"""WITH n AS (
+                    SELECT story_id, (CAST(day AS DATE) - DATE '0001-01-01') + 1 AS d, count(*) AS n
+                    FROM {assignments} GROUP BY 1, 2
+                )
+                SELECT story_id, d, n FROM n
+                WHERE story_id IN (SELECT story_id FROM n GROUP BY 1 HAVING sum(n) >= $min)
+                ORDER BY story_id, d""",
+            {"min": MIN_STORY_ARTICLES},
+        ).fetchall()
+        later: list[tuple[str, int, int, str]] = []
+        at = 0
+        while at < len(rows):
+            sid = rows[at][0]
+            end = at
+            while end < len(rows) and rows[end][0] == sid:
+                end += 1
+            days, counts = [r[1] for r in rows[at:end]], [r[2] for r in rows[at:end]]
+            starts = episode_starts(days, counts)
+            for k in range(1, len(starts)):
+                last = starts[k + 1] - 1 if k + 1 < len(starts) else LAST_DAY
+                eid = episode_id(sid, k + 1)
+                later.append((sid, starts[k], last, eid))
+                self.origin[eid] = sid
+            at = end
+        if later:
+            frame = pd.DataFrame(later, columns=["story_id", "d_lo", "d_hi", "episode_id"])
+            self.con.register("episodes_frame", frame)
+            self.con.execute("INSERT INTO episodes SELECT * FROM episodes_frame")
+            self.con.unregister("episodes_frame")
 
     def tracked_days(self) -> list[dt.date]:
         rows = self.con.execute(
@@ -302,9 +386,18 @@ class Source:
     def story_days(self, end: dt.date) -> pd.DataFrame:
         """stories_daily: story_id, d, first_seen, label, category, sorted by d."""
         df = self.con.execute(
-            f"""SELECT story_id, (CAST(day AS DATE) - DATE '0001-01-01') + 1 AS d,
-                       CAST(first_seen AS DATE) AS first_seen, label, category
-                FROM {self.daily_src} WHERE CAST(day AS DATE) <= $end ORDER BY d, story_id""",
+            f"""WITH s AS (
+                    SELECT story_id AS orig, (CAST(day AS DATE) - DATE '0001-01-01') + 1 AS d,
+                           CAST(first_seen AS DATE) AS first_seen, label, category
+                    FROM {self.daily_src} WHERE CAST(day AS DATE) <= $end
+                )
+                SELECT coalesce(e.episode_id, s.orig) AS story_id, s.d AS d,
+                       CASE WHEN e.episode_id IS NULL THEN s.first_seen
+                            ELSE DATE '0001-01-01' + CAST(e.d_lo - 1 AS INTEGER) END AS first_seen,
+                       s.label AS label, s.category AS category
+                FROM s LEFT JOIN episodes e
+                  ON e.story_id = s.orig AND s.d BETWEEN e.d_lo AND e.d_hi
+                ORDER BY d, story_id""",
             {"end": end},
         ).df()
         df["first_seen"] = pd.to_datetime(df["first_seen"]).dt.date
@@ -757,8 +850,10 @@ class Exporter:
         points, location = made
         a7, prev7 = int(agg_row["a7"]), int(agg_row["prev7"])
         forecast, outcome = None, None
-        if (sid, as_of) in self.forecasts:
-            forecast, given = self.forecasts[(sid, as_of)]
+        # A forecast was made for the tracker's story: it belongs to the episode alive that day.
+        key = (self.src.origin.get(sid, sid), as_of)
+        if key in self.forecasts:
+            forecast, given = self.forecasts[key]
             outcome = outcome_for(sid, as_of, forecast, a7_on, self.end)
             self.stats["story-days with a forecast"] += 1
             # C's file has its own actuals; they should be the same numbers. If not, the
@@ -868,9 +963,10 @@ def run(
     force: bool = False,
     keep_all: bool = False,
     classify: Classifier | None = None,
+    split_episodes: bool = True,
 ) -> Path:
     check_target(out, force)
-    source = Source(processed)
+    source = Source(processed, split_episodes)
     tracked = source.tracked_days()
     if not tracked:
         raise SystemExit(f"stories_daily under {processed} is empty: nothing to export")
@@ -897,6 +993,8 @@ def run(
     tmp = out.with_name(out.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
+    ex.stats["episodes: stories split"] = len(set(source.origin.values()))
+    ex.stats["episodes: later episodes (new story ids)"] = len(source.origin)
     snaps = ex.snapshots()
     ex.recategorize(snaps)
     story_ids: list[str] = []
@@ -963,6 +1061,11 @@ def main() -> None:
         "themes and the tracker's category only",
     )
     parser.add_argument(
+        "--no-episodes",
+        action="store_true",
+        help="don't split a story that starts up again after a quiet spell into episodes",
+    )
+    parser.add_argument(
         "--no-wiki-topics",
         action="store_true",
         help="don't name stories after Wikipedia topics (needs wiki_events.parquet in --processed)",
@@ -985,6 +1088,7 @@ def main() -> None:
         args.force,
         args.keep_all_stories,
         classify,
+        not args.no_episodes,
     )
 
     wiki = args.processed / "wiki_events.parquet"
