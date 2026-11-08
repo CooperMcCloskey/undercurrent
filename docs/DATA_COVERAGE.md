@@ -23,11 +23,13 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
 | 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
 | 10 | 2021-11-07 → 2022-05-07 | 2021-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
+| **Gap** (inside 3) | 2025-06-15 → 2025-07-01 (17 days), plus 2025-06-14 after 17:45 UTC and 2025-07-02 before about 02:15 UTC | | *nobody: a GDELT outage* | ❌ 0 articles. GDELT has no files for these days: `gdelt_files/<day>.json` lists 0 per feed, and the zip URLs return 404. Not recoverable from the zip files; BigQuery not checked | n/a | n/a |
 
 - **Sections 1–4 are two years**, the plan for tonight. **Sections 5–10** reach back five years, for whoever has a free GPU.
 - **Order:** newest free section first. Each extra section helps the forecast less than the one before.
 - **Teammates already running:** two teammates' VMs have bucket access (`196306351948-compute@…` and `1025880049110-compute@…`, the second is section 2). If the first is yours, write your section in its row now. `docs/ONE_YEAR_EACH.md` (year-long blocks) is superseded: nobody started from it, and its dates would overlap these sections.
 - **Section 6 is split in two** (6a and 6b, three months each), because 6a runs on a server outside Google Cloud. Start 6a, 6b or 5 on any GPU server with `scripts/standalone/section.sh` (`docs/PREVIOUS_YEAR.md`); `create_vm.sh 6` would redo 6a, so don't use it.
+- **The gap is missing data, not quiet news.** The day files exist but are empty, so code that counts articles will see every story drop to 0 for 17 days. Stories (B) and Forecast (C): treat 2025-06-14 → 2025-07-02 as missing, and don't train on targets or features whose 7-day windows touch it. `wiki_names` already skips empty days.
 - **Own days never overlap.** The warm-up days (the 28 days before a section, used only to start its tracker) may overlap the next section's own days. That's expected.
 
 ## Next, in order (as of 2026-11-08 02:00 UTC)
