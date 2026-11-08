@@ -11,6 +11,7 @@
 #
 # Settings come from ~/block.env (written by vm_startup.sh). Logs are in ~/undercurrent/logs/.
 set -uo pipefail
+SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")  # absolute, since we cd below
 export PATH=$HOME/.local/bin:$PATH
 source "$HOME/block.env"
 R=$HOME/undercurrent
@@ -52,22 +53,25 @@ EOF
     launch "pull$i" "uv run python -m undercurrent.ingest.gdelt_bq --start $a --end $b --batch-days $BATCH >> $L/pull-$i.log 2>&1"
     i=$((i + 1))
   done
-  # One embed loop per GPU; it stops by itself once every day is embedded and the pull is over.
-  for g in $(seq 0 $((GPUS - 1))); do
-    launch "embed$g" "bash $0 _embed-loop $g"
+  # Two embed loops per GPU, each with its own share of the days: while one prepares a day on
+  # the CPU (load, clean, dedupe), the other keeps the GPU busy. One loop alone leaves the GPU
+  # idle more than half the time. They stop by themselves once every day is embedded.
+  EMB=$((GPUS * 2))
+  for k in $(seq 0 $((EMB - 1))); do
+    launch "embed$k" "bash $SELF _embed-loop $((k % GPUS)) $k $EMB"
   done
-  launch upload "bash $0 _upload-loop"
-  bash "$0" status
+  launch upload "bash $SELF _upload-loop"
+  bash "$SELF" status
   ;;
-_embed-loop)
+_embed-loop)  # GPU, shard, shards
   while true; do
     CUDA_VISIBLE_DEVICES=$2 uv run python -m undercurrent.vectors.store --source news \
-      --start "$PULL_START" --end "$OWN_END" --shard "$2/$GPUS" >>"$L/embed-$2.log" 2>&1
+      --start "$PULL_START" --end "$OWN_END" --shard "$3/$4" >>"$L/embed-$3.log" 2>&1
     if [ "$(running pull)" = 0 ] && [ "$(embedded_days)" -ge "$(expected_days)" ]; then
-      echo "all $(expected_days) days embedded $(date -u)" | tee -a "$L/embed-$2.log" >"$L/EMBED_DONE"
+      echo "all $(expected_days) days embedded $(date -u)" | tee -a "$L/embed-$3.log" >"$L/EMBED_DONE"
       exit 0
     fi
-    sleep 300
+    sleep 120
   done
   ;;
 _upload-loop)
@@ -130,7 +134,7 @@ status)
   df -h / | tail -1 | awk '{print "disk: " $3 " used of " $2}'
   ;;
 *)
-  sed -n '2,13p' "$0"
+  sed -n '2,13p' "$SELF"
   exit 1
   ;;
 esac
