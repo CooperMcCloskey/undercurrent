@@ -61,17 +61,25 @@ gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '
 
 ## The final merge (one command)
 
-**Schedule (2026-11-08, UTC).** Submission is at **12:00**. Data is frozen at **08:00**, so the time after that goes on the presentation, the video and Devpost.
+**Schedule (2026-11-08, UTC), as it stands at 09:10.** Submission is at **12:00**. The merge (trial and final in one) is running on the 2× A100 pod.
 
-| When | What | Who |
+| By | What | Who |
 |---|---|---|
-| **Now** | **Trial merge** on the sections already finished. It tests the merge end to end on real data, while there's time to fix it, and gives the first real forecasts. Loading its export is optional | whoever has a free 32-vCPU server |
-| **07:00** | **Final merge**, with every section finished by then (`finish` run, `status/*.done` in the bucket). A section still tracking at 07:00 is left out: don't wait for it | the same person |
-| **About 07:40** | The final `export-final.tgz` is in the bucket. **Load it once** on the demo laptop and a backup laptop (below) | Cooper and one other |
-| **08:00** | **Data freeze.** No more exports or merges for the demo; the loaded data is what we present | everyone |
-| 08:00 → 12:00 | Presentation, a short screen recording of the demo, Devpost. Rehearse once with wifi off: the app needs no internet | everyone |
+| **as soon as it's done** | `export-final.tgz` is in the bucket (`merge.sh status` says `done`). **Post "merge done" with the backtest table** | whoever runs the merge |
+| **+10 min** | Cooper loads it: download it, then `bash scripts/load_export.sh` (prints the model card; keeps the old export as a fallback). A backup laptop does the same | Cooper and one other |
+| **10:30: go / no-go** | If `export-final.tgz` isn't loaded and working on the demo laptop by 10:30, **present with block 1's export** (already loaded) and stop waiting. Re-shoot screenshots only if the new one is in | Cooper |
+| 10:30 → 11:30 | Presentation, a short screen recording of the demo, Devpost. Rehearse once with wifi off: the app needs no internet | everyone |
+| **12:00** | Submit | |
 
-**Fallback:** if the final merge fails, demo with the block 1 export already on Cooper's laptop. It has real stories (2026-05-08 → 11-06) and English titles, but no forecasts and the old categories.
+**If the export step fails, or is too big or slow:** don't redo the hour of download and training. `merge.sh export` redoes only the export and upload, in minutes, from what the merge already downloaded and trained. To export just the last year (smaller and faster, and what the globe's loading is tuned for):
+
+```bash
+git -C ~/undercurrent pull -q && START=2025-11-07 bash ~/undercurrent/scripts/merge.sh export
+```
+
+A failed contract check no longer stops the upload. `merge.sh status` flags it, and Cooper decides whether to load it.
+
+**Fallback:** demo with the block 1 export already on Cooper's laptop. It has real stories (2026-05-08 → 11-06) and English titles, but no forecasts and the old categories. Undo a bad load with `rm -rf data/export && mv data/export.prev data/export`.
 
 **Full instructions for whoever trains it** (machine, setup, what each step does, how to read the backtest table): **`docs/TRAINING.md`**.
 

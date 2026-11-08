@@ -5,6 +5,9 @@
 #   bash ~/undercurrent/scripts/merge.sh start     start it in tmux (survives SSH closing)
 #   bash ~/undercurrent/scripts/merge.sh status    how far it got, and the latest log lines
 #   bash ~/undercurrent/scripts/merge.sh stop      stop it (rerun `start` later: downloads are kept)
+#   bash ~/undercurrent/scripts/merge.sh export    redo only the export and upload, from what the last
+#                  merge downloaded and trained (minutes, not an hour): after an export failure, or
+#                  for a smaller export, e.g. START=2025-11-07 bash ~/undercurrent/scripts/merge.sh export
 #
 # Run it on the machine with the most CPUs that can read the bucket (a section server, or a
 # Google Cloud VM: in us-central1 the download is fast and free). It needs `uv` and `gcloud`
@@ -32,6 +35,32 @@ export CLOUDSDK_STORAGE_PROCESS_COUNT=${CLOUDSDK_STORAGE_PROCESS_COUNT:-4}
 mkdir -p "$L" "$M"
 cd "$R" || exit 1
 
+# Export from data/merged (already downloaded and trained), check it, upload it. A failed contract
+# check is reported but doesn't stop the upload: a slightly-off export beats none at demo time.
+export_and_upload() {
+  step "export (top $TOP a day${START:+, from $START}, English titles, theme categories, junk left out)"
+  rm -rf "$R/data/export.tmp"
+  OPTS="--top $TOP ${EXPORT_OPTS:-}"; [ -n "${START:-}" ] && OPTS="$OPTS --start $START"
+  uv run python -m undercurrent.stories.export --processed "$M" --out "$R/data/export" --force $OPTS
+  [ -f "$R/data/export/meta.json" ] || { echo "The export didn't write data/export/meta.json: stopping."; return 1; }
+  step "contract check"
+  if uv run pytest -q -p no:cacheprovider pipeline/tests/test_contracts.py; then
+    rm -f "$L/CONTRACT_FAILED"
+  else
+    echo "!! The contract check FAILED (see above). Uploading anyway; tell Cooper." | tee "$L/CONTRACT_FAILED"
+  fi
+  step "upload export-final.tgz and the forecast outputs"
+  tar czf "$R/data/export-final.tgz" -C "$R/data" export
+  gcloud storage cp -q "$R/data/export-final.tgz" "gs://$BUCKET/export-final.tgz"
+  for f in forecasts.parquet model_metrics.json forecast_report.json; do
+    [ -f "$M/$f" ] && gcloud storage cp -q "$M/$f" "gs://$BUCKET/merged/$f"
+  done
+  step "DONE in $((($(date +%s) - T0) / 60)) min: export-final.tgz ($(du -h "$R/data/export-final.tgz" | cut -f1))"
+  echo "Download it: https://console.cloud.google.com/storage/browser/$BUCKET (click the file, then Download)"
+  echo "MERGE DONE" >"$L/MERGE_DONE"
+}
+step() { echo; echo "== $(date -u +%H:%M) UTC  $*"; }
+
 case "${1:-}" in
 start)
   command -v uv >/dev/null || { echo "uv is missing: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1; }
@@ -46,7 +75,6 @@ start)
 _run)
   set -e
   T0=$(date +%s)
-  step() { echo; echo "== $(date -u +%H:%M) UTC  $*"; }
   step "finished sections in the bucket"
   gcloud storage ls "gs://$BUCKET/status/" 2>/dev/null | sed 's#.*/##' | tr '\n' ' '; echo
 
@@ -100,33 +128,34 @@ PY
   OMP_NUM_THREADS=$(nproc) uv run python -m undercurrent.forecast.run --source stories \
     --processed "$M" --out "$M" --model $MODELS --device $DEV $PRE
 
-  step "export (top $TOP a day, English titles, theme categories, junk left out)"
-  rm -rf "$R/data/export.tmp"
-  OPTS="--top $TOP ${EXPORT_OPTS:-}"; [ -n "${START:-}" ] && OPTS="$OPTS --start $START"
-  uv run python -m undercurrent.stories.export --processed "$M" --out "$R/data/export" --force $OPTS
-  uv run pytest -q -p no:cacheprovider pipeline/tests/test_contracts.py
-
-  step "upload export-final.tgz and the forecast outputs"
-  tar czf "$R/data/export-final.tgz" -C "$R/data" export
-  gcloud storage cp -q "$R/data/export-final.tgz" "gs://$BUCKET/export-final.tgz"
-  for f in forecasts.parquet model_metrics.json forecast_report.json; do
-    [ -f "$M/$f" ] && gcloud storage cp -q "$M/$f" "gs://$BUCKET/merged/$f"
-  done
-  step "DONE in $((($(date +%s) - T0) / 60)) min: export-final.tgz ($(du -h "$R/data/export-final.tgz" | cut -f1))"
-  echo "Download it: https://console.cloud.google.com/storage/browser/$BUCKET (click the file, then Download)"
-  echo "MERGE DONE" >"$L/MERGE_DONE"
+  export_and_upload
+  ;;
+export)
+  [ -f "$M/forecasts.parquet" ] || echo "(no forecasts in $M yet: the export will have none)"
+  [ -d "$M/stories_daily" ] || { echo "Nothing merged in $M yet: run start first."; exit 1; }
+  tmux has-session -t merge 2>/dev/null && { echo "A merge is running: bash $SELF status"; exit 1; }
+  rm -f "$L/MERGE_DONE"; : >>"$L/merge.log"
+  tmux new -d -s merge -c "$R" "TOP='$TOP' START='${START:-}' EXPORT_OPTS='${EXPORT_OPTS:-}' BUCKET='$BUCKET' bash $SELF _export >> $L/merge.log 2>&1"
+  echo "Re-export started (no download, no training). Watch it: bash $SELF status"
+  ;;
+_export)
+  set -e
+  T0=$(date +%s)
+  git pull -q --ff-only || true
+  export_and_upload
   ;;
 stop)
   tmux kill-session -t merge 2>/dev/null && echo "merge stopped" || echo "no merge running"
   ;;
 status)
   if tmux has-session -t merge 2>/dev/null; then echo "running"; elif [ -f "$L/MERGE_DONE" ]; then echo "done"; else echo "not running"; fi
+  [ -f "$L/CONTRACT_FAILED" ] && echo "!! the last export FAILED its contract check (uploaded anyway): see the log"
   grep -E "^== " "$L/merge.log" 2>/dev/null | tail -3
   echo "--- latest lines:"
   tail -n 6 "$L/merge.log" 2>/dev/null | cut -c1-200
   ;;
 *)
-  sed -n '2,20p' "$SELF"
+  sed -n '2,24p' "$SELF"
   exit 1
   ;;
 esac

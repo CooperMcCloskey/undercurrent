@@ -7,6 +7,7 @@
 # "Export Block 1.tgz"...). It unpacks it as data/export/, keeps the previous export as
 # data/export.prev/ (to go back: rm -rf data/export && mv data/export.prev data/export), prints
 # what's in it, and checks it against the contract. `npm run dev` can stay running: reload the page.
+# The contract check reads every file: minutes on a multi-year export. CHECK=0 skips it.
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 cd "$R"
@@ -55,8 +56,8 @@ for s in last:
     print(f"     {s['article_count_7d']:>6}  {s['category']:<10} {s['title'][:80]}")
 PY
 
-if [ "$OUT" = "$R/data/export" ]; then
-  echo "== contract check"
+if [ "$OUT" = "$R/data/export" ] && [ "${CHECK:-1}" != 0 ]; then
+  echo "== contract check (CHECK=0 skips it next time; it can take a few minutes on a big export)"
   uv run pytest -q -p no:cacheprovider pipeline/tests/test_contracts.py | tail -1
 fi
 echo "== done. If npm run dev is running, reload the page; otherwise: npm run dev"

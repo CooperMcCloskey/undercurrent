@@ -97,7 +97,8 @@ Step 4 ends with a table like this (the numbers here are made up):
 | `Not enough disk` | free space, or use a bigger machine |
 | `No scored rows in the final test window` | too few days are merged. Wait for more sections to `finish`, then run again |
 | The process is killed (out of memory) | run with `MODELS=hgb` only, close other jobs, or use a machine with more RAM |
-| `pytest` fails after the export | paste the error to Cooper; the data is still in `data/export/` but not uploaded |
+| `pytest` fails after the export | it uploads anyway and `status` says so: paste the error to Cooper |
+| The export failed, or it's too big or slow | **don't rerun `start`**: `START=2025-11-07 bash ~/undercurrent/scripts/merge.sh export` redoes only the export and upload (minutes), here with just the last year |
 | It takes too long for the 07:00 run | `MODELS=hgb` (no net) is the fast path; the net is optional |
 | The export step is slow | It now writes 750 stories a day (`TOP`), classifies each story's category from its headlines (loads the embedding model) and splits recurring stories into episodes. `EXPORT_OPTS="--no-title-categories --no-episodes" bash ~/undercurrent/scripts/merge.sh start` turns the last two off; `TOP=300` shrinks the output. If the classifier can't load, the export carries on with the tracker's categories and says so in the log. |
 
