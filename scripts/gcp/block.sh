@@ -8,6 +8,9 @@
 #   track        after "cutoffs pushed": git pull, then track the block (resumes if it stopped)
 #   track-fresh  the same, starting the timeline again (after the cutoffs changed)
 #   finish       upload this block's own story days, a last sync, and status/block-N.done
+#   export [DAYS [LINK ASSIGN]]  track the newest DAYS days (default 60, plus 28 warm-up) in their own
+#                folder and export them to gs://BUCKET/export. Runs detached; the block is untouched
+#   export-log   the latest lines of the export's log     export-stop  stop a running export
 #
 # Settings come from ~/block.env (written by vm_startup.sh). Logs are in ~/undercurrent/logs/.
 set -uo pipefail
@@ -123,6 +126,80 @@ finish)
   echo "block $BLOCK $OWN_START..$OWN_END done $(date -u)" | gcloud storage cp - "gs://$BUCKET/status/block-$BLOCK.done"
   echo "Uploaded. Post 'block $BLOCK done' in the chat, then stop the VM from Cloud Shell."
   ;;
+export)
+  # export [DAYS [LINK ASSIGN]]: the first real data for the globe. Runs in its own tmux session, so
+  # it goes on if Cloud Shell closes. The block's own tracker state and story files are never touched.
+  shift
+  DAYS=${1:-60}
+  [[ "$DAYS" =~ ^[0-9]+$ ]] && [ "$DAYS" -ge 8 ] || { echo "usage: block.sh export [DAYS [LINK ASSIGN]]" >&2; exit 1; }
+  CUTS=""
+  if [ $# -gt 1 ]; then
+    [[ "${2:-}" =~ ^[01]\.[0-9]+$ && "${3:-}" =~ ^[01]\.[0-9]+$ ]] ||
+      { echo "give both cutoffs: block.sh export $DAYS LINK ASSIGN   e.g. 0.80 0.85" >&2; exit 1; }
+    CUTS="--link-sim $2 --assign-sim $3"
+  fi
+  tmux has-session -t export 2>/dev/null &&
+    { echo "An export is already running. Watch it: vm.sh export-log. Stop it: vm.sh export-stop." >&2; exit 1; }
+  git pull -q --ff-only || { echo "git pull failed; nothing started." >&2; exit 1; }
+  uv sync -q
+  read -r START WARM < <(uv run python -c "
+import datetime as dt
+end = dt.date.fromisoformat('$OWN_END')
+start = end - dt.timedelta(days=$DAYS - 1)
+print(start, start - dt.timedelta(days=28))")
+  MISSING=$(uv run python - "$WARM" "$OWN_END" <<'PY'
+import datetime as dt, pathlib, sys
+first, last = (dt.date.fromisoformat(a) for a in sys.argv[1:3])
+vectors = pathlib.Path("data/processed/vectors/news")
+days = (first + dt.timedelta(i) for i in range((last - first).days + 1))
+print(" ".join(str(d) for d in days if not (vectors / f"{d}.parquet").exists()))
+PY
+)
+  if [ -n "$MISSING" ]; then
+    echo "Not every day from $WARM to $OWN_END is embedded yet; missing: $(echo $MISSING | cut -c1-200)" >&2
+    echo "The embedders go oldest to newest, so the newest days come last. Check: vm.sh status" >&2
+    exit 1
+  fi
+  if [ -z "$CUTS" ] && ! uv run python -c "
+import sys
+from undercurrent import config
+from undercurrent.vectors.thresholds import CALIBRATED
+sys.exit(0 if (config.EMBEDDING_MODEL, ('news', 'news')) in CALIBRATED else 1)"; then
+    echo "The news-news cutoff in thresholds.py is still the placeholder (nothing is in CALIBRATED). It was" >&2
+    echo "tuned on the hand-written demo items, and on real headlines it makes a few giant stories." >&2
+    echo "Give the cutoffs yourself:  vm.sh export $DAYS 0.80 0.85   (vm.sh preview shows what they do)," >&2
+    echo "or push calibrated ones first." >&2
+    exit 1
+  fi
+  : >"$L/export.log"
+  launch export "bash $SELF _export-run $START $WARM $CUTS >> $L/export.log 2>&1"
+  echo "Export started: $START to $OWN_END (the tracker warms up from $WARM). It keeps going if you close Cloud Shell."
+  echo "Watch it: vm.sh export-log     Stop it: vm.sh export-stop"
+  ;;
+_export-run)  # START WARM [tracker options]
+  START=$2 WARM=$3
+  shift 3
+  W=$HOME/export_work OUT=$HOME/export
+  rm -rf "$W" "$OUT" && mkdir -p "$W"
+  ln -s "$R/data/processed/vectors" "$W/vectors"
+  ln -s "$R/data/processed/articles" "$W/articles"
+  echo "[$(date -u +%H:%M:%S)] tracking $WARM to $OWN_END ($*)"
+  OMP_NUM_THREADS=$(nproc) nice uv run python -m undercurrent.stories.track --processed "$W" --fresh \
+    --start "$WARM" --end "$OWN_END" "$@" || { echo "EXPORT FAILED while tracking"; exit 1; }
+  echo "[$(date -u +%H:%M:%S)] exporting $START to $OWN_END"
+  uv run python -m undercurrent.stories.export --processed "$W" --out "$OUT" --start "$START" --end "$OWN_END" ||
+    { echo "EXPORT FAILED while exporting"; exit 1; }
+  gcloud storage rsync -r "$OUT" "gs://$BUCKET/export" -q || { echo "EXPORT FAILED while uploading"; exit 1; }
+  echo "[$(date -u +%H:%M:%S)] EXPORT DONE: $START to $OWN_END is in gs://$BUCKET/export"
+  echo "On your laptop (needs gcloud there):  gcloud storage rsync -r gs://$BUCKET/export data/export   then  npm run dev"
+  ;;
+export-log)
+  tail -n 30 "$L/export.log" 2>/dev/null || echo "No export log yet: nothing has been started."
+  tmux has-session -t export 2>/dev/null && echo "(still running)" || echo "(not running)"
+  ;;
+export-stop)
+  tmux kill-session -t export 2>/dev/null && echo "export stopped" || echo "no export is running"
+  ;;
 status)
   echo "block $BLOCK: pulls $PULL_START..$OWN_END, owns $OWN_START..$OWN_END; $GPUS GPU(s), $PULLS pulls, bucket $BUCKET"
   echo "dry run: $(cat "$L/dryrun.ok" 2>/dev/null || echo 'not done') GB"
@@ -134,7 +211,7 @@ status)
   df -h / | tail -1 | awk '{print "disk: " $3 " used of " $2}'
   ;;
 *)
-  sed -n '2,13p' "$SELF"
+  sed -n '2,16p' "$SELF"
   exit 1
   ;;
 esac

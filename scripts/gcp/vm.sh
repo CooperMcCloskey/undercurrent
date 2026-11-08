@@ -9,17 +9,24 @@
 #   embed2 [B]   switch a running VM to two embedders per GPU (safe; nothing is lost);
 #                B = batch size (default 256; 512 or 1024 keeps the GPU busier)
 #   feeds        GKG rows per feed so far (the translated feed should be about 2x English)
-#   pairs [N]    sample headline pairs from N embedded days (default 4) and print them numbered, without
+#   pairs [N [TOP [PER]]]  sample headline pairs from N embedded days (default 4) and print them numbered, without
 #                scores, to label "same story?" (1 or 0). Writes ~uc/pairs_unlabelled.csv on the VM.
+#                TOP = pairs per band from similarity 0.75 up (default 12; 30 puts the labels where a cutoff's
+#                precision is decided), PER = pairs per lower band (default 12; 6 keeps the total down).
 #   calibrate "LABELS"  measure the "same story" cutoff from your labels, one digit per pair in order,
 #                e.g. "1011 0010 ..." (spaces ignored). Prints the cutoff to put in thresholds.py.
+#   languages [N]  which scripts the embedding model can't tell apart (any two Malayalam headlines look alike),
+#                measured on N embedded days (default 3) from the vectors already made; no GPU needed
 #   preview [LINK ASSIGN [START END]]  try a cutoff on real days without touching the block: tracks
 #                START..END (default 2026-10-24..2026-11-06) with LINK/ASSIGN (default 0.80 0.85) into
 #                ~uc/preview, then prints story sizes and about 20 stories to read. Takes a while.
 #   export [DAYS [LINK ASSIGN]]  the first real data for the globe, without waiting for the whole block:
-#                track the newest DAYS days (default 60, plus 28 days to warm the tracker up) in its own
-#                folder, export them and upload them to gs://BUCKET/export. Needs those days embedded.
-#                With no cutoffs it uses the ones in thresholds.py, like `track`. The block is untouched.
+#                tracks the newest DAYS days (default 60, plus 28 to warm up) in their own folder and
+#                exports them to gs://BUCKET/export. Runs detached on the VM (it survives Cloud Shell
+#                closing). Needs those days embedded, and cutoffs: give them (0.80 0.85) until the
+#                calibrated ones are pushed. The block is untouched.
+#   export-log   the latest lines of the export's log (and whether it is still running)
+#   export-stop  stop a running export
 #   section S [status|stop]  use the idle GPU for another section S (5, 6a or 6b; claim it in
 #                docs/DATA_COVERAGE.md first): pull, embed, upload, as its own user (sS) at low priority.
 #                `stop` pauses it (carry on with `section S`). Stop it before track or export: 4 CPUs, 16 GB.
@@ -39,7 +46,7 @@ fi
 as_uc() { gcloud compute ssh "$VM" --zone="$ZONE" --command='sudo -u uc -H bash -s'; }
 
 case "${1:-status}" in
-status | track | track-fresh | finish)
+status | track | track-fresh | finish | export-log | export-stop)
   echo "bash ~/undercurrent/scripts/gcp/block.sh $1" | as_uc
   ;;
 speed)
@@ -76,12 +83,16 @@ pairs | calibrate)
   SRC="$(cd "$(dirname "$0")/../.." && pwd)/$SCRIPT"
   [ -f "$SRC" ] || { echo "Can't find $SRC. Run git pull in Cloud Shell's ~/undercurrent first." >&2; exit 1; }
   if [ "$1" = pairs ]; then
-    N=${2:-4}
-    [[ "$N" =~ ^[0-9]+$ ]] || { echo "usage: vm.sh pairs [number of days]" >&2; exit 1; }
-    { echo "N=$N"; echo "B64=$(base64 <"$SRC" | tr -d '\n')"; cat; } <<'EOF' | as_uc
+    N=${2:-4} TOP=${3:-} PER=${4:-}
+    [[ "$N" =~ ^[0-9]+$ && "${TOP:-0}" =~ ^[0-9]+$ && "${PER:-0}" =~ ^[0-9]+$ ]] ||
+      { echo "usage: vm.sh pairs [days [pairs per top band [pairs per lower band]]]   e.g. vm.sh pairs 4 30 6" >&2; exit 1; }
+    OPTS=""
+    [ -n "$TOP" ] && OPTS="--per-bin-top $TOP"
+    [ -n "$PER" ] && OPTS="$OPTS --per-bin $PER"
+    { echo "N=$N"; echo "OPTS='$OPTS'"; echo "B64=$(base64 <"$SRC" | tr -d '\n')"; cat; } <<'EOF' | as_uc
 cd ~/undercurrent && export PATH=$HOME/.local/bin:$PATH
 echo "$B64" | base64 -d > "$HOME/sample_pairs.py"
-nice -n 19 uv run python "$HOME/sample_pairs.py" --days "$N" --out "$HOME/pairs_unlabelled.csv" --print
+nice -n 19 uv run python "$HOME/sample_pairs.py" --days "$N" $OPTS --out "$HOME/pairs_unlabelled.csv" --print
 EOF
   else
     LABELS=${2:-}
@@ -93,6 +104,18 @@ LABELS=$(echo "$L64" | base64 -d)
 uv run python "$HOME/calibrate.py" --pairs "$HOME/pairs_unlabelled.csv" --labels "$LABELS"
 EOF
   fi
+  ;;
+languages)
+  # Sent to the VM like pairs and calibrate, for the same reason (see there): no git pull on the VM.
+  DAYS=${2:-3}
+  [[ "$DAYS" =~ ^[0-9]+$ ]] || { echo "usage: vm.sh languages [number of days]" >&2; exit 1; }
+  SRC="$(cd "$(dirname "$0")/../.." && pwd)/pipeline/undercurrent/vectors/language_check.py"
+  [ -f "$SRC" ] || { echo "Can't find $SRC. Run git pull in Cloud Shell's ~/undercurrent first." >&2; exit 1; }
+  { echo "DAYS=$DAYS"; echo "B64=$(base64 <"$SRC" | tr -d '\n')"; cat; } <<'EOF' | as_uc
+cd ~/undercurrent && export PATH=$HOME/.local/bin:$PATH
+echo "$B64" | base64 -d > "$HOME/language_check.py"
+nice -n 19 uv run python "$HOME/language_check.py" --days "$DAYS"
+EOF
   ;;
 preview)
   LINK=${2:-0.80} ASSIGN=${3:-0.85} START=${4:-2026-10-24} END=${5:-2026-11-06}
@@ -117,52 +140,21 @@ uv run python -m undercurrent.stories.preview --processed "$P" --day "$END"
 EOF
   ;;
 export)
-  DAYS=${2:-60} CUTS=""
+  DAYS=${2:-60}
   [[ "$DAYS" =~ ^[0-9]+$ ]] && [ "$DAYS" -ge 8 ] ||
-    { echo "usage: vm.sh export [DAYS [LINK ASSIGN]]   e.g. vm.sh export 60   or   vm.sh export 60 0.80 0.85" >&2; exit 1; }
+    { echo "usage: vm.sh export [DAYS [LINK ASSIGN]]   e.g. vm.sh export 60 0.80 0.85" >&2; exit 1; }
+  ARGS=$DAYS
   if [ -n "${3:-}" ]; then
     [[ "$3" =~ ^[01]\.[0-9]+$ && "${4:-}" =~ ^[01]\.[0-9]+$ ]] ||
       { echo "give both cutoffs: vm.sh export $DAYS LINK ASSIGN   e.g. vm.sh export 60 0.80 0.85" >&2; exit 1; }
-    CUTS="--link-sim $3 --assign-sim $4"
+    ARGS="$DAYS $3 $4"
   fi
-  # Like `preview`, this works in its own copy (~uc/export_work; the vectors and articles are linked,
-  # not copied), so the block's tracker state and story files are never touched. It does compete with
-  # a running `track` for the CPU. The dates are worked out in Python on the VM, not with `date`.
-  { echo "DAYS=$DAYS CUTS='$CUTS'"; cat; } <<'EOF' | gcloud compute ssh "$VM" --zone="$ZONE" --command='sudo -u uc -H bash -s' -- -o ServerAliveInterval=30
-cd ~/undercurrent && source ~/block.env && export PATH=$HOME/.local/bin:$PATH
-git pull -q --ff-only || { echo "git pull failed on the VM; nothing started." >&2; exit 1; }
-uv sync -q
-read -r START WARM < <(uv run python -c "
-import datetime as dt
-end = dt.date.fromisoformat('$OWN_END')
-start = end - dt.timedelta(days=$DAYS - 1)
-print(start, start - dt.timedelta(days=28))")
-MISSING=$(uv run python - "$WARM" "$OWN_END" <<'PY'
-import datetime as dt, pathlib, sys
-first, last = (dt.date.fromisoformat(a) for a in sys.argv[1:3])
-vectors = pathlib.Path("data/processed/vectors/news")
-days = (first + dt.timedelta(i) for i in range((last - first).days + 1))
-print(" ".join(str(d) for d in days if not (vectors / f"{d}.parquet").exists()))
-PY
-)
-if [ -n "$MISSING" ]; then
-  echo "Not every day from $WARM to $OWN_END is embedded yet; missing: $(echo $MISSING | cut -c1-200)" >&2
-  echo "The embedders go oldest to newest, so the newest days come last. Check: bash ~/undercurrent/scripts/gcp/vm.sh status" >&2
-  exit 1
-fi
-W=$HOME/export_work OUT=$HOME/export
-rm -rf "$W" "$OUT" && mkdir -p "$W"
-ln -s "$PWD/data/processed/vectors" "$W/vectors"
-ln -s "$PWD/data/processed/articles" "$W/articles"
-echo "Tracking $WARM to $OWN_END (the first 28 days only warm the tracker up), then exporting $START to $OWN_END."
-OMP_NUM_THREADS=$(nproc) nice uv run python -m undercurrent.stories.track --processed "$W" --fresh \
-  --start "$WARM" --end "$OWN_END" $CUTS || exit 1
-uv run python -m undercurrent.stories.export --processed "$W" --out "$OUT" --start "$START" --end "$OWN_END" || exit 1
-gcloud storage rsync -r "$OUT" "gs://$BUCKET/export" -q || exit 1
-echo
-echo "Exported $START to $OWN_END and uploaded it to gs://$BUCKET/export."
-echo "On your laptop (needs gcloud there):  gcloud storage rsync -r gs://$BUCKET/export data/export   then  npm run dev"
-EOF
+  # Pull first: the VM's copy of block.sh may not know `export` yet. (By now the embedders have
+  # finished with the newest days, which is when `track` pulls too.) Only digits and dots get this far.
+  {
+    echo 'cd ~/undercurrent && git pull -q --ff-only || { echo "git pull failed on the VM; nothing started." >&2; exit 1; }'
+    echo "bash ~/undercurrent/scripts/gcp/block.sh export $ARGS"
+  } | as_uc
   ;;
 section)
   SEC=${2:-} ACTION=${3:-start}
@@ -200,7 +192,7 @@ stop)
   gcloud compute instances stop "$VM" --zone="$ZONE"
   ;;
 *)
-  sed -n '2,30p' "$0"
+  sed -n '2,37p' "$0"
   exit 1
   ;;
 esac

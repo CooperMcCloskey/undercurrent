@@ -113,9 +113,10 @@ git -C ~/undercurrent pull -q
 | Is the GPU kept busy? | `bash ~/undercurrent/scripts/gcp/vm.sh speed` |
 | VM started before 2026-11-08 01:15 UTC | `bash ~/undercurrent/scripts/gcp/vm.sh embed2`: two embedders per GPU, about 1.5–2× faster, nothing lost |
 | Is the translated feed there? | `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (it should be about 2× English) |
+| Cooper only: which scripts can the model not tell apart? | `vm.sh languages` (reads the vectors already made; about a minute). A script it can't separate (Malayalam: any two headlines score 0.94) glues into one giant story at any cutoff, so list it as UNRELIABLE and leave it out of tracking |
 | Cooper only: calibrate the cutoffs | `vm.sh pairs`, then `vm.sh calibrate "1011 0010 ..."` (see "Calibrate the cutoffs" below) |
 | After "cutoffs pushed" | `bash ~/undercurrent/scripts/gcp/vm.sh track` (resumes if it stops; `track-fresh` starts again) |
-| Cooper only: the first real data for the globe | `vm.sh export` (the newest 60 days; see "The first 60 days on the globe" below). Needs those days embedded; doesn't wait for the block's `track` |
+| Cooper only: the first real data for the globe | `vm.sh export 60 0.80 0.85` (the newest 60 days; then `vm.sh export-log`; see "The first 60 days on the globe" below). Needs those days embedded; doesn't wait for the block's `track` |
 | Cooper only: use the idle GPU for another section | `vm.sh section 5` (also `5 status`, `5 stop`). Its own user, low priority. The VM has 4 CPUs and 16 GB, so `section 5 stop` before `track` or `export`, and `section 5` again after |
 | Tracking finished | `bash ~/undercurrent/scripts/gcp/vm.sh finish`: uploads your own days and writes `status/block-N.done` |
 | Then | `bash ~/undercurrent/scripts/gcp/vm.sh stop` |
@@ -307,7 +308,8 @@ gcloud storage buckets add-iam-policy-binding gs://$BUCKET --member=serviceAccou
 
 **The first 60 days on the globe** (Cooper; doesn't wait for the other blocks or for the block's own `track`).
 1. The embedders go oldest to newest, so the newest days are the last to be ready. The command checks that every day it needs is embedded (the 60 days plus 28 to warm the tracker up) and says which are missing if not.
-2. In Cloud Shell: `bash ~/undercurrent/scripts/gcp/vm.sh export`. It pulls the code on the VM, tracks those 88 days into its own folder (`~uc/export_work`; the block's tracker state and story files are never touched), exports the last 60 into `~uc/export` and uploads it to `gs://$BUCKET/export`. With no numbers it uses the cutoffs in `thresholds.py`, like `track`; `vm.sh export 60 0.80 0.85` forces a pair, and `vm.sh export 30` does fewer days. It competes with a running `track` for the CPU.
+2. In Cloud Shell: `bash ~/undercurrent/scripts/gcp/vm.sh export 60 0.80 0.85` (use the cutoffs you chose with `vm.sh preview`). It pulls the code on the VM and starts the export **detached in tmux on the VM**, so it carries on if Cloud Shell closes. It tracks those 88 days into its own folder (`~uc/export_work`; the block's tracker state and story files are never touched), exports the last 60 into `~uc/export` and uploads it to `gs://$BUCKET/export`. `vm.sh export-log` shows the latest log lines and whether it is still running; `vm.sh export-stop` stops it. `vm.sh export 30 0.80 0.85` does fewer days. It competes with a running `track` for the CPU.
+   - **Give the cutoffs.** Without numbers it would use `thresholds.py`, but until `CALIBRATED` has the news-news cutoff that is a placeholder tuned on the hand-written demo items (0.42), and on real headlines it makes a few giant stories. So `export` refuses to start without numbers until the calibrated ones are pushed.
 3. On your laptop (this needs `gcloud` there): `gcloud storage rsync -r gs://$BUCKET/export data/export`, then `npm run dev`. Days in `meta.dates` come from this export, and the rest of the time bar keeps the illustrative archive until the full export replaces it.
 4. It has no forecast yet (the model needs the merged blocks), which the contract allows. The story ids come from this one tracker run, so they may differ from the ids in the final merged export.
 
