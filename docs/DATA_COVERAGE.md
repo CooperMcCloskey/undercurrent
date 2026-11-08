@@ -13,11 +13,12 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | Section | Own days | Warm-up from | Who | Pulled | Embedded | Tracked |
 |---|---|---|---|---|---|---|
 | **1** | 2026-05-08 → 2026-11-06 | 2026-04-10 | **Cooper** | ✅ done | ⏳ in progress (75/211 at 00:40 UTC) | ⬜ waits for the cutoffs |
-| 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | *free* | | | |
+| 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
 | 3 | 2025-05-08 → 2025-11-06 | 2025-04-10 | *free* | | | |
 | 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | *free* | | | |
 | 5 | 2024-05-08 → 2024-11-06 | 2024-04-10 | *free* | | | |
-| 6 | 2023-11-07 → 2024-05-07 | 2023-10-10 | *free* | | | |
+| 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ⏳ starting | | |
+| 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | *free* | | | |
 | 7 | 2023-05-08 → 2023-11-06 | 2023-04-10 | *free* | | | |
 | 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | *free* | | | |
 | 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | *free* | | | |
@@ -26,6 +27,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 - **Sections 1–4 are two years**, the plan for tonight. **Sections 5–10** reach back five years, for whoever has a free GPU.
 - **Order:** newest free section first. Each extra section helps the forecast less than the one before.
 - **Teammates already running:** two teammates' VMs have bucket access (`196306351948-compute@…` and `1025880049110-compute@…`). If one is yours, write your section in its row now. `docs/ONE_YEAR_EACH.md` uses different, year-long blocks; if you started from it, write your real dates here so nothing overlaps.
+- **Section 6 is split in two** (6a and 6b, three months each), because 6a runs on a server outside Google Cloud. Start 6a, 6b or 5 on any GPU server with `scripts/standalone/section.sh` (`docs/PREVIOUS_YEAR.md`); `create_vm.sh 6` would redo 6a, so don't use it.
 - **Own days never overlap.** The warm-up days (the 28 days before a section, used only to start its tracker) may overlap the next section's own days. That's expected.
 
 **Check what's really in the bucket** (Cloud Shell). This prints each continuous range of pulled days; a gap is a section nobody has pulled. Swap `articles/` for `vectors/news/` (embedded days) or `stories_daily/` (tracked days).
