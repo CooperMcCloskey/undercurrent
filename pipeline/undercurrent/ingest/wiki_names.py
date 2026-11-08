@@ -7,10 +7,13 @@ Step 1, count (resumable, one file per day). For every day of articles, count ho
 person and organisation is mentioned, weighting each article by `dup_count` (the copies it stands
 for). Days already counted are skipped, so run it again as more days land in the bucket.
     -> data/processed/wiki_name_counts/YYYY-MM-DD.parquet   day, kind, name, mentions, articles
-With --bucket, each day's articles file is copied from the bucket with `gcloud storage cp`,
-counted and deleted again, so the laptop never holds more than one day (about 55 MB). Downloads
-from the bucket to a machine outside Google Cloud are billed (about $0.12/GB, so about $7 for two
-years). On a Google Cloud VM in us-central1 they're free.
+With --bucket, only the three columns it needs (persons, orgs, dup_count: about 10 MB of a
+day's 67 MB) are read straight from the bucket, and nothing is saved but the counts. --workers
+days (default 8) are read and counted at once, in separate processes: about 0.7 s a day in all,
+against 6 s for copying whole files one by one. It signs in with `gcloud auth
+print-access-token`, so `gcloud auth login` is enough. Downloads from the bucket to a machine
+outside Google Cloud are billed (about $0.12/GB, so about $1 for five years of these columns). On
+a Google Cloud VM in us-central1 they're free.
 
 Step 2, select (always rebuilt from every count file). Per ISO week (Monday to Sunday) and kind,
 rank names by mentions and keep the top --top. The top --tier1 of them are tier 1, the rest
@@ -32,10 +35,12 @@ import datetime as dt
 import re
 import shutil
 import subprocess
-import tempfile
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.fs as pafs
 import pyarrow.parquet as pq
 from tqdm import tqdm
 
@@ -48,6 +53,8 @@ OUT = PROCESSED / "wiki_names.parquet"
 KINDS = ("persons", "orgs")
 KEEP_PER_DAY = 5000  # per kind; a weekly top-50 name is always far inside a day's top 5,000
 DAY_DIR = re.compile(r"day=(\d{4}-\d{2}-\d{2})/?$")
+COLUMNS = ["persons", "orgs", "dup_count"]
+TOKEN_MINUTES = 40  # gcloud access tokens last 60 minutes; take a fresh one well before that
 
 
 # Step 1: count ---------------------------------------------------------------------------------
@@ -86,7 +93,33 @@ def _write(df: pd.DataFrame, path: Path) -> None:
 
 
 def _read_articles(path: Path) -> pd.DataFrame:
-    return pq.read_table(path, columns=["persons", "orgs", "dup_count"]).to_pandas()
+    return pq.read_table(path, columns=COLUMNS).to_pandas()
+
+
+def _access_token() -> str:
+    tok = subprocess.run(["gcloud", "auth", "print-access-token"], capture_output=True, text=True)
+    if tok.returncode != 0:
+        raise SystemExit(f"gcloud auth print-access-token failed:\n{tok.stderr.strip()}")
+    return tok.stdout.strip()
+
+
+def _save_counts(df: pd.DataFrame, day: dt.date) -> bool:
+    """Write a day's counts. A day with no articles is not written (returns False), so it's
+    retried on the next run in case its articles are pulled again."""
+    if df.empty:
+        return False
+    _write(count_day(df, day), count_path(day))
+    return True
+
+
+def _count_remote(url: str, day: dt.date, token: str) -> bool:
+    """Worker process: read one day's three columns from GCS, count them, write the counts."""
+    fs = pafs.GcsFileSystem(
+        access_token=token,
+        credential_token_expiration=dt.datetime.now(dt.UTC) + dt.timedelta(minutes=55),
+    )
+    df = pq.read_table(url.removeprefix("gs://"), columns=COLUMNS, filesystem=fs).to_pandas()
+    return _save_counts(df, day)
 
 
 def local_days(root: Path) -> dict[dt.date, Path]:
@@ -117,7 +150,10 @@ def bucket_days(bucket: str) -> dict[dt.date, str]:
 
 
 def count_days(
-    sources: dict[dt.date, Path | str], start: dt.date | None, end: dt.date | None
+    sources: dict[dt.date, Path | str],
+    start: dt.date | None,
+    end: dt.date | None,
+    workers: int = 8,
 ) -> list[str]:
     """Count every day in range that has no count file yet. Returns the days that failed."""
     todo = sorted(
@@ -128,25 +164,47 @@ def count_days(
         and not count_path(d).exists()
     )
     print(f"{len(sources)} days of articles found, {len(todo)} still to count")
-    failed = []
-    with tempfile.TemporaryDirectory() as tmp:
-        for day in tqdm(todo, desc="count"):
-            src = sources[day]
-            if isinstance(src, str):  # gs:// URL: copy one day, count it, delete it
-                local = Path(tmp) / "part.parquet"
-                cp = subprocess.run(
-                    ["gcloud", "storage", "cp", src, str(local)], capture_output=True, text=True
-                )
-                if cp.returncode != 0:
-                    print(f"  {day}: copy failed: {cp.stderr.strip()[-200:]}")
+    failed: list[str] = []
+    empty: list[str] = []
+    local = [d for d in todo if not isinstance(sources[d], str)]
+    remote = [d for d in todo if isinstance(sources[d], str)]
+    for day in tqdm(local, desc="count"):
+        if not _save_counts(_read_articles(Path(sources[day])), day):
+            empty.append(day.isoformat())
+    if not remote:
+        _report_empty(empty)
+        return failed
+    # gs:// days: `workers` processes at once. Submitted in batches so each batch gets a fresh
+    # token (a token lasts an hour; a batch takes a few minutes).
+    batch = workers * 25
+    with ProcessPoolExecutor(workers) as ex, tqdm(total=len(remote), desc="count") as bar:
+        token, token_at = "", 0.0
+        for b in range(0, len(remote), batch):
+            if time.monotonic() - token_at > TOKEN_MINUTES * 60:
+                token, token_at = _access_token(), time.monotonic()
+            jobs = {
+                ex.submit(_count_remote, str(sources[d]), d, token): d
+                for d in remote[b : b + batch]
+            }
+            for job in as_completed(jobs):
+                day = jobs[job]
+                if err := job.exception():
+                    tqdm.write(f"  {day}: failed: {str(err)[-200:]}")
                     failed.append(day.isoformat())
-                    continue
-                df = _read_articles(local)
-                local.unlink()
-            else:
-                df = _read_articles(src)
-            _write(count_day(df, day), count_path(day))
+                elif not job.result():
+                    empty.append(day.isoformat())
+                bar.update()
+    _report_empty(empty)
     return failed
+
+
+def _report_empty(empty: list[str]) -> None:
+    if empty:
+        empty.sort()
+        print(
+            f"{len(empty)} day(s) have no articles, so weren't counted (re-pull them, then run "
+            f"this again): {', '.join(empty[:20])}{' ...' if len(empty) > 20 else ''}"
+        )
 
 
 # Step 2: select --------------------------------------------------------------------------------
@@ -207,13 +265,16 @@ def main() -> None:
     p.add_argument("--top", type=int, default=50, help="names kept per kind per week (default 50)")
     p.add_argument("--tier1", type=int, default=15, help="of those, tier 1 (default 15)")
     p.add_argument("--select-only", action="store_true", help="skip counting; just re-select")
+    p.add_argument(
+        "--workers", type=int, default=8, help="--bucket days counted at once (default 8)"
+    )
     args = p.parse_args()
 
     failed: list[str] = []
     if not args.select_only:
         sources: dict[dt.date, Path | str]
         sources = dict(bucket_days(args.bucket)) if args.bucket else dict(local_days(args.articles))
-        failed = count_days(sources, args.start, args.end)
+        failed = count_days(sources, args.start, args.end, args.workers)
 
     files = sorted(COUNTS.glob("*.parquet"))
     if not files:
@@ -224,7 +285,8 @@ def main() -> None:
 
     ents = entities(names)
     days = counts["day"].nunique()
-    est = estimate_requests(ents, days=(dt.date.today() - dt.date(2024, 10, 10)).days)
+    # wiki_bulk's default fetch range, PLAN_START..PLAN_END (it imports this module, so no import)
+    est = estimate_requests(ents, days=(dt.date(2026, 11, 6) - dt.date(2021, 10, 10)).days)
     print(
         f"{OUT}: {days} days ({counts['day'].min()}..{counts['day'].max()}), "
         f"{names['week'].nunique()} weeks, {len(ents):,} distinct names "
@@ -237,7 +299,7 @@ def main() -> None:
     )
     print("Top tier-1 names:", ", ".join(ents["name"].head(15)))
     if failed:
-        raise SystemExit(f"{len(failed)} day(s) failed to copy; run again to retry: {failed[:5]}")
+        raise SystemExit(f"{len(failed)} day(s) failed; run again to retry: {failed[:5]}")
 
 
 if __name__ == "__main__":
