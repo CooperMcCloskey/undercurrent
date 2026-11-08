@@ -122,6 +122,11 @@ one() { # $1 = a home folder with block.env and undercurrent/
 
     # tracking state and the next command
     next=""
+    other="" # another server tracks this section (status/tracking/S.txt, written by extra_section.sh)
+    if [ "$nt" -eq 0 ] && [ ! -f logs/TRACK_DONE ] && [ ! -f logs/VERIFIED ]; then
+      other=$(CLOUDSDK_CONFIG=$h/.config/gcloud timeout 20 gcloud storage cat "gs://$BUCKET/status/tracking/$BLOCK.txt" 2>/dev/null | awk '{print $1}')
+      [ "$other" = "$(hostname)" ] && other=""
+    fi
     if [ -n "$t0" ] && [ "$t0" -lt "$CUT" ]; then
       ts="timeline began $since, BEFORE the cutoffs"
       next="$how track-fresh"
@@ -131,9 +136,15 @@ one() { # $1 = a home folder with block.env and undercurrent/
     elif [ "$nt" -gt 0 ]; then
       ts="tracking${since:+ since $since}"
       [ -z "$t0" ] && ts="tracking its first day"
+    elif [ -f logs/VERIFIED ] && [ ! logs/TRACK_DONE -nt logs/VERIFIED ]; then
+      # finished and checked: don't suggest finish again (a second finish only re-uploads)
+      ts="FINISHED and verified $(date -ud "@$(stat -c %Y logs/VERIFIED)" +%H:%M) UTC: all in the bucket"
+      next="nothing. To free the disk: rm -rf $real/data/processed $real/data/raw"
     elif [ "$t" -ge "$n" ] || [ -f logs/TRACK_DONE ]; then
       ts="tracking done"
       next="$how finish"
+    elif [ -n "$other" ]; then
+      ts="tracked on $other, not here (status/tracking/$BLOCK.txt): don't track or finish it here"
     elif [ -f logs/track.log ] && [ "$nl" -gt 0 ] && pgrep -f "section.sh _track" >/dev/null; then
       ts="waiting (retries every 2 min): $lastlog"
     elif [ -n "$t0" ] || [ -s logs/track.log ]; then

@@ -208,7 +208,7 @@ _upload)
   while true; do
     last=no # decided before syncing, so the final pass includes everything
     [ -f "$L/EMBED_DONE" ] && [ "$(running embed)" = 0 ] && last=yes
-    gcloud storage rsync -r -q -x '.*\.tmp[0-9]+$' data/processed/vectors "gs://$BUCKET/processed/vectors" >>"$L/upload.log" 2>&1 &&
+    gcloud storage rsync -r -q -x '.*\.(tmp[0-9]+|gstmp)$' data/processed/vectors "gs://$BUCKET/processed/vectors" >>"$L/upload.log" 2>&1 &&
       echo "$(date -u) vectors synced" >>"$L/upload.log"
     [ $last = yes ] && { echo "final sync done" >>"$L/upload.log"; exit 0; }
     sleep 600
@@ -273,9 +273,10 @@ finish)
     echo "(articles and vectors came from the bucket: not uploading them again)"
   else
     for T in articles gdelt_totals gdelt_files; do
-      [ -d "data/processed/$T" ] && gcloud storage rsync -r -q "data/processed/$T" "gs://$BUCKET/processed/$T"
+      # -x: never upload half-downloaded files (*_.gstmp) left by an interrupted `fetch`
+      [ -d "data/processed/$T" ] && gcloud storage rsync -r -q -x '.*\.gstmp$' "data/processed/$T" "gs://$BUCKET/processed/$T"
     done
-    gcloud storage rsync -r -q -x '.*\.tmp[0-9]+$' data/processed/vectors "gs://$BUCKET/processed/vectors"
+    gcloud storage rsync -r -q -x '.*\.(tmp[0-9]+|gstmp)$' data/processed/vectors "gs://$BUCKET/processed/vectors"
   fi
   echo "section $BLOCK $OWN_START..$OWN_END done $(date -u)" | gcloud storage cp - "gs://$BUCKET/status/block-$BLOCK.done"
   echo "Uploaded. Mark section $BLOCK done in docs/DATA_COVERAGE.md and post it in the chat."
