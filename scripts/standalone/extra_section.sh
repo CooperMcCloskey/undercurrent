@@ -29,7 +29,11 @@ go)
   if [ ! -d "$HOME/.config/gcloud" ] && [ -d "$OLD/.config/gcloud" ]; then
     mkdir -p "$HOME/.config" && cp -r "$OLD/.config/gcloud" "$HOME/.config/" # the same Google login
   fi
-  [ -d "$HOME/undercurrent" ] || git clone -q https://github.com/CooperMcCloskey/undercurrent.git "$HOME/undercurrent" || exit 1
+  if [ -d "$HOME/undercurrent" ]; then # an older clone may not know this section yet
+    git -C "$HOME/undercurrent" pull -q --ff-only || echo "(git pull failed; carrying on with this copy of the code)"
+  else
+    git clone -q https://github.com/CooperMcCloskey/undercurrent.git "$HOME/undercurrent" || exit 1
+  fi
   nice -n 10 bash "$SEC" setup "$S" || exit 1
   gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q . ||
     gcloud auth login --no-launch-browser || exit 1
