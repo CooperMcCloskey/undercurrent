@@ -34,7 +34,7 @@ refetch every cached article on every run, and so would moving the start earlier
 
 `merge` unpacks each tarball, adds its articles and caches to this machine's data/, then runs
 `build`. `build` (also its own command) rebuilds every table from the caches with no network,
-and writes wiki_selection.parquet: name, kind, tier, first_week, mentions, title_en, qid.
+and writes wiki_selection.parquet: name, kind, tier, first_week, tier1_week, mentions, title_en, qid.
 """
 
 import argparse

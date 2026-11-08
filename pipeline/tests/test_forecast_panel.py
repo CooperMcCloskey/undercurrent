@@ -121,19 +121,26 @@ def test_optional_files_add_category_first_seen_and_wikipedia(processed: Path) -
             }
         ),
     )
+    # Q1 went tier 1 (8 languages + edits) from 2026-01-02; Q2 never did.
     _write(
         processed / "story_wiki_entities.parquet",
-        pa.table({"story_id": ["vote", "vote"], "qid": ["Q1", "Q2"]}),
+        pa.table(
+            {
+                "story_id": ["vote", "vote"],
+                "qid": ["Q1", "Q2"],
+                "full_from": pa.array([dt.date(2026, 1, 2), None], pa.date32()),
+            }
+        ),
     )
     _write(
         processed / "wiki_entity_daily.parquet",
         pa.table(
             {
-                "qid": ["Q1", "Q2", "Q1"],
-                "day": [dt.date(2026, 1, 1)] * 2 + [dt.date(2026, 1, 2)],
-                "views": [100, 50, 70],
-                "edits": [3, 1, 2],
-                "views_en": [60, 20, 40],
+                "qid": ["Q1", "Q2", "Q1", "Q1"],
+                "day": [dt.date(2026, 1, 1)] * 2 + [dt.date(2026, 1, 2), dt.date(2025, 6, 1)],
+                "views": [100, 50, 70, 999],
+                "edits": [3, 1, 2, 9],
+                "views_en": [60, 20, 40, 99],
             }
         ),
     )
@@ -143,10 +150,25 @@ def test_optional_files_add_category_first_seen_and_wikipedia(processed: Path) -
         "2026-01-02"
     )
     wiki = wiki.set_index(["story_id", "day"])
-    assert (
-        wiki.loc[("vote", pd.Timestamp("2026-01-01")), "wiki_views"] == 150
-    )  # two entities summed
-    assert wiki.loc[("vote", pd.Timestamp("2026-01-02")), "wiki_views_en"] == 40
+    day1, day2 = ("vote", pd.Timestamp("2026-01-01")), ("vote", pd.Timestamp("2026-01-02"))
+    # Before Q1's full_from: English views only (60 + 20), and edits unknown.
+    assert wiki.loc[day1, "wiki_views"] == 80 and pd.isna(wiki.loc[day1, "wiki_edits"])
+    assert wiki.loc[day1, "wiki_views_en"] == 80
+    # From it: Q1's 8 languages and its edits.
+    assert wiki.loc[day2, "wiki_views"] == 70 and wiki.loc[day2, "wiki_edits"] == 2
+    assert wiki.loc[day2, "wiki_views_en"] == 40
+    # Only days around the story are joined: 2025-06-01 is months before its first article.
+    assert set(wiki.index) == {day1, day2}
+
+    # A mapping from before full_from existed: English views only, no edits.
+    _write(
+        processed / "story_wiki_entities.parquet",
+        pa.table({"story_id": ["vote", "vote"], "qid": ["Q1", "Q2"]}),
+    )
+    _, _, wiki = panel.build_panel(processed)
+    wiki = wiki.set_index(["story_id", "day"])
+    assert wiki.loc[day1, "wiki_views"] == 80 and wiki.loc[day2, "wiki_views"] == 40
+    assert wiki["wiki_edits"].isna().all()
 
 
 def test_partitioned_articles_work_too(tmp_path: Path) -> None:

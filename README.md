@@ -158,7 +158,7 @@ Things to know:
 - **The cutoffs are placeholders.** `vectors/thresholds.py` has 0.42 for news vs news (tuned on the demo), `assign_sim` is that + 0.05, and `merge_sim` is 0.85. Read 20 real stories and calibrate before trusting any of it.
 - **PyTorch and FAISS crash each other on macOS** if both run in one process (PyTorch must load first, and FAISS then runs on one thread). Embedding and tracking are separate processes, so this doesn't arise. The code guards the mixed case, but keep them apart. It was not seen on Linux, but that is untested.
 - **Merged stories:** rows already written keep the old id, and `story_lineage` maps old to surviving id. The forecast code doesn't apply the lineage yet.
-- **Still to do for B:** `story_wiki_entities.parquet`, and attaching posts and Wikipedia items (`post_count_7d` is 0 until then). Location, footprint, entities and the exporter are done (below).
+- **Still to do for B:** attaching posts and Wikipedia items. `story_wiki_entities.parquet` is done (`stories/wiki_entities.py`, run by `scripts/merge.sh`; `PLAN.md`, B's notes) (`post_count_7d` is 0 until then). Location, footprint, entities and the exporter are done (below).
 
 #### Export: `python -m undercurrent.stories.export`
 
@@ -173,6 +173,8 @@ Reads `story_assignments`, `stories_daily`, `articles` and, if they exist, `fore
 - **Before the first long run,** label 1–2k "same story?" pairs (an LLM can draft them) and run `python -m undercurrent.vectors.calibrate`. Badly formed stories make the forecast target noisy, so this matters more than the choice of forecast model.
 
 ### Wikipedia: what the data agent (A) should do now
+
+> **Status (2026-11-08):** done differently from the plan below. Entities are each week's top 50 GDELT people and orgs, taken from the articles, not from stories. Tier 1 (top 15) gets 8 languages and English edits, tier 2 English views, all from the per-article API. The tables are in `gs://undercurrent-data-cooper/wiki/`. How they reach the forecast, and the point-in-time rules: `docs/ARCHITECTURE.md`, "Wikipedia features, end to end". The plan is kept below for the reasoning.
 
 `pipeline/undercurrent/ingest/WIKIPEDIA.md` is right for a few thousand entities, but it won't scale to years of stories as written:
 

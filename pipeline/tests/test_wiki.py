@@ -186,6 +186,18 @@ def test_select_ranks_each_week_and_kind_into_tiers() -> None:
     ents = entities(names).set_index("name")
     assert ents.loc["c", "first_week"] == next_mon  # chosen only once it was big
     assert ents.loc["b", "tier"] == 2
+    # tier1_week: the first week as tier 1, which is when 8 languages and edits become known.
+    assert ents.loc["a", "tier1_week"] == mon and ents.loc["c", "tier1_week"] == next_mon
+    assert pd.isna(ents.loc["b", "tier1_week"])  # never tier 1
+
+    # A name that is tier 2 first and tier 1 a week later: its tier is 1 (over all weeks), but
+    # tier1_week is the later week, so its first week doesn't see the 8 languages.
+    later = pd.concat(
+        [names, pd.DataFrame([(next_mon, "persons", "b", 99, 1, 1)], columns=names.columns)]
+    )
+    ents = entities(later).set_index("name")
+    assert ents.loc["b", "tier"] == 1 and ents.loc["b", "first_week"] == mon
+    assert ents.loc["b", "tier1_week"] == next_mon
 
 
 def test_shards_split_names_exactly_once() -> None:

@@ -7,7 +7,7 @@ data/processed/, either one file `name.parquet` or a folder `name/` of partition
     articles           id, domain, tone, locations[].country  A  (3.1)
     stories_daily      story_id, day, category, first_seen    B  (3.5)   optional
     daily_totals       day, total_articles                    A         optional
-    story_wiki_entities  story_id, qid                        B         optional (see README)
+    story_wiki_entities  story_id, qid (+ full_from)          B         optional (see README)
     wiki_entity_daily  qid, day, views, edits, views_en       A  (ingest/WIKIPEDIA.md)  optional
 
 If one of those changes shape, change it here and in schema.py. Missing optional files just mean
@@ -19,7 +19,15 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from undercurrent.forecast import settings
 from undercurrent.forecast.schema import require_columns
+
+# The Wikipedia days joined around each story (see wiki_sql): enough for every feature's lookback
+# (the neural model's SEQ_DAYS, lagged views, and the 7 + 7 days of the growth features).
+WIKI_DAYS_BEFORE = (
+    settings.SEQ_DAYS + 14 + max(settings.WIKI_VIEWS_LAG_DAYS, settings.WIKI_EDITS_LAG_DAYS)
+)
+WIKI_DAYS_AFTER = 7
 
 
 def source(processed: Path, name: str) -> str | None:
@@ -114,11 +122,38 @@ def build_panel(
         source(processed, "wiki_entity_daily"),
     )
     if mapping is not None and entity_daily is not None:
-        wiki = con.execute(
-            f"""SELECT m.story_id AS story_id, CAST(w.day AS DATE) AS day,
-                       sum(w.views) AS wiki_views, sum(w.edits) AS wiki_edits,
-                       sum(w.views_en) AS wiki_views_en
-                FROM {mapping} m JOIN {entity_daily} w ON w.qid = m.qid
-                GROUP BY 1, 2"""
-        ).df()
+        wiki = con.execute(wiki_sql(mapping, entity_daily, columns(con, mapping))).df()
     return panel, timestamps(totals), None if wiki is None else timestamps(wiki)
+
+
+def wiki_sql(mapping: str, entity_daily: str, mapping_columns: list[str]) -> str:
+    """Each story's Wikipedia series: its entities (B's story_wiki_entities) summed per day.
+
+    - **Only the days around the story** (WIKI_DAYS_BEFORE before its first article to
+      WIKI_DAYS_AFTER after its last). Every feature looks back at most SEQ_DAYS plus the views
+      lag, and a story has no forecast rows more than 6 days after its last article, so this
+      changes no feature; without it, every story gets every day since 2021 (hundreds of
+      millions of rows on the full merge).
+    - **8 languages and edits only from `full_from`** (B's column: the end of the first week
+      A's run picked the entity as tier 1). A fetches a tier-1 entity's 8 languages and edits
+      for its whole history, so using them before that week would show the entity's later
+      prominence early. Before it, `wiki_views` is English views and `wiki_edits` is unknown.
+      A mapping without `full_from` gets English views only, everywhere.
+    """
+    full_from = "CAST(full_from AS DATE)" if "full_from" in mapping_columns else "NULL"
+    return f"""
+        WITH span AS (
+            SELECT story_id, min(day) - {WIKI_DAYS_BEFORE} AS lo, max(day) + {WIKI_DAYS_AFTER} AS hi
+            FROM joined GROUP BY 1
+        ), m AS (
+            SELECT DISTINCT story_id, qid, CAST({full_from} AS DATE) AS full_from FROM {mapping}
+        ), w AS (
+            SELECT qid, CAST(day AS DATE) AS day, views, edits, views_en FROM {entity_daily}
+        )
+        SELECT m.story_id AS story_id, w.day AS day,
+               sum(CASE WHEN w.day >= m.full_from THEN w.views ELSE w.views_en END) AS wiki_views,
+               sum(CASE WHEN w.day >= m.full_from THEN w.edits END) AS wiki_edits,
+               sum(w.views_en) AS wiki_views_en
+        FROM m JOIN span s ON s.story_id = m.story_id
+        JOIN w ON w.qid = m.qid AND w.day BETWEEN s.lo AND s.hi
+        GROUP BY 1, 2"""

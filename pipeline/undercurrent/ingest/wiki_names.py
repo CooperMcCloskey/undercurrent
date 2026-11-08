@@ -230,18 +230,24 @@ def select(counts: pd.DataFrame, top: int, tier1: int) -> pd.DataFrame:
 
 
 def entities(names: pd.DataFrame) -> pd.DataFrame:
-    """wiki_names rows -> one row per name: best tier, first week chosen, total mentions."""
-    return (
-        names.groupby("name", as_index=False)
-        .agg(
-            kind=("kind", "first"),
-            tier=("tier", "min"),
-            first_week=("week", "min"),
-            mentions=("mentions", "sum"),
-        )
-        .sort_values(["tier", "mentions"], ascending=[True, False])
-        .reset_index(drop=True)
+    """wiki_names rows -> one row per name: best tier, first week chosen, first week chosen as
+    tier 1 (None if never), total mentions.
+
+    `tier` is the best tier over every week, including weeks after any given day, and wiki_bulk
+    fetches a tier-1 entity's 8 languages and edits for its whole history. So "has 8 languages /
+    has edits" is only known from the end of `tier1_week`; before that, use English views only.
+    """
+    t1 = names[names["tier"] == 1].groupby("name")["week"].min().rename("tier1_week")
+    ents = names.groupby("name", as_index=False).agg(
+        kind=("kind", "first"),
+        tier=("tier", "min"),
+        first_week=("week", "min"),
+        mentions=("mentions", "sum"),
     )
+    ents["tier1_week"] = ents["name"].map(t1)
+    return ents.sort_values(["tier", "mentions"], ascending=[True, False]).reset_index(drop=True)[
+        ["name", "kind", "tier", "first_week", "tier1_week", "mentions"]
+    ]
 
 
 def estimate_requests(ents: pd.DataFrame, days: int, langs: int = 8) -> dict[str, int]:

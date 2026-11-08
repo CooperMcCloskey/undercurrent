@@ -76,7 +76,8 @@ Full guide: `pipeline/undercurrent/ingest/WIKIPEDIA.md`. Covers 8 languages (en 
 
 | File | Columns |
 |---|---|
-| `processed/wiki_entity_daily.parquet` | `qid, title_en, day, views, edits, n_langs, views_<lang>…, edits_<lang>…`: **one row per entity and day, languages summed. Start here.** |
+| `processed/wiki_entity_daily.parquet` | `qid, title_en, day, views, edits, n_langs, views_<lang>…, edits_<lang>…`: **one row per entity and day, languages summed. Start here.** `views_en` exists for every entity. `views` covers 8 languages and `edits` exists only for tier-1 entities, over their whole history (see `full_from` in 3.6b) |
+| `processed/wiki_selection.parquet` | `name, kind, tier, first_week, tier1_week, mentions, title_en, qid`: the GDELT names A fetched (each week's top 50 people and orgs), one row per name. `first_week` and `tier1_week` are the first weeks it was picked at all and as tier 1 |
 | `processed/wiki_pageviews.parquet` | `lang, title, day, views, complete` |
 | `processed/wiki_edits.parquet` | `lang, title, day, edits, complete` |
 | `processed/wiki_top.parquet` | `lang, day, rank, title, views, desktop_share, suspect_bot` (daily top-1000 per language) |
@@ -91,7 +92,7 @@ def resolve_many(names: list[str]) -> dict[str, str | None]: ...
 def resolve_entities(names: list[str]) -> dict[str, dict | None]: ...  # {"qid", "title", "titles": {lang: title}}
 ```
 
-Wikipedia fetch CLI, which B (or A on B's behalf) runs with the stories' resolved entity titles. Allow about 5 seconds per entity: Wikimedia allows 200 requests per minute.
+Wikipedia fetch CLI for titles outside the selection (places, smaller names). Allow about 5 seconds per entity: Wikimedia allows 200 requests per minute. For the two-year run the entities came from the articles instead (`wiki_names` → `wiki_bulk`; `docs/DATA_COVERAGE.md`), and they're in `gs://undercurrent-data-cooper/wiki/`.
 
 ```
 uv run python -m undercurrent.ingest.wiki --titles-file data/processed/wiki_titles.txt --start ... --end ...
@@ -155,6 +156,17 @@ There is no per-day `centroid` column: for every active story that would be abou
 `article_id: str, story_id: str, day: date, similarity: float`, one file per day. Each article is assigned once, on the day it arrives, to the story it matched **as of that day**, and **a row is never rewritten afterwards**. An article that belongs to no story (nobody else wrote about it) has no row. `similarity` is the cosine to the story's centroid when it was matched.
 
 When two stories turn out to be the same, the older id survives, today's rows already use it, and `story_lineage/<YYYY-MM-DD>.parquet` (`old_story_id, new_story_id, day`; only on days with a merge) records it. Rows written on earlier days keep the old id: that is what keeps the data point-in-time. Anything that needs one story's whole history applies the lineage as of the day it cares about.
+
+### 3.6b `processed/story_wiki_entities.parquet` (B → C)
+
+Written by `stories/wiki_entities.py` (run by `scripts/merge.sh`) from 3.6, 3.1 and A's `wiki_selection.parquet`. At most 5 rows per story, one per (story, entity), and only for stories that ever get a forecast row. How it's chosen, and why it's point in time: `docs/ARCHITECTURE.md`, "Wikipedia features, end to end".
+
+| Column | Type | Notes |
+|---|---|---|
+| `story_id` | str | The tracker's id, without `story_lineage` (as C counts) |
+| `qid` | str | Wikidata id; C joins it to `wiki_entity_daily.qid` |
+| `full_from` | date or null | From this day on, the entity's 8-language `views` and its `edits` may be used; before it, or if null, `views_en` only. C reads it |
+| `title_en`, `name`, `articles`, `rank`, `chosen_on` | | For people: the English title, the GDELT name, the story's articles naming it (up to `chosen_on`), its rank, and the last day of articles the choice looked at |
 
 ### 3.7 `processed/forecasts.parquet` and `processed/model_metrics.json` (C → B's exporter)
 

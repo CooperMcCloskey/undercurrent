@@ -470,4 +470,5 @@ def test_bulk_shards_fetch_pack_and_merge(fake, tmp_path, monkeypatch: pytest.Mo
     assert set(top["day"]) == {D1, D2}  # each day came from one machine
     sel = pd.read_parquet(merged / "processed/wiki_selection.parquet").set_index("name")
     assert sel.loc["un", "title_en"] == "United_Nations" and sel.loc["un", "qid"] == "Q1065"
+    assert "tier1_week" in sel.columns  # stories/wiki_entities.py gates 8 languages on it
     assert pd.isna(sel.loc["john smith", "title_en"])
