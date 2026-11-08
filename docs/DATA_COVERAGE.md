@@ -57,6 +57,25 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | sort -u | python3 -c "import sys, datetime as d; ds = [d.date.fromisoformat(l.strip()) for l in sys.stdin]; r = []; [r.append([x, x]) if not r or (x - r[-1][1]).days > 1 else r[-1].__setitem__(1, x) for x in ds]; [print(a, '->', b, (b - a).days + 1, 'days') for a, b in r]"
 ```
 
+## The final merge (one command)
+
+When most sections are tracked and `finish`ed (their `status/*.done` is in the bucket), **one person** runs this on the machine with the most CPUs that can read the bucket (a 32-vCPU section server is ideal; a Google Cloud VM in us-central1 downloads fastest):
+
+```bash
+git -C ~/undercurrent pull -q && bash ~/undercurrent/scripts/merge.sh start
+```
+
+- It runs in tmux, so it survives SSH closing. Progress: `bash ~/undercurrent/scripts/merge.sh status`.
+- **What it does:**
+  1. downloads every finished section's story tables, articles and totals;
+  2. trains the forecast on all of them, printing model vs baseline;
+  3. exports the globe data (English titles, theme categories, junk left out, forecasts) and checks it against the contract;
+  4. uploads **`export-final.tgz`** and the forecast files to the bucket.
+- **Options:** `MODELS="hgb gru"` adds the neural net (on a GPU), and `START=2025-11-07` exports only the last year if the full span is too big for the web app.
+- On Cooper's VM it's `bash ~/undercurrent/scripts/gcp/vm.sh merge` from Cloud Shell, but its 4 vCPUs make it slow.
+- **For the web laptop:** download `export-final.tgz` from the [Storage browser](https://console.cloud.google.com/storage/browser/undercurrent-data-cooper), unpack it as `data/export/`, then `npm run dev`. It's the only export needed: it replaces every earlier one.
+- Sections that finish later: run the same command again. It downloads only what's new.
+
 ## Other data
 
 | What | Range | Who | Where |

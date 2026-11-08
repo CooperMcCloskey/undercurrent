@@ -30,3 +30,6 @@ data/*
 
 # per-person agent settings
 .claude/settings.local.json
+
+# Script logs on the VMs and servers (scripts/gcp, scripts/standalone, scripts/merge.sh)
+logs/

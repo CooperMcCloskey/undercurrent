@@ -313,7 +313,7 @@ gcloud storage buckets add-iam-policy-binding gs://$BUCKET --member=serviceAccou
 3. On your laptop (this needs `gcloud` there): `gcloud storage rsync -r gs://$BUCKET/export data/export`, then `npm run dev`. Days in `meta.dates` come from this export, and the rest of the time bar keeps the illustrative archive until the full export replaces it.
 4. It has no forecast yet (the model needs the merged blocks), which the contract allows. The story ids come from this one tracker run, so they may differ from the ids in the final merged export.
 
-**Merge, train, export** (when every `status/block-N.done` exists, `gcloud storage ls gs://$BUCKET/status/`):
+**Merge, train, export: now one command,** `bash ~/undercurrent/scripts/merge.sh start` (see "The final merge" in `docs/DATA_COVERAGE.md`). The steps it runs, for reference (when every `status/block-N.done` exists, `gcloud storage ls gs://$BUCKET/status/`):
 
 ```bash
 mkdir -p data/merged && for T in articles gdelt_totals story_assignments stories_daily story_lineage; do gcloud storage rsync -r gs://$BUCKET/processed/$T data/merged/$T; done

@@ -36,6 +36,9 @@
 #   frontend     tracking still running? Say how far. Finished? Run `finish`, export the block's own
 #                days (English titles, junk left out) and put it in the bucket as one file,
 #                export-block<N>.tgz, to download for the web app. Safe to run again.
+#   merge        the final merge on this VM (scripts/merge.sh): every finished section -> forecast ->
+#                export-final.tgz in the bucket. Better on a bigger machine; see docs/DATA_COVERAGE.md
+#   merge-status how far the merge got
 #   log          the VM's setup log (no SSH)
 #   stop         stop the VM (only once `finish` has run)
 set -euo pipefail
@@ -212,6 +215,12 @@ gcloud storage cp $HOME/export-block$BLOCK.tgz gs://$BUCKET/export-block$BLOCK.t
 echo "== ready: export-block$BLOCK.tgz ($(du -h $HOME/export-block$BLOCK.tgz | cut -f1))"
 echo "Download it: https://console.cloud.google.com/storage/browser/$BUCKET (click the file, then Download)"
 EOF
+  ;;
+merge)
+  echo 'cd ~/undercurrent && git pull -q --ff-only && bash scripts/merge.sh start' | as_uc
+  ;;
+merge-status)
+  echo 'cd ~/undercurrent && bash scripts/merge.sh status' | as_uc
   ;;
 log)
   gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | grep uc-startup | tail -20
