@@ -3,16 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import Globe, { type GlobeMethods } from 'react-globe.gl'
-import type { Object3D, PerspectiveCamera } from 'three'
+import { MeshLambertMaterial, type Object3D, type PerspectiveCamera } from 'three'
 import { api } from './api/client'
 import type { StorySummary } from './api/types.gen'
 import { CATEGORY_ORDER, CATEGORY_STYLE, hexToRgb, type Category } from './globe/categories'
 import { Legend } from './globe/Legend'
 import { loadLand } from './globe/countries'
 import { createGlowLayer, type GlowPoint } from './globe/glow'
+import type { LandMask } from './globe/land'
 import { pickStories } from './globe/select'
+import { freeSpots } from './globe/spots'
 import { createHeatLayer, type HeatPoint } from './globe/heat'
-import { createOcean } from './globe/ocean'
+import { GLOBE_RADIUS } from './globe/land'
 import { createStars } from './globe/stars'
 import { buildConstellation, type ConstellationItem } from './globe/constellation'
 import { MAX_PLACE_LABELS, cullLabels, labelElement, type GlobeLabel } from './globe/labels'
@@ -51,8 +53,10 @@ import { useEasedStories, type EasedStory } from './timeline/useEasedStories'
 // stays the big thing; globe/constellation.ts), with its busiest places labelled (globe/labels.ts).
 // Hovering only outlines the story and shows its title, so browsing stays uncluttered.
 const COLORS = {
-  border: '#5d7068', // country borders and coasts: a pale green-grey
-  atmosphere: '#78cbe6',
+  ocean: '#0b1424',
+  land: '#1c2a3f',
+  border: '#3d5373',
+  atmosphere: '#7dd3fc',
 }
 // Layers stack outwards, as a fraction of the globe radius.
 const LAND_ALTITUDE = 0.005
@@ -84,7 +88,10 @@ const MARKER_RADIUS_HOVERED = 1.1 // at least this big while hovered
 // Selecting a story flies the camera to the story's marker, high enough up (altitude, in globe
 // radii) to see all its dots: roughly 1 radius of altitude shows 32 degrees around the marker.
 const SELECT_CAMERA_MIN_ALTITUDE = 0.8
-const SELECT_CAMERA_MAX_ALTITUDE = 2.2
+const SELECT_CAMERA_MAX_ALTITUDE = 2.0
+// You can't zoom out past this altitude (in globe radii above the surface): further than this the
+// Earth is a small ball in an empty sky.
+const MAX_ZOOM_ALTITUDE = 2.1
 const SELECT_CAMERA_DEG_PER_ALTITUDE = 32
 const SELECT_CAMERA_MS = 900
 const NO_DOTS: DotPlacement[] = []
@@ -105,7 +112,7 @@ const MIN_NEAR = 0.05
 // react-globe.gl re-processes a whole layer whenever a data or accessor prop changes, and inline
 // arrow functions or `?? []` are new on every render. So accessors, materials and config live at
 // module scope, and data arrays are memoised.
-const OCEAN = createOcean()
+const OCEAN = new MeshLambertMaterial({ color: COLORS.ocean })
 const RENDERER_CONFIG = { powerPreference: 'high-performance' } as const // discrete GPU if present
 const NO_STORIES: StorySummary[] = []
 const alwaysPresent = () => 1
@@ -135,7 +142,7 @@ const ringColor = (o: object) => {
   return (t: number) => `rgba(${r},${g},${b},${(1 - t) * 0.8})`
 }
 const NO_MARKERS: Marker[] = []
-const RING_SPACING_DEG = 3.2 // between stories at one place: two big markers' radii, and a gap
+
 // Markers smaller than this aren't drawn.
 const MIN_MARKER_LEVEL = 0.02
 
@@ -145,7 +152,11 @@ const MIN_MARKER_LEVEL = 0.02
  * round it, far enough out not to touch. Each story keeps its marker object (`cache`) from frame
  * to frame, so the globe updates the marker in place while it grows or fades.
  */
-function placeMarkers(eased: readonly EasedStory[], cache: Map<string, Marker>): Marker[] {
+function placeMarkers(
+  eased: readonly EasedStory[],
+  cache: Map<string, Marker>,
+  mask: LandMask | null,
+): Marker[] {
   const counts = eased.filter((e) => e.level >= MIN_MARKER_LEVEL).map((e) => Math.max(e.count, 1))
   const smallest = counts.length ? Math.min(...counts) : 1
   const biggest = counts.length ? Math.max(...counts) : 1
@@ -165,28 +176,18 @@ function placeMarkers(eased: readonly EasedStory[], cache: Map<string, Marker>):
   }
   const markers = [...byPlace.values()].flatMap((group) => {
     group.sort((a, b) => b.count - a.count || a.story.id.localeCompare(b.story.id))
-    let ring = 1 // rings hold 6, 12, 18... markers
-    let slot = 0
+    const { lat: lat0, lon: lon0 } = group[0].story.location
+    const spots = freeSpots(lat0, lon0, group.length - 1, mask)
     return group.map(({ story, level, count }, i) => {
-      let r = 0
-      let angle = 0
-      if (i > 0) {
-        if (slot === 6 * ring) {
-          ring++
-          slot = 0
-        }
-        r = RING_SPACING_DEG * ring
-        angle = (2 * Math.PI * (slot + (ring % 2) / 2)) / (6 * ring)
-        slot++
-      }
       const { lat, lon } = story.location
+      const spot = i > 0 ? spots[i - 1] : null
       const m = cache.get(story.id) ?? ({} as Marker)
       return Object.assign(m, {
         story,
         level,
         size: sizeOf(count),
-        lat: lat + r * Math.sin(angle),
-        lng: lon + (r * Math.cos(angle)) / Math.max(Math.cos((lat * Math.PI) / 180), 0.2),
+        lat: spot ? spot.lat : lat,
+        lng: spot ? spot.lng : lon,
       })
     })
   })
@@ -301,7 +302,7 @@ export default function App() {
     placeholderData: keepPreviousData,
   })
   const land = useQuery({
-    queryKey: ['land'],
+    queryKey: ['land', 'with-mask'], // a new key: the cached value had another shape
     queryFn: loadLandLayer,
     staleTime: Infinity,
     structuralSharing: false,
@@ -414,7 +415,10 @@ export default function App() {
   // stories grow in and fade out as the time bar moves instead of popping.
   const eased = useEasedStories(shown, alwaysPresent)
   const markerCache = useRef(new Map<string, Marker>())
-  const markers = useMemo(() => placeMarkers(eased, markerCache.current), [eased])
+  const markers = useMemo(
+    () => placeMarkers(eased, markerCache.current, land.data?.mask ?? null),
+    [eased, land.data],
+  )
   const glow = useMemo(() => createGlowLayer(), [])
   const stars = useMemo(() => createStars(), [])
 
@@ -430,13 +434,14 @@ export default function App() {
     const camera = globe.camera() as PerspectiveCamera
     // The stars sit on a sphere around the globe: the camera has to see that far.
     scene.add(stars.object)
+    const controls = globe.controls() as { maxDistance: number }
+    controls.maxDistance = GLOBE_RADIUS * (1 + MAX_ZOOM_ALTITUDE)
     if (camera.far < 2 * stars.radius) {
       camera.far = 2 * stars.radius
       camera.updateProjectionMatrix()
     }
     scene.onBeforeRender = (renderer) => {
       glow.setViewport(renderer, camera.fov)
-      OCEAN.setTime(performance.now() / 1000)
       stars.setTime(performance.now() / 1000)
       const near = Math.max(MIN_NEAR, (camera.position.length() - NEAR_CLEARANCE_RADIUS) / 2)
       if (Math.abs(near - camera.near) > near * 0.01) {
@@ -619,7 +624,7 @@ export default function App() {
     glow.setOpacity(active ? GLOW_OPACITY_DIMMED : GLOW_OPACITY)
   }, [glow, highlight, active])
 
-  const landItem = useMemo(() => land.data && { object: land.data }, [land.data])
+  const landItem = useMemo(() => land.data && { object: land.data.object }, [land.data])
   const layers = useMemo(
     () => [
       ...(landItem ? [landItem] : []),
@@ -638,7 +643,7 @@ export default function App() {
         ref={globeRef}
         rendererConfig={RENDERER_CONFIG}
         backgroundColor="rgba(0,0,0,0)"
-        globeMaterial={OCEAN.material}
+        globeMaterial={OCEAN}
         atmosphereColor={COLORS.atmosphere}
         atmosphereAltitude={0.18}
         customLayerData={layers}
