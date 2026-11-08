@@ -163,6 +163,23 @@ def test_a_day_without_items_is_fine(days) -> None:
     assert empty.assignments.empty and empty.stories.empty and empty.stats["active"] == 5
 
 
+def test_skipping_an_outage_ages_no_story() -> None:
+    """An outage longer than idle_days retires nothing, and no centroid fades during it."""
+    world = World(seed=12)
+    tracker = Tracker(DIM, CFG)  # idle_days=5
+    story = tracker.step(*world.day(0, {0: 6})[:3]).stories["story_id"].iloc[0]
+    sums = tracker.sums.copy()
+    for index in range(1, 9):  # eight days with no data at all
+        tracker.skip(START + dt.timedelta(days=index))
+    assert np.array_equal(tracker.sums, sums) and len(tracker) == 1
+    back = tracker.step(*world.day(9, {0: 6})[:3])
+    assert back.stats["retired"] == 0 and back.stats["new_stories"] == 0
+    assert set(back.stories["story_id"]) == {story}
+    assert back.stories["first_seen"].tolist() == [START]  # first_seen is still the real day
+    with pytest.raises(ValueError, match="in order, once"):
+        tracker.skip(START + dt.timedelta(days=9))
+
+
 def test_duplicate_stories_are_merged_and_the_lineage_says_so() -> None:
     world = World(seed=3)
     # A strict assign_sim makes day 2 open a second story for the same topic; merging fixes it.
@@ -411,6 +428,68 @@ def test_a_missing_day_of_vectors_says_how_to_fix_it(tmp_path: Path) -> None:
                 "0.5",
             ]
         )
+
+
+def _make_partitioned(path: Path, world: World, per_day: list[dict[int, int]]) -> None:
+    """Articles as the pullers write them: articles/day=<day>/part.parquet. An empty dict is an
+    outage day, which the pullers still write, as an empty part.parquet."""
+    location = pa.struct(
+        [
+            ("name", pa.string()),
+            ("country", pa.string()),
+            ("lat", pa.float64()),
+            ("lon", pa.float64()),
+        ]
+    )
+    schema = pa.schema(
+        [("id", pa.string()), ("title", pa.string()), ("locations", pa.list_(location))]
+    )
+    place = {"name": "Paris", "country": "FR", "lat": 48.85, "lon": 2.35}
+    for index, topics in enumerate(per_day):
+        day = START + dt.timedelta(days=index)
+        rows = [
+            (f"a{index}-{t}-{i}", f"topic {t} story headline number {i} day {index}")
+            for t, count in topics.items()
+            for i in range(count)
+        ]
+        folder = path / "articles" / f"day={day:%Y-%m-%d}"
+        folder.mkdir(parents=True)
+        table = {"id": [r[0] for r in rows], "title": [r[1] for r in rows]}
+        table["locations"] = [[place] for _ in rows]
+        pq.write_table(pa.table(table, schema=schema), folder / "part.parquet")
+    for index in range(len(per_day)):
+        day = START + dt.timedelta(days=index)
+        ids, texts = store.day_inputs("news", path, day)
+        store.embed_day(
+            "news", day, ids, texts, root=store.vectors_dir(path), embedder=_topic_embedder(world)
+        )
+
+
+def test_an_outage_day_is_skipped_and_the_stories_carry_on(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    world = World(seed=13)
+    _make_partitioned(tmp_path, world, [{0: 6, 1: 6}, {}, {}, {0: 5, 1: 5}])
+    assert track.no_articles(tmp_path, START + dt.timedelta(days=1))
+    assert not track.no_articles(tmp_path, START)  # a day with articles
+    assert not track.no_articles(tmp_path, START + dt.timedelta(days=9))  # not pulled yet
+    # idle_days=1: if the two-day gap counted as idle time, every story would retire.
+    base = ["--processed", str(tmp_path), "--no-categories", "--link-sim", "0.5"]
+    base += ["--assign-sim", "0.55", "--idle-days", "1"]
+
+    track.main(["--start", "2026-01-01", "--end", "2026-01-04", *base])
+    assert capsys.readouterr().out.count("a source outage") == 2
+    daily = {
+        p.stem: pd.read_parquet(p) for p in sorted((tmp_path / "stories_daily").glob("*.parquet"))
+    }
+    assert list(daily) == ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"]
+    assert daily["2026-01-02"].empty and daily["2026-01-03"].empty  # covered, but empty
+    assert len(daily["2026-01-01"]) == 2
+    assert set(daily["2026-01-04"]["story_id"]) == set(daily["2026-01-01"]["story_id"])
+
+    # A day that hasn't been pulled is still an error, not an outage.
+    with pytest.raises(SystemExit, match="Embed it first"):
+        track.main(["--start", "2026-01-01", "--end", "2026-01-05", *base])
 
 
 def test_a_day_that_produces_nothing_is_still_written_with_the_right_types(tmp_path: Path) -> None:

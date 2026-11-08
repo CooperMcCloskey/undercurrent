@@ -16,7 +16,8 @@ One day, in order (Tracker.step):
  5. Stories with no new item for idle_days are retired.
 
 Items that belong to no story (single articles nobody else wrote about) get no row: they are the
-noise. Items must be fed in day order; a day can't be processed twice.
+noise. Items must be fed in day order; a day can't be processed twice. A day with no data at all
+(a source outage) is passed over with Tracker.skip, which ages nothing.
 """
 
 import datetime as dt
@@ -373,6 +374,20 @@ class Tracker:
         self.day = day
         stats["active"] = len(self.ids)
         return DayResult(day, assignments, stories, lineage_df, stats)
+
+    def skip(self, day: dt.date) -> None:
+        """Pass over a day that has no data at all (a source outage, such as GDELT publishing no
+        files), as if it weren't on the calendar: the clock moves on to `day`, but no centroid
+        fades and no story ages, so the gap retires nothing. The next real day fades by one day."""
+        if self.day is not None and day <= self.day:
+            raise ValueError(
+                f"{day} is not after the last processed day {self.day}: days go in order, once"
+            )
+        if self.day is not None and len(self.ids):
+            # Idle time is measured from last_day, so moving it on with the clock leaves every
+            # story exactly as idle as it was. first_day is untouched: first_seen stays the truth.
+            self.last_day = self.last_day + (day - self.day).days
+        self.day = day
 
     def _merge(
         self,

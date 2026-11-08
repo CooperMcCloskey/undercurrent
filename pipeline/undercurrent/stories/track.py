@@ -12,7 +12,9 @@ Writes one file per day (and the state needed to carry on):
     story_lineage/<day>.parquet         old_story_id, new_story_id, day (only on days with a merge)
     tracker_state/state.pkl             the stories alive after the last day, rewritten every day
 
-The tracker is sequential: every day must be processed, in order. A killed run resumes after the
+The tracker is sequential: every day must be processed, in order. The one exception is a day that
+was pulled but has no articles at all (a GDELT outage, such as 2025-06-15 to 2025-07-01): it gets
+empty output files and is passed over without aging any story. A killed run resumes after the
 last day it finished; days are deterministic, so redoing one gives the same files. Start with
 --fresh to begin a new timeline (it forgets the state, but doesn't delete any output).
 
@@ -29,6 +31,7 @@ import time
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -106,6 +109,22 @@ def day_meta(
     titles = [meta.get(i, ("", []))[0] for i in ids]
     places = [meta.get(i, ("", []))[1] for i in ids] if with_places else None
     return titles, places
+
+
+def no_articles(processed: Path, day: dt.date) -> bool:
+    """True if `day` was pulled and has no articles at all: a source outage, not a day that
+    hasn't been pulled or embedded yet. Only partitioned articles can tell the two apart (the
+    puller writes an outage day as an empty articles/day=<day>/part.parquet); with one
+    articles.parquet, a day without rows may simply not be pulled yet, so this says False."""
+    folder = processed / "articles" / f"day={day:%Y-%m-%d}"
+    files = sorted(folder.glob("*.parquet")) if folder.is_dir() else []
+    return bool(files) and sum(pq.ParquetFile(f).metadata.num_rows for f in files) == 0
+
+
+def empty_day(day: dt.date) -> DayResult:
+    """The output of a skipped (outage) day: the tables exist, with no rows."""
+    frames = {name: pd.DataFrame({c: [] for c in schema.names}) for name, schema in SCHEMAS.items()}
+    return DayResult(day, frames[ASSIGNMENTS], frames[DAILY], frames[LINEAGE], {})
 
 
 def _write(path: Path, table: pa.Table) -> None:
@@ -229,6 +248,18 @@ def main(argv: list[str] | None = None) -> None:
     day = args.start
     while day <= args.end:
         if tracker is not None and tracker.day is not None and day <= tracker.day:
+            day += dt.timedelta(days=1)
+            continue
+        if not is_done(root, "news", day) and no_articles(processed, day):
+            # An outage day: write its (empty) tables, so it reads as covered but empty, and move
+            # the clock past it without fading or aging any story.
+            write_day(processed, empty_day(day))
+            if tracker is not None:
+                tracker.skip(day)
+                tracker.save(state_path)
+            print(
+                f"{day}  no articles at all (a source outage): skipped, no story aged", flush=True
+            )
             day += dt.timedelta(days=1)
             continue
         if not is_done(root, "news", day):
