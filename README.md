@@ -246,6 +246,25 @@ Start with the most recent 12 months, which are closest to what we forecast. Tra
 
 The part of the project that looks ahead. For every story and day it gives the story's expected size (`article_count_7d`) 1, 3, 7 and 14 days later, with an 80% range. Scrub the globe forward and it redraws with those projections; scrub back and it shows what the model said then, next to what actually happened. The data shape is `Forecast` and `Outcome` in `pipeline/undercurrent/contracts.py`; the code and its guide are in `pipeline/undercurrent/forecast/`.
 
+### What we predict, and how it's shown
+
+**The relevance metric** is `article_count_7d`: how many articles a story had in the 7 days ending that day. The exporter already computes it for every story and day; it sizes the story's heat on the globe. Plotted over the story's whole life, it shows how relevant the story was over time.
+
+**The prediction:** for each story on each day, how many articles it will have in the 7 days ending 1, 3, 7 and 14 days from now (`article_count_7d` at t+1, t+3, t+7, t+14). Each comes as a middle estimate, an 80% range (low–high) and the main reasons (`factors`). It's the number that sizes a story's heat on the globe, so a forecast is "how big this story will be on the globe in a few days". The model card compares it with "it stays the size it is" (persistence).
+
+**Shown in four places:**
+
+| Where | What | Data |
+|---|---|---|
+| **Globe, future view** | The time bar continues past `meta.latest` by `meta.horizons`: each story's heat is drawn at its forecast size | `StorySummary.forecast` in the latest snapshot |
+| **Story panel: the forecast graph** | x: dates; y: articles in the past 7 days. The history is a solid line up to the selected day; the forecast is a dashed line through the 1/3/7/14-day estimates, with a shaded band from low to high. In replay (a past day), what actually happened is drawn on top | history: `StoryDetail.timeline` (articles per day) as a **rolling 7-day sum**; forecast: `StorySummary.forecast.horizons` of the selected day's snapshot; actual: the rest of `timeline`, or `StorySummary.outcome` |
+| **Emerging stories page** | The stories projected to grow most, ranked by projected growth: the 7-day forecast's middle estimate against today's size, `log2((articles_7d + 1) / (article_count_7d + 1))`. Each row has the title, place, category, today's size, the projection with its range, the top factor, and a small version of the forecast graph. Clicking a row opens the story on the globe. In replay, the list for a past day sits next to what those stories actually did | the selected day's snapshot: `StorySummary.forecast`, `article_count_7d`, `growth_7d` |
+| **Model card** | Per horizon, the typical miss next to persistence's, and how often the range held the outcome. Horizons that don't beat persistence are greyed out | `meta.model` |
+
+**Units:** `timeline` counts articles **per day**, but forecasts are **7-day totals**. Plot the history as a rolling 7-day sum so both are on the same scale; the rolling sum on day t equals that day's `article_count_7d` in the snapshot.
+
+**The demo moment (replay):** go back to before a story blew up, show the band predicting it, then reveal the real line landing inside the band.
+
 ### What exists today
 
 | Piece | What it is | Where |
@@ -280,7 +299,7 @@ Each stage has a rule for when to move on. The trees come first because they are
 |---|---|---|
 | 0. Dry run on proxy series | `--source proxy` as soon as A's first articles land. No stories needed | It runs on real articles, and the trees beat "it stays the same" at 1 and 3 days. If not, fix the features or the target before building more |
 | 1. Real stories, trees only | `--source stories --model hgb`. First check that B's assignments are never revised (re-run the tracker twice on a sample and compare) | The report shows which horizons beat persistence on the final window. Check coverage for small, medium and large stories separately; if it is off by more than ~5 points, calibrate per size band |
-| 2. Onto the globe | B's exporter calls `export.load_forecasts()`; D builds the future view and the model card | The globe scrubs past today using real forecasts, and the model card hides horizons that don't beat persistence |
+| 2. Onto the globe | B's exporter calls `export.load_forecasts()`; D builds the future view, the story forecast graph and the model card | The globe scrubs past today using real forecasts, and the model card hides horizons that don't beat persistence |
 | 3. Add the neural net | `--model hgb gru`, compare the columns | Keep it in the blend only if the blend beats the trees alone with the 95% interval below zero on the earlier windows. Then confirm once on the final window |
 | 4. Pretrain the net | `--pretrain proxy` on years of theme × country series (or aggregates pulled from BigQuery). This is where the net should start to win | It beats the un-pretrained net on the earlier windows |
 | 5. More inputs | Story centroid (reduced, fit on training days only), Events mix, scheduled dates, Wikipedia at scale. One at a time | Each is kept only if the earlier windows improve |

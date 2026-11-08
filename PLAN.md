@@ -183,10 +183,23 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - [x] Globe: vector countries, heatmap of story footprints, flat markers coloured by forecast, hover labels (done in setup)
 - [ ] Click a marker to select a story; rings for stories projected to surge
 - [ ] Story panel showing:
-  - title and timeline chart (articles, posts, pageviews)
+  - title and timeline chart (articles, posts, pageviews): this is the forecast graph below
   - items grouped by source
   - entities
   - forecast and its top factors
+- [ ] **Story forecast graph** in the story panel (`recharts`, in `web/src/story/`), as specified in `README.md`, "What we predict, and how it's shown":
+  - x: dates; y: articles in the past 7 days. History: solid line, the **rolling 7-day sum** of `StoryDetail.timeline` (daily counts) up to the selected day, so it's on the same scale as the forecast
+  - Forecast: dashed line through `StorySummary.forecast.horizons` (`days` 1/3/7/14 after the selected day, `articles_7d`), and a shaded band from `low` to `high`. Label it with the range (`Forecast.interval`, 80%) and the top `factors`
+  - Replay (the selected day is in the past): draw what actually happened after it, from the rest of `timeline` (or `StorySummary.outcome`), over the forecast. Show the forecast first, then reveal the actual line
+  - A story with no forecast: history only, with a short "no forecast: too little history" note
+  - Build it against `npm run dev:mock` (the mock has forecasts); the real export gets forecasts with the merge (2026-11-08, about 07:00 UTC)
+- [ ] **Emerging stories page** (a separate view, as specified in `README.md`, "What we predict, and how it's shown"):
+  - Ranks the selected day's stories by projected 7-day growth: `log2((h7.articles_7d + 1) / (article_count_7d + 1))`, where `h7` is the 7-day horizon of `StorySummary.forecast`
+  - Shows only stories whose forecast **range** says they're growing (the 7-day `low` above today's `article_count_7d`), with today's size at least about 20 articles, so the list isn't small, noisy stories
+  - Each row: title, place, category, today's size, the projection with its range, the top factor, and a small forecast graph (the same component as the story panel's). A click selects the story on the globe
+  - Replay: for a past day, show the list next to what those stories actually did (`StorySummary.outcome`), so "we called it" is visible
+  - Use the same rule for the globe's "rings for stories projected to surge", so the globe and the page agree
+  - Build it against `npm run dev:mock`
 - [ ] Time slider over `meta.dates`, continuing past `meta.latest` by `meta.horizons` to look ahead: for a future day, draw the latest snapshot with each story's `article_count_7d` replaced by that horizon's `articles_7d`. Replay mode shows the prediction first, then reveals the outcome (predicted vs actual)
 - [ ] Model card: typical miss vs baseline per horizon, plus range coverage. Show only the horizons where the model beats the baseline as forecasts. HRT judges will look for this
 - [ ] `/api/live` websocket (with A) → live posts ticker, and a pulse on the matching story's location
@@ -234,11 +247,13 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 | Item vectors are kept in cloud storage (fp16, one file per day), not thrown away, and never go in git or onto laptops | Retuning the clustering then means rerunning the tracker, not re-embedding everything (hours and $5–50 each time). Storing them costs a few dollars |
 | Story tracking is online: assign each day's items to existing story centroids, cluster only the leftovers | The batch prototype (`stories/graph.py`) was tested on 57 items and can't handle hundreds of thousands of articles a day. Assignments are never revised, so they are point-in-time |
 | GDELT is pulled from BigQuery for block 1 (already running), and possibly from the 15-minute zip files on a separate CPU VM for the other blocks (`docs/ONE_YEAR_EACH.md`, not on `main` yet). Both write identical files | BigQuery needs no CPU work and was ready first. The zip pull has no BigQuery bill, certainly includes the translated feed (about 73% of articles), and leaves the L4 VM's CPUs free to feed the GPU |
+| Show the forecast as a graph in the story panel: the story's rolling 7-day article count up to the selected day, a dashed forecast line with a shaded 80% band at 1/3/7/14 days, and the actual line on top in replay | The forecast is a size over time; a graph shows its range and how sure we are for one story, which the globe alone can't. Replaying predicted-then-actual is the clearest evidence for the HRT judges. All the data is already in the contract |
+| An emerging stories page ranks stories by projected 7-day growth, showing only those whose 80% range is above today's size | It turns the forecast into a short, readable list of what's about to grow, for the G-Research early-signal angle. Requiring the low end to be above today keeps it to confident calls, and replay shows whether they came true |
 
 ## Open questions
 
 - Hackathon schedule, and the rules on code prepared beforehand
 - Who owns which workstream: Cooper owns V. B (Stories) needs an owner
-- **What do we predict?** `Humans.md` says "Wikipedia views, edits and new articles in the cluster"; this plan and `docs/WORKPLAN.md` say "the story's news volume (`article_count_7d`) over the next 1–14 days", with Wikipedia as features. The contract now follows the news-volume version, because the future globe draws that number. Confirm it before C starts: the target code, the model card and the pitch all depend on it. News volume has the most history to backtest on; a Wikipedia pageview spike is closer to "the public notices"
+- ~~**What do we predict?**~~ **Decided (2026-11-08):** each story's `article_count_7d` 1, 3, 7 and 14 days ahead, with an 80% range and factors, shown on the future globe, in the story forecast graph and in the model card (`README.md`, "What we predict, and how it's shown"). The original question: `Humans.md` says "Wikipedia views, edits and new articles in the cluster"; this plan and `docs/WORKPLAN.md` say "the story's news volume (`article_count_7d`) over the next 1–14 days", with Wikipedia as features. The contract now follows the news-volume version, because the future globe draws that number. Confirm it before C starts: the target code, the model card and the pitch all depend on it. News volume has the most history to backtest on; a Wikipedia pageview spike is closer to "the public notices"
 - Backfill depth is decided: 12 months at full resolution first, then older years only if the learning curve says they help (`README.md`). Still open: measure one full day of both feeds (rows, unique titles, size) and write it here, because every size and cost estimate depends on it
 - ~~Is `<PAGE_TITLE>` original-language or English in the translated feed?~~ Original language (A, see Notes)
