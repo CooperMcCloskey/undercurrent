@@ -14,15 +14,14 @@ import { pickStories } from './globe/select'
 import { createHeatLayer, type HeatPoint } from './globe/heat'
 import { createStars } from './globe/stars'
 import { buildConstellation, type ConstellationItem } from './globe/constellation'
+import { MAX_PLACE_LABELS, cullLabels, labelElement, type GlobeLabel } from './globe/labels'
 import {
   KIND_STYLE,
   formatWhen,
   hostOf,
   layoutDots,
-  pickLabels,
   placeLabels,
   reachDeg,
-  shortPlaceName,
   type DotPlacement,
   type PlaceLabel,
 } from './story/articles'
@@ -42,9 +41,10 @@ import { useEasedStories, type EasedStory } from './timeline/useEasedStories'
 
 // Vector globe: ocean sphere, merged land mesh (globe/land.ts), a glowing marker per story, coloured by category
 // (globe/glow.ts), and an outline (globe/heat.ts) of the
-// hovered story's area. Hovering a marker also bursts out a small dot per article or post (all one
-// size, so the story stays the big thing; globe/constellation.ts); clicking it opens the story's articles in a panel
-// (story/StoryPanel.tsx).
+// hovered story's area. Clicking a marker opens the story's articles in a panel
+// (story/StoryPanel.tsx) and bursts out a small dot per article or post (all one size, so the story
+// stays the big thing; globe/constellation.ts), with its busiest places labelled (globe/labels.ts).
+// Hovering only outlines the story and shows its title, so browsing stays uncluttered.
 const COLORS = {
   ocean: '#0b1424',
   land: '#1c2a3f',
@@ -79,7 +79,8 @@ const SELECT_CAMERA_MAX_ALTITUDE = 2.2
 const SELECT_CAMERA_DEG_PER_ALTITUDE = 32
 const SELECT_CAMERA_MS = 900
 const NO_DOTS: DotPlacement[] = []
-const NO_LABELS: PlaceLabel[] = []
+const NO_PLACES: PlaceLabel[] = []
+const NO_LABELS: GlobeLabel[] = []
 const LABEL_ALTITUDE = 0.012
 // Leaving a marker ends its hover this long afterwards, so the pointer can cross the gap from
 // the marker to one of its article dots without the dots vanishing.
@@ -192,22 +193,10 @@ const dotLabel = (o: object) => {
   return `<div style="max-width:260px;white-space:normal"><b>${escapeHtml(article.title)}</b><br/>${label} · ${escapeHtml(hostOf(article))} · ${formatWhen(article.published_at)}<br/>${where}</div>`
 }
 
-// Names the places the focused story's dots are at, so it's clear where the story is happening.
-// These go in globe.gl's "html" layer: text in screen pixels, pinned to the place.
-const labelLat = (o: object) => (o as PlaceLabel).lat
-const labelLng = (o: object) => (o as PlaceLabel).lng
-const labelElement = (o: object) => {
-  const { name, mentions } = o as PlaceLabel
-  const text = document.createElement('span')
-  text.className =
-    'absolute left-0 top-2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-950/70 px-1 py-px text-[10px] font-medium text-slate-200'
-  // Short name, and how many articles mention it when it's more than one. Not innerHTML.
-  text.textContent = mentions > 1 ? `${shortPlaceName(name)} · ${mentions}` : shortPlaceName(name)
-  const el = document.createElement('div') // zero-size anchor; globe.gl positions it
-  el.style.pointerEvents = 'none'
-  el.append(text)
-  return el
-}
+// Names the busiest places the selected story's dots are at, so it's clear where the story is
+// happening (globe/labels.ts). These go in globe.gl's "html" layer: text in screen pixels.
+const labelLat = (o: object) => (o as GlobeLabel).lat
+const labelLng = (o: object) => (o as GlobeLabel).lng
 const layerObject = (d: object) => (d as { object: Object3D }).object
 // Required, even though it does nothing: without an update callback, react-globe.gl's custom
 // layer empties its scene on every data change and only re-adds *new* items. The layer list
@@ -323,8 +312,9 @@ export default function App() {
   const visible = useMemo(() => stories.filter((s) => !hidden.has(s.category)), [stories, hidden])
 
   // Hovered story (from a marker or the legend) and selected story (clicked). The one in focus
-  // (the hovered one, else the selected one) has its area outlined and the rest of the glows dim,
-  // and gets a dot per article around its marker.
+  // (the hovered one, else the selected one) has its area outlined and the rest of the glows dim.
+  // Only the selected story gets its article dots and place labels: hovering shows just the
+  // outline and the title tooltip, so browsing the globe stays uncluttered.
   const [hovered, setHovered] = useState<StorySummary | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = useMemo(
@@ -367,7 +357,9 @@ export default function App() {
 
   // Selecting a story: fly to it and open its panel.
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
-  // Runs before every frame, so it also covers pointOfView fly-tos, not just mouse zooming.
+  const labelsRef = useRef<readonly GlobeLabel[]>([])
+  // Runs before every frame, so it also covers pointOfView fly-tos, not just mouse zooming:
+  // the stars and glows, the camera's near plane, and which place labels fit without overlapping.
   useEffect(() => {
     const globe = globeRef.current
     if (!globe) return
@@ -387,6 +379,7 @@ export default function App() {
         camera.near = near
         camera.updateProjectionMatrix()
       }
+      cullLabels(globe, labelsRef.current, LABEL_ALTITUDE)
     }
     return () => {
       scene.onBeforeRender = () => {}
@@ -424,32 +417,60 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedId, deselect])
 
-  // The articles of the story in focus, as dots on the globe at their own places. Fetched on
-  // first hover, then cached.
+  // The story in focus: its articles are fetched on hover (then cached), so a click opens it
+  // straight away, and laid out (not drawn) so the click knows how far out to frame its dots.
   const focusArticles = useArticles(active?.id)
   const anchor = useMemo(
     () => (active ? markers.find((m) => m.story.id === active.id) : undefined),
     [active, markers],
   )
-  const dots = useMemo(
+  const focusDots = useMemo(
     () => (anchor ? layoutDots(focusArticles.articles, anchor, MARKER_RADIUS_HOVERED) : NO_DOTS),
     [anchor, focusArticles.articles],
   )
-  const constellation = useMemo(
-    () =>
-      anchor && active && dots.length
-        ? buildConstellation(anchor, dots, colorOf(active), active)
-        : null,
-    [anchor, active, dots],
-  )
-  const labels = useMemo(
-    () => (constellation ? pickLabels(placeLabels(dots)) : NO_LABELS),
-    [constellation, dots],
-  )
   useEffect(() => {
     reachRef.current =
-      anchor && active && dots.length ? { storyId: active.id, deg: reachDeg(dots, anchor) } : null
-  }, [anchor, active, dots])
+      anchor && active && focusDots.length
+        ? { storyId: active.id, deg: reachDeg(focusDots, anchor) }
+        : null
+  }, [anchor, active, focusDots])
+
+  // The selected story's articles as dots at their own places, and its busiest places labelled.
+  const selectedArticles = useArticles(selected?.id)
+  const selectedAnchor = useMemo(
+    () => (selected ? markers.find((m) => m.story.id === selected.id) : undefined),
+    [selected, markers],
+  )
+  const dots = useMemo(
+    () =>
+      selectedAnchor
+        ? layoutDots(selectedArticles.articles, selectedAnchor, MARKER_RADIUS_HOVERED)
+        : NO_DOTS,
+    [selectedAnchor, selectedArticles.articles],
+  )
+  const constellation = useMemo(
+    () =>
+      selectedAnchor && selected && dots.length
+        ? buildConstellation(selectedAnchor, dots, colorOf(selected), selected)
+        : null,
+    [selectedAnchor, selected, dots],
+  )
+  // Every place the dots are at, busiest first. The busiest few get a label; each frame,
+  // cullLabels hides any that would overlap a busier one on screen.
+  const places = useMemo(
+    () => (constellation ? placeLabels(dots) : NO_PLACES),
+    [constellation, dots],
+  )
+  const labels = useMemo<GlobeLabel[]>(
+    () =>
+      selected
+        ? places.slice(0, MAX_PLACE_LABELS).map((p) => ({ ...p, color: colorOf(selected) }))
+        : NO_LABELS,
+    [places, selected],
+  )
+  useEffect(() => {
+    labelsRef.current = labels
+  }, [labels])
   useEffect(() => () => constellation?.dispose(), [constellation])
   useEffect(() => {
     constellation?.setLit([highlightedId, pickedId])
@@ -474,7 +495,6 @@ export default function App() {
     },
     [markers, selectedId, selectStory],
   )
-  const selectedArticles = useArticles(selected?.id)
   // Legend: every category present today, with how many stories.
   const legend = useMemo(
     () =>
@@ -601,6 +621,8 @@ export default function App() {
           pickedId={pickedId}
           onHighlight={setHighlightedId}
           onClose={deselect}
+          placesLabelled={labels.length}
+          placesTotal={places.length}
         />
       )}
       {latest !== null && firstDay !== null && barDay !== null && (

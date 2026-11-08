@@ -39,6 +39,8 @@ export function StoryPanel({
   pickedId,
   onHighlight,
   onClose,
+  placesLabelled = 0,
+  placesTotal = 0,
 }: {
   story: StorySummary
   summary: string | null
@@ -54,6 +56,9 @@ export function StoryPanel({
   pickedId: string | null
   onHighlight: (id: string | null) => void
   onClose: () => void
+  /** How many of the places its articles mention are labelled on the globe, of how many. */
+  placesLabelled?: number
+  placesTotal?: number
 }) {
   const { label, color } = CATEGORY_STYLE[story.category]
   const [kind, setKind] = useState<SourceKind | 'all'>('all')
@@ -217,6 +222,8 @@ export function StoryPanel({
       <footer className="border-t border-slate-700/60 px-4 py-2 text-[11px] leading-snug text-slate-500">
         Each circle on the globe is an article, each diamond a post, at a place it mentions.
         {onGlobe < articles.length && ` The globe shows the top ${onGlobe} of ${articles.length}.`}
+        {placesTotal > placesLabelled &&
+          ` Labels name the ${placesLabelled} busiest of its ${placesTotal} places (fewer where they'd overlap; zoom in for more); hover a dot for the others.`}
       </footer>
     </aside>
   )
