@@ -4,6 +4,7 @@
 #
 #   bash ~/undercurrent/scripts/merge.sh start     start it in tmux (survives SSH closing)
 #   bash ~/undercurrent/scripts/merge.sh status    how far it got, and the latest log lines
+#   bash ~/undercurrent/scripts/merge.sh stop      stop it (rerun `start` later: downloads are kept)
 #
 # Run it on the machine with the most CPUs that can read the bucket (a section server, or a
 # Google Cloud VM: in us-central1 the download is fast and free). It needs `uv` and `gcloud`
@@ -13,6 +14,7 @@
 # A section is included once its `finish` has uploaded its own story days (status/*.done in the
 # bucket). Sections still tracking are left out; run this again later to add them.
 # Options (environment): BUCKET, MODELS (default "hgb"; "hgb gru" adds the net, best on a GPU),
+# PRETRAIN=proxy (pretrain the net on theme x country series from every article first),
 # START (first day to export, default: the first merged day), TOP (stories a day, default 300).
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
@@ -35,7 +37,7 @@ start)
     { echo "Can't read gs://$BUCKET with this login. gcloud auth login, then ask Cooper for access."; exit 1; }
   tmux has-session -t merge 2>/dev/null && { echo "A merge is already running: bash $SELF status"; exit 1; }
   : >"$L/merge.log"
-  tmux new -d -s merge -c "$R" "MODELS='$MODELS' TOP='$TOP' START='${START:-}' BUCKET='$BUCKET' bash $SELF _run >> $L/merge.log 2>&1"
+  tmux new -d -s merge -c "$R" "MODELS='$MODELS' PRETRAIN='${PRETRAIN:-}' TOP='$TOP' START='${START:-}' BUCKET='$BUCKET' bash $SELF _run >> $L/merge.log 2>&1"
   echo "Merge started. Watch it: bash $SELF status   (or: tail -f $L/merge.log)"
   ;;
 _run)
@@ -76,8 +78,9 @@ PY
 
   step "forecast ($MODELS) on every merged story; the backtest prints model vs baseline"
   DEV=cpu; command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 && DEV=cuda
+  PRE=""; [ -n "${PRETRAIN:-}" ] && [[ " $MODELS " == *" gru "* ]] && PRE="--pretrain $PRETRAIN"
   OMP_NUM_THREADS=$(nproc) uv run python -m undercurrent.forecast.run --source stories \
-    --processed "$M" --out "$M" --model $MODELS --device $DEV
+    --processed "$M" --out "$M" --model $MODELS --device $DEV $PRE
 
   step "export (top $TOP a day, English titles, theme categories, junk left out)"
   rm -rf "$R/data/export.tmp"
@@ -95,6 +98,9 @@ PY
   echo "Download it: https://console.cloud.google.com/storage/browser/$BUCKET (click the file, then Download)"
   echo "MERGE DONE" >"$L/MERGE_DONE"
   ;;
+stop)
+  tmux kill-session -t merge 2>/dev/null && echo "merge stopped" || echo "no merge running"
+  ;;
 status)
   if tmux has-session -t merge 2>/dev/null; then echo "running"; elif [ -f "$L/MERGE_DONE" ]; then echo "done"; else echo "not running"; fi
   grep -E "^== " "$L/merge.log" 2>/dev/null | tail -3
@@ -102,7 +108,7 @@ status)
   tail -n 6 "$L/merge.log" 2>/dev/null | cut -c1-200
   ;;
 *)
-  sed -n '2,17p' "$SELF"
+  sed -n '2,19p' "$SELF"
   exit 1
   ;;
 esac

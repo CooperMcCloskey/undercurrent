@@ -71,6 +71,8 @@ gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '
 
 **Fallback:** if the final merge fails, demo with the block 1 export already on Cooper's laptop. It has real stories (2026-05-08 → 11-06) and English titles, but no forecasts and the old categories.
 
+**Full instructions for whoever trains it** (machine, setup, what each step does, how to read the backtest table): **`docs/TRAINING.md`**.
+
 **The command.** **One person** runs it on the machine with the most CPUs that can read the bucket (a 32-vCPU section server is ideal; a Google Cloud VM in us-central1 downloads fastest):
 
 ```bash
