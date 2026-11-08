@@ -4,7 +4,7 @@
 #
 #   git clone -q https://github.com/CooperMcCloskey/undercurrent.git && bash undercurrent/scripts/gcp/create_vm.sh BLOCK [ACCOUNTS]
 #
-#   BLOCK     1..ACCOUNTS. 1 is the newest (Cooper's); see the table in docs/TWO_YEAR_RUN.md
+#   BLOCK     the section, 1..10 (1 is the newest, Cooper's); see docs/DATA_COVERAGE.md
 #   ACCOUNTS  how many accounts share the two years: 4 (default) or 3
 #
 # Optional environment: BUCKET (the shared bucket), MAX_GB (refuse to pull if the dry run says
@@ -29,10 +29,16 @@ case "$ACCOUNTS:$BLOCK" in
   4:2) DAYS="2025-10-10 2025-11-07 2026-05-07" ;;
   4:3) DAYS="2025-04-10 2025-05-08 2025-11-06" ;;
   4:4) DAYS="2024-10-10 2024-11-07 2025-05-07" ;;
+  4:5) DAYS="2024-04-10 2024-05-08 2024-11-06" ;;  # 5-10: older sections (docs/DATA_COVERAGE.md)
+  4:6) DAYS="2023-10-10 2023-11-07 2024-05-07" ;;
+  4:7) DAYS="2023-04-10 2023-05-08 2023-11-06" ;;
+  4:8) DAYS="2022-10-10 2022-11-07 2023-05-07" ;;
+  4:9) DAYS="2022-04-10 2022-05-08 2022-11-06" ;;
+  4:10) DAYS="2021-10-10 2021-11-07 2022-05-07" ;;
   3:1) DAYS="2026-02-09 2026-03-09 2026-11-06" ;;
   3:2) DAYS="2025-06-10 2025-07-08 2026-03-08" ;;
   3:3) DAYS="2024-10-10 2024-11-07 2025-07-07" ;;
-  *) echo "No block $BLOCK with $ACCOUNTS accounts (blocks are 1..3 or 1..4)" >&2; exit 1 ;;
+  *) echo "No section $BLOCK with $ACCOUNTS accounts (sections are 1..10; see docs/DATA_COVERAGE.md)" >&2; exit 1 ;;
 esac
 read -r PULL_START OWN_START OWN_END <<<"$DAYS"
 
