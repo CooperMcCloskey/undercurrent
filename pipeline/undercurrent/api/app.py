@@ -8,6 +8,7 @@ in contracts.py.
 """
 
 import datetime as dt
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -21,6 +22,16 @@ app = FastAPI(title="Undercurrent API")
 
 
 def _root() -> Path:
+    configured = os.getenv("UC_EXPORT_DIR")
+    if configured:
+        root = Path(configured).resolve()
+        if not (root / "meta.json").is_file():
+            raise HTTPException(503, "Configured export is not ready: meta.json is missing")
+        return root
+    for name in ("emerging-bucket-export", "emerging-export"):
+        emerging = EXPORT.parent / name
+        if (emerging / "meta.json").exists():
+            return emerging
     return EXPORT if (EXPORT / "meta.json").exists() else MOCK
 
 

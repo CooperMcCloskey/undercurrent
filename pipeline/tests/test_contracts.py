@@ -5,6 +5,7 @@ Runs against web/public/mock/ always, and against data/export/ once the pipeline
 
 import datetime as dt
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -12,11 +13,19 @@ import pytest
 from undercurrent import contracts as c
 from undercurrent.config import EXPORT, MOCK
 
-ROOTS = [MOCK] + ([EXPORT] if (EXPORT / "meta.json").exists() else [])
+ROOTS = [MOCK] + [
+    root
+    for root in (
+        EXPORT,
+        EXPORT.parent / "emerging-export",
+        EXPORT.parent / "emerging-bucket-export",
+    )
+    if (root / "meta.json").exists()
+]
 
 
 def _load(path: Path) -> object:
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("root", ROOTS, ids=lambda p: p.name)
@@ -31,9 +40,14 @@ def test_export_matches_contract(root: Path) -> None:
         assert snap.as_of == day
         story_ids |= {s.id for s in snap.stories}
 
-    for sid in story_ids:
+    def check_detail(sid: str) -> None:
         detail = c.StoryDetail.model_validate(_load(root / "stories" / f"{sid}.json"))
         assert detail.id == sid
+
+    # The direct bucket export has tens of thousands of independent files. Bound
+    # parallel reads so Windows file-open latency does not dominate this check.
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(check_detail, story_ids))
 
 
 @pytest.mark.parametrize("root", ROOTS, ids=lambda p: p.name)

@@ -28,18 +28,8 @@ import {
   type DotPlacement,
   type PlaceLabel,
 } from './story/articles'
-import { EmergingList } from './story/Emerging'
-import {
-  describeForecastShort,
-  emergingStories,
-  fastestGrowing,
-  jumpedStories,
-  lookaheadDays,
-  type EmergingView,
-  projectStory,
-  trustedForecast,
-} from './story/forecast'
-import { ModelCard } from './story/ModelCard'
+import { JevStories, isEmerging, EMERGENCE_LABELS } from './story/JevStories'
+
 import { StoryPanel } from './story/StoryPanel'
 import { useArticles } from './story/useArticles'
 import { formatLong, toDay, toIndex, type DayIndex } from './timeline/days'
@@ -80,9 +70,10 @@ const MARKER_RADIUS_MAX = 1.4
 // How many stories the globe draws is up to the slider: the biggest first, so it reads as a handful
 // of main stories rather than hundreds of overlapping markers. Stories projected to grow, and the
 // one selected, are always drawn.
-const DEFAULT_STORIES = 60
+// Show every eligible story initially; the slider can reduce crowded views.
+const DEFAULT_STORIES = Number.MAX_SAFE_INTEGER
 // The Emerging card lists at most this many stories.
-const EMERGING_ROWS = 30
+
 const MIN_STORIES = 10
 const MARKER_RADIUS_HOVERED = 1.1 // at least this big while hovered
 // Selecting a story flies the camera to the story's marker, high enough up (altitude, in globe
@@ -141,7 +132,6 @@ const ringColor = (o: object) => {
   const [r, g, b] = hexToRgb(colorOf(marker(o).story)).map((v) => Math.round(v * 255))
   return (t: number) => `rgba(${r},${g},${b},${(1 - t) * 0.8})`
 }
-const NO_MARKERS: Marker[] = []
 
 // Markers smaller than this aren't drawn.
 const MIN_MARKER_LEVEL = 0.02
@@ -172,7 +162,9 @@ function placeMarkers(
     if (e.level < MIN_MARKER_LEVEL) continue
     const { lat, lon } = e.story.location
     const key = `${Math.round(lat * 2)},${Math.round(lon * 2)}` // half-degree cells
-    byPlace.set(key, [...(byPlace.get(key) ?? []), e])
+    const group = byPlace.get(key)
+    if (group) group.push(e)
+    else byPlace.set(key, [e])
   }
   const markers = [...byPlace.values()].flatMap((group) => {
     group.sort((a, b) => b.count - a.count || a.story.id.localeCompare(b.story.id))
@@ -201,7 +193,7 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCode
 const pointLabel = (o: object) => {
   const s = marker(o).story
   const { label, color } = CATEGORY_STYLE[s.category]
-  const p = s.forecast ? ` · ${describeForecastShort(s.forecast)}` : ''
+  const p = s.emergence ? ` · ${EMERGENCE_LABELS[s.emergence.label]}` : ''
   return `<span style="color:${color}">● ${label}</span><br/><b>${escapeHtml(s.title)}</b><br/>${s.article_count_7d} articles, ${s.post_count_7d} posts this week${p}<br/><i>Click to explore the articles</i>`
 }
 const dotLabel = (o: object) => {
@@ -280,7 +272,7 @@ export default function App() {
   const firstDay = exportedDays[0] ?? latest
   // The bar continues past the latest day by the forecast horizons: there, the latest snapshot is
   // drawn with each story at its forecast size.
-  const reach = meta.data?.horizons.length ? Math.max(...meta.data.horizons) : 0
+  const reach = 0
   const [pickedDay, setPickedDay] = useState<DayIndex | null>(null)
   const barDay = pickedDay ?? latest
   // Computing a day is cheap, so the globe follows the bar straight away; useEasedStories then
@@ -307,62 +299,14 @@ export default function App() {
     staleTime: Infinity,
     structuralSharing: false,
   })
-  const model = meta.data?.model ?? null
-  // The day's stories as read, keeping only the forecast horizons the model beat the baseline at.
-  const dayStories = useMemo(() => {
-    const raw = snapshot.data?.stories ?? NO_STORIES
-    return raw.some((s) => s.forecast)
-      ? raw.map((s) => (s.forecast ? { ...s, forecast: trustedForecast(s.forecast, model) } : s))
-      : raw
-  }, [snapshot.data, model])
-  // Looking ahead: the same stories at their forecast size.
-  const stories = useMemo(
-    () => (ahead > 0 ? dayStories.map((s) => projectStory(s, ahead)) : dayStories),
-    [dayStories, ahead],
+  const classified = useMemo(
+    () => snapshot.data?.stories.filter((s) => s.emergence) ?? NO_STORIES,
+    [snapshot.data],
   )
-  // The Emerging list. Within the model's reach of the present (7 to 14 days, as far as it beats
-  // "it stays the size it is"), the days after this one haven't all happened, so it is a
-  // prediction. Further back they have, so it shows which stories really jumped.
-  const lookahead = lookaheadDays(model)
-  const predicting =
-    ahead > 0 || (dataDay !== null && latest !== null && dataDay + lookahead > latest)
-  const laterDay = useMemo(
-    () =>
-      predicting || dataDay === null
-        ? undefined
-        : exportedDays.findLast((d) => d <= dataDay + lookahead),
-    [predicting, dataDay, lookahead, exportedDays],
-  )
-  const later = useQuery({
-    queryKey: ['snapshot', laterDay === undefined ? undefined : toDay(laterDay)],
-    queryFn: () => api.snapshot(toDay(laterDay!)),
-    enabled: laterDay !== undefined && laterDay !== dataDay,
-  })
-  const emergingView = useMemo<EmergingView>(() => {
-    if (predicting) {
-      const rows = emergingStories(dayStories)
-      // No forecasts at all (none exported yet): say so, and show the fastest growing instead.
-      return rows.length || dayStories.some((s) => s.forecast)
-        ? { kind: 'prediction', days: lookahead, rows: rows.slice(0, EMERGING_ROWS) }
-        : { kind: 'momentum', days: 0, rows: fastestGrowing(dayStories).slice(0, EMERGING_ROWS) }
-    }
-    const days = laterDay !== undefined && dataDay !== null ? laterDay - dataDay : lookahead
-    return {
-      kind: 'actual',
-      days,
-      rows:
-        later.data && days > 0
-          ? jumpedStories(dayStories, later.data.stories, days).slice(0, EMERGING_ROWS)
-          : [],
-    }
-  }, [predicting, dayStories, lookahead, laterDay, dataDay, later.data])
-  const emergingLoading = emergingView.kind === 'actual' && later.isPending && laterDay !== dataDay
-  // The rings on the globe are for the stories predicted to jump.
-  const emerging = useMemo(
-    () => (emergingView.kind === 'prediction' ? emergingView.rows : []),
-    [emergingView],
-  )
-  const listed = useMemo(() => emergingView.rows.map((r) => r.story.id), [emergingView])
+  const dayStories = useMemo(() => classified.filter(isEmerging), [classified])
+  const stories = dayStories
+  const [includeMaybe, setIncludeMaybe] = useState(true)
+  const listed = useMemo(() => dayStories.slice(0, 30).map((s) => s.id), [dayStories])
   // Category filter: categories in `hidden` are left off the globe.
   const [hidden, setHidden] = useState<ReadonlySet<Category>>(() => new Set())
   const toggleCategory = (category: Category) =>
@@ -373,7 +317,14 @@ export default function App() {
     })
   const onlyCategory = (category: Category) =>
     setHidden(new Set(CATEGORY_ORDER.filter((c) => c !== category)))
-  const visible = useMemo(() => stories.filter((s) => !hidden.has(s.category)), [stories, hidden])
+  const visible = useMemo(
+    () =>
+      stories.filter(
+        (s) =>
+          !hidden.has(s.category) && (includeMaybe || s.emergence?.label === 'emerging_popular'),
+      ),
+    [stories, hidden, includeMaybe],
+  )
 
   // Hovered story (from a marker or the legend) and selected story (clicked). The one in focus
   // (the hovered one, else the selected one) has its area outlined and the rest of the glows dim.
@@ -387,12 +338,13 @@ export default function App() {
   )
   const [wanted, setWanted] = useState(DEFAULT_STORIES)
   const shown = useMemo(() => {
+    if (wanted >= visible.length) return visible
     const keep = new Set(listed)
     if (selectedId) keep.add(selectedId)
     return pickStories(visible, wanted, keep)
   }, [visible, wanted, listed, selectedId])
   const focus = hovered ?? selected
-  const active = focus && !hidden.has(focus.category) ? focus : null
+  const active = focus && visible.some((s) => s.id === focus.id) ? focus : null
   const leaveTimer = useRef<number | undefined>(undefined)
   const hoverStory = useCallback((story: StorySummary | null) => {
     window.clearTimeout(leaveTimer.current)
@@ -413,7 +365,7 @@ export default function App() {
 
   // What's drawn: the visible stories, with sizes and glows easing toward the day's values, so
   // stories grow in and fade out as the time bar moves instead of popping.
-  const eased = useEasedStories(shown, alwaysPresent)
+  const eased = useEasedStories(shown, alwaysPresent, shown.length > 1500 ? 1 : 250)
   const markerCache = useRef(new Map<string, Marker>())
   const markers = useMemo(
     () => placeMarkers(eased, markerCache.current, land.data?.mask ?? null),
@@ -584,19 +536,37 @@ export default function App() {
         : null,
     [shown],
   )
-  // Emerging stories: a list on the left, and rings on the globe.
-  const [showEmerging, setShowEmerging] = useState(true)
-  const surgeIds = useMemo(() => new Set(emerging.map((e) => e.story.id)), [emerging])
+  const ranked = useMemo(
+    () =>
+      [...visible].sort(
+        (a, b) =>
+          Number(b.emergence?.label === 'emerging_popular') -
+            Number(a.emergence?.label === 'emerging_popular') ||
+          (b.emergence?.confidence ?? 0) - (a.emergence?.confidence ?? 0),
+      ),
+    [visible],
+  )
   const rings = useMemo(
-    () => (ahead > 0 ? NO_MARKERS : markers.filter((m) => surgeIds.has(m.story.id))),
-    [markers, surgeIds, ahead],
+    () => markers.filter((m) => m.story.emergence?.label === 'emerging_popular').slice(0, 100),
+    [markers],
   )
   const selectById = useCallback(
     (id: string) => {
       const m = markers.find((m) => m.story.id === id)
       if (m) selectStory(m)
+      else {
+        const story = visible.find((s) => s.id === id)
+        if (story)
+          selectStory({
+            story,
+            lat: story.location.lat,
+            lng: story.location.lon,
+            level: 1,
+            size: 1,
+          })
+      }
     },
-    [markers, selectStory],
+    [markers, visible, selectStory],
   )
   const hoverById = useCallback(
     (id: string | null) => hoverStory(id ? (stories.find((s) => s.id === id) ?? null) : null),
@@ -656,6 +626,7 @@ export default function App() {
         // Flat markers. With 1,000+ stories set pointsMerge (one draw call,
         // but no per-point hover).
         pointsData={markers}
+        pointsMerge={markers.length > 1500}
         pointLat={pointLat}
         pointLng={pointLng}
         pointAltitude={MARKER_ALTITUDE}
@@ -703,7 +674,7 @@ export default function App() {
           placesTotal={places.length}
         />
       )}
-      {latest !== null && firstDay !== null && barDay !== null && (
+      {latest !== null && firstDay !== null && firstDay < latest && barDay !== null && (
         <TimeBar
           start={firstDay}
           end={latest + reach}
@@ -716,6 +687,7 @@ export default function App() {
       )}
       <header className="pointer-events-none absolute left-6 top-5">
         <h1 className="text-2xl font-semibold tracking-tight">Undercurrent</h1>
+        <p className="text-sm text-sky-200">Emerging stories, news &amp; conflict</p>
         {error ? (
           <p className="text-sm text-slate-400">Error: {error.message}</p>
         ) : barDay !== null ? (
@@ -733,7 +705,15 @@ export default function App() {
               {shown.length === stories.length
                 ? stories.length
                 : `${shown.length} of ${stories.length}`}{' '}
-              {stories.length === 1 ? 'story' : 'stories'}
+              {stories.length === 1 ? 'emerging story' : 'emerging stories'}
+              {markers.length > 1500 && (
+                <span className="ml-2 text-sky-200">
+                  Select stories from the list or narrow by category.
+                </span>
+              )}
+              {classified.some((s) => s.emergence?.model_version.startsWith('mock')) && (
+                <span className="ml-2 text-amber-200">Demo data</span>
+              )}
               {ahead === 0 && dataDay !== null && dataDay !== barDay && (
                 <span
                   className="text-amber-300/80"
@@ -764,22 +744,28 @@ export default function App() {
               </div>
             )}
             <div className="pointer-events-auto mt-2 flex items-start gap-2">
-              {model && <ModelCard model={model} />}
+              <label className="flex items-center gap-2 text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={includeMaybe}
+                  onChange={(e) => setIncludeMaybe(e.target.checked)}
+                />
+                Include maybe emerging
+              </label>
             </div>
           </>
         ) : (
           <p className="text-sm text-slate-400">Loading…</p>
         )}
       </header>
-      <EmergingList
-        view={emergingView}
-        loading={emergingLoading}
-        open={showEmerging}
-        onToggle={() => setShowEmerging(!showEmerging)}
+      <JevStories
+        stories={ranked}
+        total={classified.length}
+        loading={snapshot.isPending}
+        error={snapshot.error}
         selectedId={selectedId}
         onSelect={selectById}
         onHover={hoverById}
-        className="absolute left-6 top-44 z-10 max-h-[calc(100vh-34rem)] w-80"
       />
       {legend.length > 0 && (
         // Sits on top of the time bar.

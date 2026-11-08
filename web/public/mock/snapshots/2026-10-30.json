@@ -121,6 +121,19 @@
             "articles_7d": 286
           }
         ]
+      },
+      "emergence": {
+        "label": "emerging_popular",
+        "confidence": 0.8,
+        "probabilities": {
+          "emerging_popular": 0.8,
+          "maybe_emerging_popular": 0.15,
+          "not_emerging_popular": 0.05
+        },
+        "category_confidence": 0.8,
+        "model_version": "mock-invented-not-jev",
+        "prompt_version": "mock",
+        "as_of": "2026-10-30"
       }
     },
     {
@@ -249,6 +262,19 @@
             "articles_7d": 215
           }
         ]
+      },
+      "emergence": {
+        "label": "maybe_emerging_popular",
+        "confidence": 0.8,
+        "probabilities": {
+          "emerging_popular": 0.15,
+          "maybe_emerging_popular": 0.8,
+          "not_emerging_popular": 0.05
+        },
+        "category_confidence": 0.8,
+        "model_version": "mock-invented-not-jev",
+        "prompt_version": "mock",
+        "as_of": "2026-10-30"
       }
     },
     {
@@ -371,6 +397,19 @@
             "articles_7d": 517
           }
         ]
+      },
+      "emergence": {
+        "label": "emerging_popular",
+        "confidence": 0.8,
+        "probabilities": {
+          "emerging_popular": 0.8,
+          "maybe_emerging_popular": 0.15,
+          "not_emerging_popular": 0.05
+        },
+        "category_confidence": 0.8,
+        "model_version": "mock-invented-not-jev",
+        "prompt_version": "mock",
+        "as_of": "2026-10-30"
       }
     },
     {
@@ -499,6 +538,19 @@
             "articles_7d": 503
           }
         ]
+      },
+      "emergence": {
+        "label": "maybe_emerging_popular",
+        "confidence": 0.8,
+        "probabilities": {
+          "emerging_popular": 0.15,
+          "maybe_emerging_popular": 0.8,
+          "not_emerging_popular": 0.05
+        },
+        "category_confidence": 0.8,
+        "model_version": "mock-invented-not-jev",
+        "prompt_version": "mock",
+        "as_of": "2026-10-30"
       }
     },
     {
@@ -621,6 +673,19 @@
             "articles_7d": 736
           }
         ]
+      },
+      "emergence": {
+        "label": "emerging_popular",
+        "confidence": 0.8,
+        "probabilities": {
+          "emerging_popular": 0.8,
+          "maybe_emerging_popular": 0.15,
+          "not_emerging_popular": 0.05
+        },
+        "category_confidence": 0.8,
+        "model_version": "mock-invented-not-jev",
+        "prompt_version": "mock",
+        "as_of": "2026-10-30"
       }
     },
     {
@@ -737,6 +802,19 @@
             "articles_7d": 69
           }
         ]
+      },
+      "emergence": {
+        "label": "not_emerging_popular",
+        "confidence": 0.8,
+        "probabilities": {
+          "emerging_popular": 0.1,
+          "maybe_emerging_popular": 0.1,
+          "not_emerging_popular": 0.8
+        },
+        "category_confidence": 0.8,
+        "model_version": "mock-invented-not-jev",
+        "prompt_version": "mock",
+        "as_of": "2026-10-30"
       }
     }
   ]

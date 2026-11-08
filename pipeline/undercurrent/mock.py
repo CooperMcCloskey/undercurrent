@@ -169,6 +169,31 @@ def build(out: Path = MOCK) -> None:
                     title=title,
                     location=c.Location(name=place, country=iso2, lat=lat, lon=lon),
                     category=CATEGORIES[sid],
+                    emergence=c.Emergence(
+                        label="not_emerging_popular"
+                        if sid == "mock-rate-hold"
+                        else "maybe_emerging_popular"
+                        if sid in {"mock-chip-tariffs", "mock-grain-curbs"}
+                        else "emerging_popular",
+                        confidence=0.8,
+                        probabilities={
+                            "emerging_popular": 0.1
+                            if sid == "mock-rate-hold"
+                            else 0.15
+                            if sid in {"mock-chip-tariffs", "mock-grain-curbs"}
+                            else 0.8,
+                            "maybe_emerging_popular": 0.1
+                            if sid == "mock-rate-hold"
+                            else 0.8
+                            if sid in {"mock-chip-tariffs", "mock-grain-curbs"}
+                            else 0.15,
+                            "not_emerging_popular": 0.8 if sid == "mock-rate-hold" else 0.05,
+                        },
+                        category_confidence=0.8,
+                        model_version="mock-invented-not-jev",
+                        prompt_version="mock",
+                        as_of=as_of,
+                    ),
                     footprint=[
                         c.FootprintPoint(lat=fy, lon=fx, weight=w, radius_km=km)
                         for fy, fx, w, km in FOOTPRINTS[sid]

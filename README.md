@@ -1,6 +1,8 @@
 # Undercurrent
 
-**See the story before it breaks.** Undercurrent groups news (GDELT), social posts (Bluesky, Reddit) and Wikipedia activity into *stories*, puts them on a 3D globe, and forecasts how big each will be over the coming days, so you can scrub the globe back through time and forward into the future.
+**See the story before it breaks.** This development branch uses Jev to classify emerging news and conflict from the existing Google bucket tables, assigns broad news categories, and plots emerging and maybe-emerging stories on a 3D globe.
+
+The uncapped bucket pipeline, authentication, run commands, and current results are documented in [Emerging stories](docs/EMERGING_STORIES.md). The map includes category filters, a tentative-story toggle, and a searchable story list. The original forecast prototype is documented below.
 
 Built at Hack the Burgh for the HRT (*Best Use of Data for Predictions & Decision Making*) and G-Research (*Make the invisible visible*) challenges.
 
@@ -16,7 +18,7 @@ npm run dev:mock       # web only, on mock data: http://localhost:5173
 npm run dev            # API on :8000 + web on :5173
 ```
 
-## What you see
+## Original forecast prototype
 
 - **The globe:** every story is a marker coloured by its category (politics, conflict, economy...), with a soft glow behind it; hover it to see the places it is happening. Click a category in the legend to hide or show it.
 - **Hover a story** to outline its area and burst out a small dot for every place each of its articles mentions, with each place named. That is why the heat is where it is. The big dots are stories; the small ones are their articles (circles) and posts (diamonds), all one size.

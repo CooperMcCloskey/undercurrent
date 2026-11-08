@@ -957,7 +957,9 @@ def write_json(root: Path, rel: str, model: BaseModel) -> None:
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     data = model.model_dump(mode="json")
-    path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n")
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
 
 
 def swap_in(tmp: Path, out: Path) -> None:
