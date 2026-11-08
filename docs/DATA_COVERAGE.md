@@ -37,7 +37,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 3. **Cooper: "cutoffs pushed"** once a week of section 1 is embedded. Then every running section starts tracking (`vm.sh track`, or `section.sh track`).
 4. **Wikipedia top-1000 for the whole range: running** on ControlThePancake's laptop (started about 01:10 UTC; 4 of 8 languages done at 01:55). **Nobody else run it:** Wikimedia's limit is shared by everyone running our code.
 5. **Older data, once 1–4 are covered:** 6a and 6b (ControlThePancake, starting), then 5 (`docs/PREVIOUS_YEAR.md`), then 7–10.
-6. **When every section is tracked:** Cooper merges, trains and exports (`docs/TWO_YEAR_RUN.md`, "Cooper only"). Then the Wikipedia pageviews and edits for the stories' top entities (`README.md`, "Wikipedia").
+6. **When every section is tracked:** Cooper merges, trains and exports (`docs/TWO_YEAR_RUN.md`, "Cooper only"). Then the Wikipedia pageviews and edits for the stories' top entities (`README.md`, "Wikipedia"). Most of these will already be cached by Lucy's run (below), which picks entities from the articles as they land, so that step only fetches the leftovers, such as places.
 
 **Check what's really in the bucket** (Cloud Shell). This prints each continuous range of pulled days; a gap is a section nobody has pulled. Swap `articles/` for `vectors/news/` (embedded days) or `stories_daily/` (tracked days).
 
@@ -50,7 +50,34 @@ gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '
 | What | Range | Who | Where |
 |---|---|---|---|
 | GDELT zip-file test days: articles, `gdelt_totals`, `gdelt_files` (1,232,548 articles, 237 MB; 71–77% translated) | 2026-11-01 → 2026-11-05 | ControlThePancake | that laptop, not the bucket. Inside section 1's days, so it's a cross-check for the BigQuery pull |
-| Wikipedia `wiki_top.parquet` (8 languages) | 2026-09-08 → 2026-11-06 | A (Ingest) | *(add where it is)* |
+| Wikipedia `wiki_top.parquet` (8 languages) | 2025-11-07 → 2026-11-06 | Lucy | Lucy's laptop, `data/processed/wiki_top.parquet`. Not in the bucket. The full-range run below replaces it |
 | Wikipedia `wiki_top.parquet`, full range (8 languages) | 2024-10-10 → 2026-11-07 | **ControlThePancake** | ⏳ running on that laptop, started 2026-11-08 about 01:10 UTC (4 of 8 languages done at 01:55). Lands in `data/processed/wiki_top.parquet` there; not in the bucket yet |
-| Wikipedia pageviews and edits for story entities | | | after tracking (step 6 above) |
+| Wikipedia pageviews and edits for each week's top GDELT people and orgs | 2021-10-10 → 2026-11-06 | **Lucy** | ⏳ setting up on Lucy's laptop (2026-11-08). See "Wikipedia from Lucy's laptop" below. Copied to `gs://undercurrent-data-cooper/wiki/` as it goes |
+| Wikipedia pageviews and edits for story entities not covered above (places, smaller names) | | | after tracking (step 6 above) |
 | *(add new data here)* | | | |
+
+## Wikipedia from Lucy's laptop
+
+**What it collects:** for every person and organisation that makes a weekly top 50 in GDELT, how many people read their Wikipedia article each day, and (for the top 15) how many edits it got, from 2021-10-10 to 2026-11-06. That covers all ten sections. The forecast uses these as features (`ingest/WIKIPEDIA.md`).
+
+**Why it can run now, before tracking:** the names come straight from the articles in the bucket, not from stories. One request fetches an article's whole five years, so a name is fetched once, as soon as it first appears, and never again.
+
+**How it runs.** As new days land in the bucket, every few hours:
+
+```bash
+# 1. Count names in the new days (days already counted are skipped), then re-pick each week's
+#    top 50 people and top 50 orgs. Top 15 of each = tier 1, the rest tier 2.
+uv run python -m undercurrent.ingest.wiki_names --bucket gs://undercurrent-data-cooper
+# 2. Fetch Wikipedia data for any name not fetched before:
+#    tier 1: daily pageviews in 8 languages + English edits; tier 2: English pageviews only.
+uv run python -m undercurrent.ingest.wiki_bulk fetch --no-top
+# 3. Back up to the bucket.
+gcloud storage rsync -r data/raw/wiki gs://undercurrent-data-cooper/wiki/raw
+gcloud storage cp data/processed/wiki_*.parquet gs://undercurrent-data-cooper/wiki/
+```
+
+- **Dates are fixed** at 2021-10-10 → 2026-11-06 (the defaults in `wiki_bulk.py`). Don't change them mid-run: the cache only counts as done for the exact range, so a different range refetches everything.
+- **`--no-top`:** the top-1000 lists are ControlThePancake's job (step 4 above), so this run doesn't fetch them.
+- **Weeks that are only partly pulled** get a provisional top 50. The next run corrects it. A name fetched early that later drops out stays in the cache but isn't in `wiki_selection.parquet`, so it does no harm.
+- **Speed:** Wikimedia allows about 190 requests a minute per IP address. Expect 5–10k names and a day or more from one laptop. **To help**, use a machine on a **different network**: a phone hotspot or home broadband, not the same wifi as Lucy. Write your name here first, and tell Lucy so she switches to `fetch --no-top --shard 0/2`. Copy `gs://undercurrent-data-cooper/wiki/raw` into your `data/raw/wiki` (so names Lucy already fetched are skipped), then run the same commands with `fetch --no-top --shard 1/2`. Send Lucy `data/wiki_shard-1-of-2.tar.gz` and she runs `wiki_bulk merge`.
+- **Done when:** every section is pulled, `wiki_names` has counted every day, and a final `fetch` reports nothing new. Then `wiki_bulk build` writes the final `wiki_entity_daily.parquet` and `wiki_selection.parquet` to the bucket. The forecast should only use an entity from its `first_week` onwards (point-in-time).
