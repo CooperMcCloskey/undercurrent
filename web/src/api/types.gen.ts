@@ -256,7 +256,17 @@ export interface StorySummary {
   /**
    * What the story is about; sets its colour
    */
-  category: "politics" | "conflict" | "economy" | "society" | "disaster" | "health" | "technology" | "other";
+  category:
+    | "politics"
+    | "conflict"
+    | "economy"
+    | "society"
+    | "disaster"
+    | "health"
+    | "technology"
+    | "sport"
+    | "culture"
+    | "other";
   /**
    * Where the story is happening, for the heatmap. Empty means just `location`.
    */

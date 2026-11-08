@@ -72,7 +72,7 @@ def articles_for(day: dt.date) -> list[tuple[str, dict]]:
             "locations": locations,
             "persons": ["jan de vries"] if story == STRIKE else [],
             "orgs": [],
-            "themes": [],
+            "themes": ["STRIKE", "PROTEST", "LEADER"] if story == STRIKE else [],
             "tone": -2.0 if story == STRIKE else -6.0,
             "dup_count": 1,
             "sampled": False,
@@ -203,7 +203,9 @@ def test_export_end_to_end(processed: Path, tmp_path: Path) -> None:
     assert strike["article_count_7d"] == 35 and quake["article_count_7d"] == 14
     # 35 articles vs 15 in days 0-2 (the data starts there): log2(36 / 16)
     assert strike["growth_7d"] == 1.17 and strike["tone"] == -2.0
-    assert strike["category"] == "economy" and strike["first_seen"] == str(D0)
+    # The tracker said "economy"; every article's GDELT themes say strike/protest: society
+    assert strike["category"] == "society" and strike["first_seen"] == str(D0)
+    assert quake["category"] == "disaster"  # no themes: keeps the tracker's category
     # The most central English headline of the week: k = 0 is French, so k = 1 (similarity 0.89)
     assert re.fullmatch(rf"{STRIKE} headline \d-1", strike["title"]), strike["title"]
     assert last[FRENCH]["title"] == "Emmanuel Macron · Paris"
@@ -323,3 +325,18 @@ def test_titles_are_english_and_point_in_time(processed: Path, tmp_path: Path) -
             assert int(title.split()[-1].split("-")[0]) <= (day - D0).days, "a headline from later"
     detail = c.StoryDetail.model_validate(load(out, f"stories/{FRENCH}.json"))
     assert detail.title == "Emmanuel Macron · Paris"
+
+
+def test_theme_categories_can_be_turned_off_by_rules(processed: Path, tmp_path: Path) -> None:
+    """A category only wins with enough of the story's articles (THEME_SHARE_MIN) and well above
+    its base rate (THEME_LIFT_MIN)."""
+    out = export.run(processed, tmp_path / "export")
+    strike = snapshot(out, END)[STRIKE]
+    assert strike["category"] == "society"
+    old = export.THEME_SHARE_MIN
+    try:
+        export.THEME_SHARE_MIN = 1.01  # nothing can reach it
+        out2 = export.run(processed, tmp_path / "export2")
+    finally:
+        export.THEME_SHARE_MIN = old
+    assert snapshot(out2, END)[STRIKE]["category"] == "economy"
