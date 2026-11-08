@@ -22,6 +22,7 @@ The first quarter (6a) is under way. **What's still needed is the rest of the ye
      ```
 
    - **6b, or 5 on any other GPU server:** use the script below. `create_vm.sh` doesn't know 6b. **Don't run `create_vm.sh 6`**: it would redo 6a.
+   - The same script also runs sections **3 and 4** (`section.sh setup 3`). Take one of those first if it's still free.
 4. **When it's finished,** mark it done in `docs/DATA_COVERAGE.md`.
 
 ## Run a piece on any GPU server: `scripts/standalone/section.sh`

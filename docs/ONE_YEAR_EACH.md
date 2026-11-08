@@ -1,5 +1,7 @@
 # One year of GDELT each: the fast plan (4 accounts, 4 L4s)
 
+> **Superseded, don't use it.** The team runs the six-month sections in `docs/DATA_COVERAGE.md` (the two-year plan, `docs/TWO_YEAR_RUN.md`). The year-long blocks below would overlap them. On a GPU server outside Google Cloud, use `scripts/standalone/section.sh` (`docs/PREVIOUS_YEAR.md`) instead of `scripts/one_year/`.
+
 **Goal:** four years of news (**2022-11-07 → 2026-11-06**) turned into stories in the shared bucket, as fast as possible. Each of us takes one year on our own Google Cloud account with one L4. After that, Cooper merges the blocks and trains.
 
 **For each account:** a CPU VM pulls the year from GDELT's zip files into the bucket. The L4 VM takes each day from the bucket as soon as it lands, embeds it and uploads the vectors. Once the cutoffs are calibrated, the tracker follows the embedding day by day.

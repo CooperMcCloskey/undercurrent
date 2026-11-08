@@ -26,9 +26,18 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 
 - **Sections 1–4 are two years**, the plan for tonight. **Sections 5–10** reach back five years, for whoever has a free GPU.
 - **Order:** newest free section first. Each extra section helps the forecast less than the one before.
-- **Teammates already running:** two teammates' VMs have bucket access (`196306351948-compute@…` and `1025880049110-compute@…`). If one is yours, write your section in its row now. `docs/ONE_YEAR_EACH.md` uses different, year-long blocks; if you started from it, write your real dates here so nothing overlaps.
+- **Teammates already running:** two teammates' VMs have bucket access (`196306351948-compute@…` and `1025880049110-compute@…`, the second is section 2). If the first is yours, write your section in its row now. `docs/ONE_YEAR_EACH.md` (year-long blocks) is superseded: nobody started from it, and its dates would overlap these sections.
 - **Section 6 is split in two** (6a and 6b, three months each), because 6a runs on a server outside Google Cloud. Start 6a, 6b or 5 on any GPU server with `scripts/standalone/section.sh` (`docs/PREVIOUS_YEAR.md`); `create_vm.sh 6` would redo 6a, so don't use it.
 - **Own days never overlap.** The warm-up days (the 28 days before a section, used only to start its tracker) may overlap the next section's own days. That's expected.
+
+## Next, in order (as of 2026-11-08 01:30 UTC)
+
+1. **Section 4 has no owner yet, and it finishes the two years** (section 3 is Lucy's). Take it now: `create_vm.sh 4` on Google Cloud, or `scripts/standalone/section.sh setup 4` on any other GPU server. It comes before 6a, 6b and 5.
+2. **Confirm that BigQuery has the translated feed.** It's about 73% of articles, and not checked yet for sections 1 and 2. On a section's VM: `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (translated should be about 2× English). Or compare the bucket's 2026-11-05 (inside section 1) with the zip-file test day below: 276,486 articles, 73% translated.
+3. **Cooper: "cutoffs pushed"** once a week of section 1 is embedded. Then every running section starts tracking (`vm.sh track`, or `section.sh track`).
+4. **Wikipedia top-1000 for the whole range:** one laptop only (Wikimedia's limit is shared by everyone running our code), about an hour: `uv run python -m undercurrent.ingest.wiki_top --start 2024-10-10`. Put your name in its row below when you start.
+5. **Older data, once 1–4 are covered:** 6a (running), then 6b and 5 (`docs/PREVIOUS_YEAR.md`), then 7–10.
+6. **When every section is tracked:** Cooper merges, trains and exports (`docs/TWO_YEAR_RUN.md`, "Cooper only"). Then the Wikipedia pageviews and edits for the stories' top entities (`README.md`, "Wikipedia").
 
 **Check what's really in the bucket** (Cloud Shell). This prints each continuous range of pulled days; a gap is a section nobody has pulled. Swap `articles/` for `vectors/news/` (embedded days) or `stories_daily/` (tracked days).
 
@@ -40,6 +49,8 @@ gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '
 
 | What | Range | Who | Where |
 |---|---|---|---|
-| GDELT zip-file test days | 2026-11-01 → 2026-11-05 | ControlThePancake | that laptop |
+| GDELT zip-file test days: articles, `gdelt_totals`, `gdelt_files` (1,232,548 articles, 237 MB; 71–77% translated) | 2026-11-01 → 2026-11-05 | ControlThePancake | that laptop, not the bucket. Inside section 1's days, so it's a cross-check for the BigQuery pull |
 | Wikipedia `wiki_top.parquet` (8 languages) | 2026-09-08 → 2026-11-06 | A (Ingest) | *(add where it is)* |
+| Wikipedia `wiki_top.parquet`, full range | 2024-10-10 → 2026-11-07 | *free* | not started (step 4 above) |
+| Wikipedia pageviews and edits for story entities | | | after tracking (step 6 above) |
 | *(add new data here)* | | | |
