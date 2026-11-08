@@ -24,6 +24,7 @@ import {
 import { ForecastChart, buildSeries, type Measure } from './ForecastChart'
 import { KindGlyph } from './KindGlyph'
 import { toIndex } from '../timeline/days'
+import { EMERGENCE_LABELS } from './JevStories'
 
 type Sort = 'importance' | 'newest'
 
@@ -136,7 +137,20 @@ export function StoryPanel({
             }
           />
         </dl>
-        <ForecastSection story={story} timeline={timeline} asOf={asOf} color={color} />
+        {story.emergence ? (
+          <div className="mt-3 rounded bg-sky-950/60 p-2 text-xs text-sky-100">
+            <p className="font-medium">{EMERGENCE_LABELS[story.emergence.label]}</p>
+            <p className="mt-1">
+              Jev confidence: {Math.round(story.emergence.confidence * 100)}% · assessed{' '}
+              {story.emergence.as_of}
+            </p>
+            <p className="mt-1 text-slate-400">
+              An assessment of emerging attention over the next seven days.
+            </p>
+          </div>
+        ) : (
+          <ForecastSection story={story} timeline={timeline} asOf={asOf} color={color} />
+        )}
         {entities.length > 0 && (
           <p className="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-300">
             {entities.slice(0, 6).map((e) => (

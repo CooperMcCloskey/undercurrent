@@ -189,6 +189,8 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 
 ### D: Web and API (owner: ____)
 
+- [x] 2026-11-08, `dev/jev-emerging-stories`: Jev emergence/category classification directly from 14 days of bucket tables, with no popularity cap before classification. Latest-week input: 47,835 story IDs; 43,559 mappable stories classified with jev-1.14.0 (5,905 emerging, 23,781 maybe, 13,873 excluded); 4,276 lack usable locations. Cached/resumable isolated-question batching, category filters, searchable list and full map output. See `docs/EMERGING_STORIES.md`. Branch-only replacement of the forecast UI requested by Michael; no commit or push yet.
+
 **Goal:** the demo. Build against mock data (`npm run dev:mock`) until B exports real data.
 
 - [x] Globe: vector countries, heatmap of story footprints, flat markers coloured by forecast, hover labels (done in setup)

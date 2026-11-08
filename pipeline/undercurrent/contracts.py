@@ -193,6 +193,29 @@ class FootprintPoint(_Model):
     )
 
 
+EmergenceLabel = Literal["emerging_popular", "maybe_emerging_popular", "not_emerging_popular"]
+
+
+class Emergence(_Model):
+    label: EmergenceLabel
+    confidence: float = Field(ge=0, le=1)
+    probabilities: dict[EmergenceLabel, float]
+    category_confidence: float = Field(ge=0, le=1)
+    model_version: str
+    prompt_version: str
+    as_of: dt.date
+
+    @field_validator("probabilities")
+    @classmethod
+    def _distribution(cls, values: dict) -> dict:
+        expected = {"emerging_popular", "maybe_emerging_popular", "not_emerging_popular"}
+        if set(values) != expected or any(not 0 <= p <= 1 for p in values.values()):
+            raise ValueError("expected all three emergence probabilities between zero and one")
+        if abs(sum(values.values()) - 1) > 0.01:
+            raise ValueError("emergence probabilities must sum to one")
+        return values
+
+
 class StorySummary(_Model):
     id: str = Field(pattern=STORY_ID_PATTERN, description="Stable across days")
     title: str
@@ -213,6 +236,7 @@ class StorySummary(_Model):
         "(too little history): the future globe then draws it unchanged.",
     )
     outcome: Outcome | None = None
+    emergence: Emergence | None = None
 
     @field_validator("footprint")
     @classmethod

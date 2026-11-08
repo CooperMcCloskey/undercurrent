@@ -5,6 +5,21 @@ export interface UndercurrentContract {
 }
 /**
  * This interface was referenced by `UndercurrentContract`'s JSON-Schema
+ * via the `definition` "Emergence".
+ */
+export interface Emergence {
+  label: "emerging_popular" | "maybe_emerging_popular" | "not_emerging_popular";
+  confidence: number;
+  probabilities: {
+    [k: string]: number;
+  };
+  category_confidence: number;
+  model_version: string;
+  prompt_version: string;
+  as_of: string;
+}
+/**
+ * This interface was referenced by `UndercurrentContract`'s JSON-Schema
  * via the `definition` "Entity".
  */
 export interface Entity {
@@ -287,6 +302,7 @@ export interface StorySummary {
    */
   forecast: Forecast | null;
   outcome: Outcome | null;
+  emergence: Emergence | null;
 }
 /**
  * Main location: anchor for the marker and label
