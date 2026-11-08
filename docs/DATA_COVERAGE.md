@@ -15,7 +15,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | **1** | 2026-05-08 → 2026-11-06 | 2026-04-10 | **Cooper** | ✅ done | ⏳ in progress (75/211 at 00:40 UTC) | ⬜ waits for the cutoffs |
 | 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
 | **3** | 2025-05-08 → 2025-11-06 | 2025-04-10 | **Lucy** (VM `satanisreal`, us-central1-b) | ⏳ started | ⏳ started | ⬜ waits for the cutoffs |
-| 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | *free* | | | |
+| 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | **yeah-course** (`uc-gpu`, us-west1-a: no L4s in us-central1, `851470465448-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
 | 5 | 2024-05-08 → 2024-11-06 | 2024-04-10 | *free* | | | |
 | 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ⏳ starting | | |
 | 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ⏳ starting | | |
