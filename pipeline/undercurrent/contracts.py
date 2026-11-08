@@ -27,7 +27,16 @@ EntityKind = Literal["person", "organization", "location", "other"]
 # What a story is about; the globe colours stories by this. Assigned by
 # undercurrent.vectors.categories (embedding similarity to category descriptions).
 Category = Literal[
-    "politics", "conflict", "economy", "society", "disaster", "health", "technology", "other"
+    "politics",
+    "conflict",
+    "economy",
+    "society",
+    "disaster",
+    "health",
+    "technology",
+    "sport",
+    "culture",
+    "other",
 ]
 
 STORY_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,80}$"

@@ -11,10 +11,12 @@ export const CATEGORY_STYLE: Record<Category, { label: string; color: string }> 
   politics: { label: 'Politics', color: '#818cf8' }, // indigo
   conflict: { label: 'Conflict', color: '#f87171' }, // red
   economy: { label: 'Economy', color: '#facc15' }, // yellow
-  society: { label: 'Society & protest', color: '#f472b6' }, // pink
+  society: { label: 'Society & crime', color: '#f472b6' }, // pink
   disaster: { label: 'Disaster & climate', color: '#fb923c' }, // orange
   health: { label: 'Health', color: '#2dd4bf' }, // teal
-  technology: { label: 'Technology', color: '#a3e635' }, // lime
+  technology: { label: 'Science & tech', color: '#a3e635' }, // lime
+  sport: { label: 'Sport', color: '#38bdf8' }, // sky blue
+  culture: { label: 'Culture & entertainment', color: '#c084fc' }, // purple
   other: { label: 'Other', color: '#94a3b8' }, // slate
 }
 

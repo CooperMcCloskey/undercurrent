@@ -2076,6 +2076,8 @@ const TONE: Record<Category, number> = {
   politics: -2,
   economy: -2,
   technology: 0,
+  sport: 1,
+  culture: 1,
   other: 0,
 }
 

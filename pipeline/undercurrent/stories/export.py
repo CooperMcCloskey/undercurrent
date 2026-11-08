@@ -72,6 +72,44 @@ CATEGORIES = set(typing.get_args(c.Category))
 NAME_SHARE_MIN = 0.10
 COUNTRY_SHARE_MIN = 0.50
 
+# Category from GDELT's theme tags. GDELT tags each article from an English translation, so this
+# works the same in every language, unlike the tracker's embedding category (which is matched to
+# English example headlines and drops many non-English stories to "other"). Each article votes
+# for every category its themes name (first matching prefix per theme); a story takes the
+# category whose share of its articles is highest relative to how common that category is over
+# all assigned articles (its lift), if at least THEME_SHARE_MIN of its articles name it.
+# Otherwise it keeps the tracker's category.
+THEME_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "conflict": ("ARMEDCONFLICT", "TERROR", "MILITARY", "WB_2432_FRAGILITY_CONFLICT_AND_VIOLENCE",
+                 "REBELLION", "TAX_WEAPONS", "CEASEFIRE", "SEIGE", "BLOCKADE"),
+    "disaster": ("NATURAL_DISASTER", "MANMADE_DISASTER", "ENV_CLIMATECHANGE", "CRISISLEX_C07"),
+    "health": ("HEALTH_", "EPIDEMIC", "MEDICAL", "TAX_DISEASE", "WB_621_HEALTH", "DISEASE"),
+    "economy": ("ECON_", "EPU_ECONOMY", "TAX_ECON_PRICE", "WB_1104_MACROECONOMIC",
+                "WB_332_CAPITAL_MARKETS", "WB_698_TRADE"),
+    "politics": ("ELECTION", "LEGISLATION", "IMPEACHMENT", "CORRUPTION", "SANCTION", "VETO",
+                 "DEMOCRACY", "USPEC_POLITICS", "NEGOTIATIONS", "TAX_FNCACT_PRESIDENT",
+                 "TAX_FNCACT_PRIME_MINISTER", "TAX_FNCACT_MINISTER", "GOV_"),
+    "society": ("PROTEST", "STRIKE", "REFUGEES", "IMMIGRATION", "HUMAN_RIGHTS", "DISCRIMINATION",
+                "CRIME", "ARREST", "KIDNAP", "TRIAL", "EDUCATION", "SOC_GENERALCRIME", "LGBT"),
+    "technology": ("CYBER_ATTACK", "SCIENCE", "MEDIA_SOCIAL", "WB_133_INFORMATION_AND_COMM",
+                   "SOC_INNOVATION", "TAX_FNCACT_ASTRONAUT"),
+    "sport": ("SOC_SPORTS", "SPORTS", "TAX_FNCACT_COACH", "TAX_FNCACT_ATHLETE", "TAX_FNCACT_PLAYER",
+              "TAX_FNCACT_FOOTBALLER"),
+    "culture": ("TAX_FNCACT_ACTOR", "TAX_FNCACT_SINGER", "TAX_FNCACT_ARTIST", "TAX_FNCACT_MUSICIAN",
+                "MOVIE", "MUSIC", "ARTS", "ENTERTAINMENT", "CELEBRITY"),
+}  # fmt: skip
+THEME_SHARE_MIN = 0.25
+THEME_LIFT_MIN = 1.5
+
+
+def _theme_case(var: str) -> str:
+    arms = []
+    for category, prefixes in THEME_CATEGORIES.items():
+        test = " OR ".join(f"starts_with({var}, '{p}')" for p in prefixes)
+        arms.append(f"WHEN {test} THEN '{category}'")
+    return "CASE " + " ".join(arms) + " END"
+
+
 # Columns read from articles, with the type to fill in when a column is missing.
 ARTICLE_COLUMNS = {
     "title": None,  # required
@@ -83,6 +121,7 @@ ARTICLE_COLUMNS = {
     "lang": "VARCHAR",
     "persons": "VARCHAR[]",
     "orgs": "VARCHAR[]",
+    "themes": "VARCHAR[]",
 }
 
 # The weights footprint.add_article gives, summed per story, day and place.
@@ -322,6 +361,36 @@ class Source:
                ) <= $limit
                ORDER BY story_id, similarity DESC, published_at, article_id""",
             {"end": ordinal(end), "limit": limit},
+        ).df()
+
+    def theme_categories(self, story_ids: list[str], end: dt.date) -> pd.DataFrame:
+        """Per story and category (THEME_CATEGORIES): the share of the story's articles up to
+        `end` whose themes name it, and that share divided by the category's share of all
+        assigned articles (its lift). Columns story_id, category, share, lift."""
+        self._pick(story_ids)
+        cats = (
+            "list_distinct(list_filter(list_transform(coalesce(themes, CAST([] AS VARCHAR[])), "
+            f"lambda x: {_theme_case('x')}), lambda y: y IS NOT NULL))"
+        )
+        return self.con.execute(
+            f"""WITH a AS (
+                    SELECT story_id, {cats} AS cats FROM joined WHERE d <= $end
+                ), total AS (
+                    SELECT count(*) AS n FROM a
+                ), base AS (
+                    SELECT c AS category, count(*) / (SELECT n FROM total) AS p
+                    FROM (SELECT unnest(cats) AS c FROM a) GROUP BY 1
+                ), mine AS (
+                    SELECT story_id, cats FROM a WHERE story_id IN (SELECT story_id FROM picked)
+                ), size AS (
+                    SELECT story_id, count(*) AS n FROM mine GROUP BY 1
+                ), votes AS (
+                    SELECT story_id, c AS category, count(*) AS k
+                    FROM (SELECT story_id, unnest(cats) AS c FROM mine) GROUP BY 1, 2
+                )
+                SELECT v.story_id, v.category, v.k / s.n AS share, (v.k / s.n) / b.p AS lift
+                FROM votes v JOIN size s USING (story_id) JOIN base b USING (category)""",
+            {"end": ordinal(end)},
         ).df()
 
     def story_quality(self, end: dt.date, min_articles: int) -> pd.DataFrame:
@@ -588,6 +657,29 @@ class Exporter:
         self.stats["titles: no English headline (names and place)"] += len(rest) - len(earlier)
         return {**earlier, **week}
 
+    def recategorize(self, snaps: dict[dt.date, c.Snapshot]) -> None:
+        """Replace each exported story's category with its GDELT-theme category where the themes
+        are clear (THEME_CATEGORIES); otherwise keep the tracker's."""
+        story_ids = sorted({s.id for snap in snaps.values() for s in snap.stories})
+        if not story_ids:
+            return
+        votes = self.src.theme_categories(story_ids, self.end)
+        votes = votes[(votes["share"] >= THEME_SHARE_MIN) & (votes["lift"] >= THEME_LIFT_MIN)]
+        best = (
+            votes.sort_values(["story_id", "lift", "category"], ascending=[True, False, True])
+            .drop_duplicates("story_id")
+            .set_index("story_id")["category"]
+            .to_dict()
+        )
+        for snap in snaps.values():
+            for s in snap.stories:
+                new = best.get(s.id)
+                if new and new != s.category:
+                    self.stats[f"story-days recategorised by themes: {s.category} -> {new}"] += 1
+                    s.category = new
+        self.stats["stories with a theme category"] = len(best)
+        self.stats["stories keeping the tracker's category"] = len(story_ids) - len(best)
+
     def looks_like_news(self, sid: str) -> bool:
         if self.quality is None:
             return True
@@ -730,6 +822,7 @@ def run(
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
     snaps = ex.snapshots()
+    ex.recategorize(snaps)
     story_ids: list[str] = []
     seen: set[str] = set()
     for day, snap in snaps.items():

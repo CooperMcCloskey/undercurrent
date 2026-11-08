@@ -92,8 +92,33 @@ CATEGORY_EXAMPLES: dict[Category, list[str]] = {
         "Social media platform fined over user data",
         "Tech company suffers a major data breach",
         "Streaming service suffers a worldwide outage",
+        "Scientists discover a new species of dinosaur",
+        "Researchers publish a breakthrough study on the brain",
     ],
 }
+
+# Added 2026-11-08: on real headlines 41% of story-days were "other", much of it sport and
+# entertainment, which had no category.
+CATEGORY_EXAMPLES["sport"] = [
+    "Striker scores twice as the champions win the derby",
+    "Coach sacked after a run of defeats",
+    "Team reaches the cup final after a penalty shootout",
+    "Tennis star wins the title in straight sets",
+    "Driver takes pole position for the Grand Prix",
+    "Transfer deal agreed for the club's record signing",
+    "Olympic champion breaks the world record",
+    "Fans celebrate as the national team qualifies for the World Cup",
+]
+CATEGORY_EXAMPLES["culture"] = [
+    "Actor wins best actor award at the film festival",
+    "Singer announces a world tour and a new album",
+    "Box office: the sequel tops the weekend charts",
+    "Celebrity couple announce their divorce",
+    "Popular TV series renewed for a new season",
+    "Museum opens an exhibition of the artist's work",
+    "Novelist wins the literary prize",
+    "Famous musician dies at 76",
+]
 
 # Below this similarity to every prototype, a story is "other".
 MIN_SIMILARITY = 0.2
