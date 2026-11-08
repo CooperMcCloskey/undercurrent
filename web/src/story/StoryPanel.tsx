@@ -14,7 +14,7 @@ import {
   type SourceKind,
 } from './articles'
 import { describeFactor, describeForecast, headlineHorizon } from './forecast'
-import { ForecastChart, buildSeries } from './ForecastChart'
+import { ForecastChart, buildSeries, type Measure } from './ForecastChart'
 import { KindGlyph } from './KindGlyph'
 import { toIndex } from '../timeline/days'
 
@@ -89,7 +89,7 @@ export function StoryPanel({
   const kinds = KIND_ORDER.filter((k) => counts[k])
 
   return (
-    <aside className="absolute bottom-16 right-6 top-5 z-10 flex w-[26rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg bg-slate-900/95 text-slate-100 shadow-xl">
+    <aside className="absolute bottom-24 right-6 top-5 z-10 flex w-[26rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg bg-slate-900/95 text-slate-100 shadow-xl">
       <header className="border-b border-slate-700/60 p-4 pb-3">
         <div className="mb-1.5 flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 font-medium" style={{ color }}>
@@ -238,17 +238,34 @@ function ForecastSection({
   color: string
 }) {
   const [reveal, setReveal] = useState(false)
+  const [measure, setMeasure] = useState<Measure>('day')
   const day = toIndex(asOf)
   const { points, hasLater } = useMemo(
-    () => buildSeries(timeline, day, story.article_count_7d, story.forecast, reveal),
-    [timeline, day, story.article_count_7d, story.forecast, reveal],
+    () => buildSeries(timeline, day, story.article_count_7d, story.forecast, reveal, measure),
+    [timeline, day, story.article_count_7d, story.forecast, reveal, measure],
   )
   if (timeline.length === 0) return null
   const horizon = story.forecast ? headlineHorizon(story.forecast) : null
   return (
     <div className="mt-3">
       <div className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
-        <span>Articles in the past 7 days</span>
+        <span className="flex items-center gap-1">
+          {(['day', 'week'] as const).map((m) => (
+            <button
+              key={m}
+              aria-pressed={measure === m}
+              className={`rounded px-1.5 py-0.5 ${measure === m ? 'bg-slate-200 text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+              title={
+                m === 'day'
+                  ? 'Articles on each day, over the story’s whole life'
+                  : 'Articles in the 7 days up to each day: the number the globe sizes a story by and the forecast predicts'
+              }
+              onClick={() => setMeasure(m)}
+            >
+              {m === 'day' ? 'Per day' : '7-day total'}
+            </button>
+          ))}
+        </span>
         {story.forecast && hasLater && (
           <button
             className="rounded px-1.5 py-0.5 text-emerald-300 hover:bg-slate-700"
@@ -258,7 +275,7 @@ function ForecastSection({
           </button>
         )}
       </div>
-      <ForecastChart points={points} asOf={day} color={color} />
+      <ForecastChart points={points} asOf={day} color={color} measure={measure} />
       {story.forecast && horizon ? (
         <>
           <p className="mt-1 text-xs text-slate-300">{describeForecast(story.forecast)}</p>

@@ -10,7 +10,9 @@ import { CATEGORY_ORDER, CATEGORY_STYLE, hexToRgb, type Category } from './globe
 import { Legend } from './globe/Legend'
 import { loadLand } from './globe/countries'
 import { createGlowLayer, type GlowPoint } from './globe/glow'
+import { pickStories } from './globe/select'
 import { createHeatLayer, type HeatPoint } from './globe/heat'
+import { createStars } from './globe/stars'
 import { buildConstellation, type ConstellationItem } from './globe/constellation'
 import {
   KIND_STYLE,
@@ -57,7 +59,7 @@ const HIGHLIGHT_ALTITUDE = 0.009
 const MARKER_ALTITUDE = 0.011
 // How wide the hovered story's outlined area is around each of its places, in km on the globe.
 // Absolute, so the area is fixed on the Earth: zooming magnifies it and never reshapes it.
-const OUTLINE_SPREAD_KM = 120
+const OUTLINE_SPREAD_KM = 60
 // Each story's marker has a soft glow behind it, like a star: diameter in degrees of arc, from the
 // smallest story to the biggest, and how bright it is (dimmed while one story is highlighted).
 const GLOW_DIAMETER_MIN_DEG = 2.2
@@ -66,9 +68,11 @@ const GLOW_OPACITY = 0.55
 const GLOW_OPACITY_DIMMED = 0.15
 // Marker size in degrees of arc; the hovered one grows.
 const MARKER_RADIUS = 0.9 // the biggest story's; smaller stories shrink to half of it
-// Only the biggest stories are drawn, so the globe reads as a handful of main stories instead of
-// 300 overlapping blobs. Stories projected to grow, and the one selected, are always drawn.
-const MAX_STORIES = 60
+// How many stories the globe draws is up to the slider: the biggest first, so it reads as a handful
+// of main stories rather than hundreds of overlapping markers. Stories projected to grow, and the
+// one selected, are always drawn.
+const DEFAULT_STORIES = 60
+const MIN_STORIES = 10
 const MARKER_RADIUS_HOVERED = 1.1
 // Selecting a story flies the camera to the story's marker, high enough up (altitude, in globe
 // radii) to see all its dots: roughly 1 radius of altitude shows 32 degrees around the marker.
@@ -212,20 +216,41 @@ const layerObject = (d: object) => (d as { object: Object3D }).object
 const keepLayerObject = () => {}
 const loadLandLayer = () => loadLand({ altitude: LAND_ALTITUDE, ...COLORS })
 
+// The hovered story's outline can never be bigger than this, whatever its footprint says. A
+// footprint point is a Gaussian, and the outline is where it falls to 9% of its peak, 2.2 sigma out,
+// so a point's outline reaches 2.2 x sqrt(radius^2 + OUTLINE_SPREAD_KM^2) from the place: with every
+// radius capped at MAX_OUTLINE_RADIUS_KM, never more than about 460 km. (Before the cap, a country-
+// wide point such as "United States" drew a circle 1,100 km in radius on 100% of the stories in the
+// 2026-11-06 export, centred in Kansas.) Country-wide points are also left out when the story has
+// any city or region, because their centre is no place the story happened.
+const COUNTRY_RADIUS_KM = 400
+const MAX_OUTLINE_RADIUS_KM = 200
+
 /** The places a story's area is outlined at when it is hovered, one point per footprint place. */
 function outlinePoints(story: StorySummary): HeatPoint[] {
   const color = hexToRgb(colorOf(story))
   const footprint = story.footprint.length
     ? story.footprint
     : [{ lat: story.location.lat, lon: story.location.lon, weight: 1, radius_km: 150 }]
-  return footprint.map((p) => ({
+  const places = footprint.filter((p) => p.radius_km < COUNTRY_RADIUS_KM)
+  return (places.length ? places : footprint).map((p) => ({
     lat: p.lat,
     lon: p.lon,
     weight: story.article_count_7d * p.weight,
-    radiusKm: p.radius_km,
+    radiusKm: Math.min(p.radius_km, MAX_OUTLINE_RADIUS_KM),
     color,
   }))
 }
+
+/** The slider is logarithmic: 10 to a few hundred stories, with as much room for 20 as for 400. */
+const storiesAt = (position: number, available: number) =>
+  Math.round(MIN_STORIES * (Math.max(available, MIN_STORIES * 2) / MIN_STORIES) ** (position / 100))
+const sliderPosition = (wanted: number, available: number) =>
+  Math.min(
+    100,
+    (100 * Math.log(Math.max(wanted, MIN_STORIES) / MIN_STORIES)) /
+      Math.log(Math.max(available, MIN_STORIES * 2) / MIN_STORIES),
+  )
 
 export default function App() {
   const meta = useQuery({
@@ -310,19 +335,12 @@ export default function App() {
     () => visible.find((s) => s.id === selectedId) ?? null,
     [visible, selectedId],
   )
-  const [showAll, setShowAll] = useState(false)
+  const [wanted, setWanted] = useState(DEFAULT_STORIES)
   const shown = useMemo(() => {
-    if (showAll || visible.length <= MAX_STORIES) return visible
-    const keep = new Set(
-      [...visible]
-        .sort((a, b) => b.article_count_7d - a.article_count_7d)
-        .slice(0, MAX_STORIES)
-        .map((s) => s.id),
-    )
-    for (const e of emerging) keep.add(e.story.id)
+    const keep = new Set(emerging.map((e) => e.story.id))
     if (selectedId) keep.add(selectedId)
-    return visible.filter((s) => keep.has(s.id))
-  }, [visible, showAll, emerging, selectedId])
+    return pickStories(visible, wanted, keep)
+  }, [visible, wanted, emerging, selectedId])
   const focus = hovered ?? selected
   const active = focus && !hidden.has(focus.category) ? focus : null
   const leaveTimer = useRef<number | undefined>(undefined)
@@ -349,6 +367,7 @@ export default function App() {
   const markerCache = useRef(new Map<string, Marker>())
   const markers = useMemo(() => placeMarkers(eased, markerCache.current), [eased])
   const glow = useMemo(() => createGlowLayer(), [])
+  const stars = useMemo(() => createStars(), [])
 
   // Selecting a story: fly to it and open its panel.
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
@@ -358,8 +377,15 @@ export default function App() {
     if (!globe) return
     const scene = globe.scene()
     const camera = globe.camera() as PerspectiveCamera
+    // The stars sit on a sphere around the globe: the camera has to see that far.
+    scene.add(stars.object)
+    if (camera.far < 2 * stars.radius) {
+      camera.far = 2 * stars.radius
+      camera.updateProjectionMatrix()
+    }
     scene.onBeforeRender = (renderer) => {
       glow.setViewport(renderer, camera.fov)
+      stars.setTime(performance.now() / 1000)
       const near = Math.max(MIN_NEAR, (camera.position.length() - NEAR_CLEARANCE_RADIUS) / 2)
       if (Math.abs(near - camera.near) > near * 0.01) {
         camera.near = near
@@ -368,8 +394,10 @@ export default function App() {
     }
     return () => {
       scene.onBeforeRender = () => {}
+      scene.remove(stars.object)
     }
-  }, [glow])
+  }, [glow, stars])
+  useEffect(() => () => stars.dispose(), [stars])
   const reachRef = useRef<{ storyId: string; deg: number } | null>(null) // how far the dots spread
   const [pickedId, setPickedId] = useState<string | null>(null) // article dot clicked on the globe
   const [highlightedId, setHighlightedId] = useState<string | null>(null) // article dot/row hovered
@@ -620,16 +648,26 @@ export default function App() {
                 </span>
               )}
             </p>
-            <div className="pointer-events-auto mt-2 flex items-start gap-2">
-              {visible.length > MAX_STORIES && (
-                <button
-                  className="rounded bg-slate-800/80 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-700"
-                  title={`The globe draws the ${MAX_STORIES} biggest stories (and any projected to grow)`}
-                  onClick={() => setShowAll(!showAll)}
+            {visible.length > MIN_STORIES && (
+              <div className="pointer-events-auto mt-2 flex items-center gap-3 text-xs text-slate-300">
+                <label
+                  className="flex items-center gap-2"
+                  title="How many stories to draw: biggest first, with those in crowded areas last"
                 >
-                  {showAll ? `Only the ${MAX_STORIES} biggest` : 'Show all stories'}
-                </button>
-              )}
+                  Stories
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={sliderPosition(wanted, visible.length)}
+                    onChange={(e) => setWanted(storiesAt(Number(e.target.value), visible.length))}
+                    className="w-36 accent-slate-200"
+                    aria-label="How many stories to show"
+                  />
+                </label>
+              </div>
+            )}
+            <div className="pointer-events-auto mt-2 flex items-start gap-2">
               {emerging.length > 0 || showEmerging ? (
                 <button
                   className={`rounded px-2 py-0.5 text-xs ${showEmerging ? 'bg-slate-200 text-slate-900' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'}`}
@@ -653,7 +691,7 @@ export default function App() {
           onSelect={selectById}
           onHover={hoverById}
           onClose={() => setShowEmerging(false)}
-          className="absolute bottom-16 left-6 top-40 z-10 w-80"
+          className="absolute bottom-24 left-6 top-40 z-10 w-80"
         />
       )}
       {legend.length > 0 && !showEmerging && (
@@ -664,7 +702,7 @@ export default function App() {
           onToggle={toggleCategory}
           onOnly={onlyCategory}
           onShowAll={() => setHidden(new Set())}
-          className="absolute bottom-16 left-6"
+          className="absolute bottom-24 left-6"
         />
       )}
     </div>

@@ -244,6 +244,15 @@ export function TimeBar({
               style={{ left: `${pct(t.day)}%` }}
             />
           ))}
+          {markerPct >= -1 && markerPct <= 101 && (
+            <span
+              className={`pointer-events-none absolute -top-6 -translate-x-1/2 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums shadow ${futureFrom !== undefined && value > futureFrom ? 'bg-amber-300 text-slate-900' : 'bg-slate-100 text-slate-900'}`}
+              style={{ left: `${clamp(markerPct, 7, 93)}%` }}
+            >
+              {formatLong(value)}
+              {futureFrom !== undefined && value > futureFrom && ' · forecast'}
+            </span>
+          )}
           <span
             className={`absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)] transition-transform group-focus-visible:ring-2 group-focus-visible:ring-white/50 ${dragging ? 'scale-125' : ''}`}
             style={{
