@@ -137,6 +137,8 @@ Don't upload `data/processed/wiki_top.parquet` from Lucy's laptop. It only cover
 
 ### Wikipedia files for B (and C)
 
+What happens to these files after the bucket (story links, the point-in-time rules, the forecast features): `docs/ARCHITECTURE.md`, "Wikipedia features, end to end".
+
 These four files are everything B needs from the Wikipedia run. They were checked on 2026-11-08 from a clean folder with the network blocked: `resolve_entities()` reproduces the selection's Wikidata ID for all 2,066 names, `forecast/panel.py`'s join runs, and a story's `pageviews_7d` adds up. `gs://undercurrent-data-cooper/wiki/MANIFEST.json` lists their row counts and checksums.
 
 | Bucket path | Put it in | Used for |

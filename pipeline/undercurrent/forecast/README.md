@@ -61,7 +61,13 @@ else: each baseline, confidence intervals, results by category, size and age).
 
 1. **`panel.py`** joins B's assignments with A's articles (DuckDB, so a year doesn't need to fit in
    memory) into the **story-day panel** described at the top of `schema.py`: one row per story and
-   day with the article count, distinct domains and countries, and mean tone.
+   day with the article count, distinct domains and countries, and mean tone. If B's
+   `story_wiki_entities` and A's `wiki_entity_daily` are there, `wiki_sql` also builds the
+   **Wikipedia panel**: each story's entities summed per day. It joins only the days from 43 before
+   the story's first article to 7 after its last; no feature looks back further. It uses English
+   views before each entity's `full_from` and all 8 languages and edits from it, so that A having
+   fetched 8 languages for an entity that only became big later doesn't leak. The whole chain:
+   `docs/ARCHITECTURE.md`, "Wikipedia features, end to end".
 2. **`dataset.py` + `features.py`** turn the panel into one row per (story, day): the features at
    that day, and the targets `y_h = log2((a7(t+h) + 1) / (a7(t) + 1))`. Every feature at day t
    uses only data up to t (Wikipedia pageviews up to t − 1); `tests/test_forecast_core.py` checks

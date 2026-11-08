@@ -70,6 +70,8 @@ How we pull it (from BigQuery, or from the 15-minute zip files) and what is kept
 
 ### Wikipedia (Ingest; used as features by Forecast)
 
+How these numbers reach the forecast, and the rules that keep them point-in-time: "Wikipedia features, end to end" below.
+
 | What | Endpoint |
 |---|---|
 | Daily pageviews per article | `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/<Title>/daily/<YYYYMMDD>/<YYYYMMDD>` |
@@ -132,6 +134,71 @@ The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `thr
 7. **Category** (`StorySummary.category`): `vectors.categorize(centroid)` (`pipeline/undercurrent/vectors/categories.py`).
    - Each category (politics, conflict, economy, society, disaster, health, technology) is described by ~8 short headline-style examples. Their vectors are averaged into a prototype, and the story takes the nearest one ("other" below 0.2 similarity). No extra model or training data, and it works across sources and languages.
    - On the demo it gets all 9 stories right, but some calls are close: Bolivia's election blockades score politics 0.38 vs society 0.38; the Rotterdam flood scores disaster 0.25 vs health 0.24. To firm it up, add examples to the weak categories. With real GDELT data, add a second vote from the articles' theme tags (`ELECTION`, `PROTEST`, `NATURAL_DISASTER`, `ECON_*`…).
+
+## Wikipedia features, end to end (A → B → C)
+
+**Why.** When something is about to become big news, people start reading the Wikipedia articles about the people and organisations involved, and editors start updating them. That often happens before the news peaks. The forecast uses it as an early signal, alongside the story's own article counts.
+
+**The flow.** Each step reads the previous one's files; `scripts/merge.sh` runs B's and C's steps before training.
+
+```
+GDELT articles (persons, orgs)
+  │ A  ingest/wiki_names.py    each ISO week's 50 most-mentioned people and 50 orgs (top 15 of each = tier 1)
+  ▼
+  │ A  ingest/wiki_bulk.py     name → English Wikipedia title → Wikidata ID (qid); daily numbers for 2021-10-10 → 2026-11-06:
+  │                            tier 1 = views in 8 languages + English edits, tier 2 = English views
+  ▼
+wiki_selection.parquet       name → qid, first_week, tier1_week        } in gs://undercurrent-data-cooper/wiki/
+wiki_entity_daily.parquet    qid, day, views, views_en, edits, ...    }
+  │ B  stories/wiki_entities.py   each story's top 5 entities, from its first days
+  ▼
+story_wiki_entities.parquet  story_id, qid, full_from (+ title_en, name, articles, rank, chosen_on, for people)
+  │ C  forecast/panel.py (wiki_sql)   the story's entities summed per day, only around the story's own days
+  ▼
+wiki panel                   story_id, day, wiki_views, wiki_edits, wiki_views_en
+  │ C  forecast/features.py
+  ▼
+5 features: wiki_log_views7, wiki_growth_7d, wiki_edit_growth_7d, wiki_non_en_share, wiki_views_per_article
+```
+
+**How a story gets its entities** (B). Take the people and organisations GDELT names in the story's articles, normalised the way `wiki_names` counts them (lower case, single spaces), and match them to `wiki_selection.name`. Names that point to the same entity (`joe biden`, `jo biden`) count once per article. Keep the 5 entities named in the most articles, each in at least 2. Leave out names that aren't the story's subject:
+
+- countries, regions and capitals, and dateline cities (`Los_Angeles`)
+- seats of government (`White_House`)
+- news agencies, media and platforms: they're named because they're the source (`Reuters`, `Instagram`)
+- generic or wrong matches from the name resolver (`Supreme_court`, `Court`, `Secondary_school`)
+
+The list is `excluded()` in `stories/wiki_entities.py`: a hand-picked set plus a rule for generic titles.
+
+**What keeps it honest.** Every feature at day t may only use what was known on day t. Five things could leak the future, and each has a rule:
+
+| What could leak | Rule | Where |
+|---|---|---|
+| Which entities a story has. Choosing them from later articles would see how the story turned out | They're chosen from the story's articles up to `chosen_on`: the earlier of its 3rd day and the first day its articles so far reach 20 (`MIN_ARTICLES_7D`). A story only gets a forecast on days with ≥ 20 articles in the last 7, and that can't happen before `chosen_on`, so the choice is always in the past. Checked on real data with C's own code | B |
+| Whether an entity has Wikipedia data at all. A only fetched names that made a weekly top 50 at some point, maybe later | A name counts for a story only if its `first_week` had ended by `chosen_on` | B |
+| 8 languages and edits. A fetched these for the whole history of any entity that was ever a weekly top 15, maybe later | `tier1_week` (A) → `full_from` = the end of that week (B). Before it, the panel uses English views and treats edits as unknown; from it, all 8 languages and edits (C) | A, B, C |
+| Pageviews for day t are published around day t + 1 | Features use views up to t − 1 and edits up to t (`forecast/settings.py`) | C |
+| Missing data read as "no interest" | A story with no entities, or a day with no numbers, is NaN, not 0. The gradient-boosted trees handle NaN | C |
+
+**Size.** The panel joins each story's entities only from 43 days before its first article to 7 days after its last (`WIKI_DAYS_BEFORE/AFTER` in `forecast/panel.py`); no feature looks further back than 28 days. B also writes entities only for stories that ever get a forecast row. On 12 real days this made the Wikipedia panel 34 times smaller, with every feature identical. Without it, the full merge would have built about 300 million rows.
+
+**Coverage and gaps** (2026-11-08):
+
+- About 43% of the stories that get forecasts have Wikipedia entities, measured on 12 real days. The rest name nobody who made a weekly top 50, and their Wikipedia features are NaN.
+- Names are only picked from 2022-10-10 onwards; sections 9 and 10 are out of scope for now. Pageviews go back to 2021-10-10.
+- Places (GDELT locations) aren't fetched.
+- The exporter doesn't show Wikipedia numbers on the globe yet (`Entity.wikipedia_title`, `pageviews_7d`, `TimelinePoint.wiki_pageviews`).
+
+**Running it by hand:**
+
+```bash
+gcloud storage cp gs://undercurrent-data-cooper/wiki/wiki_selection.parquet \
+    gs://undercurrent-data-cooper/wiki/wiki_entity_daily.parquet data/merged/
+uv run python -m undercurrent.stories.wiki_entities --processed data/merged   # -> story_wiki_entities.parquet
+uv run python -m undercurrent.forecast.run --source stories --processed data/merged --out data/merged
+```
+
+`scripts/merge.sh` does exactly this. If the Wikipedia step fails, the forecast still runs, without the Wikipedia features. `WIKI=0` skips the step. Where the files come from and how A keeps them up to date: `docs/DATA_COVERAGE.md`, "Wikipedia from Lucy's laptop". A's own guide: `pipeline/undercurrent/ingest/WIKIPEDIA.md`.
 
 ## Forecast (Forecast workstream)
 

@@ -174,6 +174,8 @@ Reads `story_assignments`, `stories_daily`, `articles` and, if they exist, `fore
 
 ### Wikipedia: what the data agent (A) should do now
 
+> **Status (2026-11-08):** done differently from the plan below. Entities are each week's top 50 GDELT people and orgs, taken from the articles, not from stories. Tier 1 (top 15) gets 8 languages and English edits, tier 2 English views, all from the per-article API. The tables are in `gs://undercurrent-data-cooper/wiki/`. How they reach the forecast, and the point-in-time rules: `docs/ARCHITECTURE.md`, "Wikipedia features, end to end". The plan is kept below for the reasoning.
+
 `pipeline/undercurrent/ingest/WIKIPEDIA.md` is right for a few thousand entities, but it won't scale to years of stories as written:
 
 - **Rate-limit maths.** Pageviews and edits in 8 languages are about 16 requests per entity, at 190 requests a minute. 1,000 entities take about 1.5 hours, 10,000 take about 14 hours and 30,000 take about 2 days. So **choose entities in tiers**, with the same rule for training and test days:

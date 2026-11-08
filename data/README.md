@@ -21,7 +21,8 @@ For the multi-year run (see "Scaling up" in the main `README.md`), the bucket is
 | `processed/vectors/<source>/<YYYY-MM-DD>.npy` and `.parquet` | Vectors | fp16, L2-normalised vectors and their ids, one file per day |
 | `processed/vectors/manifest.json` | Vectors | Model, dimension and text-cleaning version. If these change, every vector must be rebuilt |
 | `processed/story_assignments.parquet`, `stories_daily.parquet` | Stories | The tracker's output: the small tables that training reads |
-| `processed/wiki_*.parquet` | Ingest | Wikipedia tables |
+| `processed/wiki_*.parquet` | Ingest | Wikipedia tables. The two the forecast uses (`wiki_selection`, `wiki_entity_daily`) are in `wiki/` in the bucket, not `processed/` |
+| `processed/story_wiki_entities.parquet` | Stories | Each story's Wikipedia entities (`stories/wiki_entities.py`). `scripts/merge.sh` rebuilds it in `data/merged/` |
 | `export/` | Stories, Forecast | The JSON the web app reads |
 
 Rules:

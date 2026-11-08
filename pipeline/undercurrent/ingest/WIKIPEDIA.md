@@ -238,27 +238,34 @@ What each machine fetches (`fetch --shard i/n`). The default range is five years
 
 ### B: Stories
 
-**Getting the files:** the two-year run's tables are in `gs://undercurrent-data-cooper/wiki/`: `wiki_selection.parquet`, `wiki_entity_daily.parquet` and `cache/wiki_{resolve,links}.json`. Copy them to `data/processed/` and `data/cache/` (commands, checks and known gaps: "Wikipedia files for B" in `docs/DATA_COVERAGE.md`). With those files, **join a story's GDELT names straight to `wiki_selection.name`** (lowercase, as in the articles). That needs no network. Keep an entity only if its `first_week` started by the story's first day. The steps below are for names outside the selection.
+**Done: `stories/wiki_entities.py`** links each story to its Wikipedia entities and writes `story_wiki_entities.parquet` (`story_id, qid, full_from`, plus columns for people). `scripts/merge.sh` runs it before the forecast. What it does and why each rule is there: `docs/ARCHITECTURE.md`, "Wikipedia features, end to end". In short:
 
-1. **For each story, pick its top entities** (for example the 5 most-mentioned people and organisations) and resolve them with `resolve_entities(names)`. Use the Python call, not the CLI: it's cached and fast after the first time.
-2. Put the English title in `Entity.wikipedia_title` in the export. Leave it empty when nothing was found; never guess.
-3. **Write the resolved titles to `data/processed/wiki_titles.txt`** and run step 3 above, or ask A to. Don't send every GDELT name. There are hundreds of thousands, and at about 5 seconds per entity it would take days.
-4. When exporting, read `wiki_entity_daily.parquet`:
-   - `Entity.pageviews_7d` / `edits_7d`: the sum of `views` / `edits` over the 7 days ending on the snapshot day.
-   - `TimelinePoint.wiki_pageviews`: the sum of `views` over the story's entities for that day, or empty if there's no data.
-5. Be careful with countries and capital cities: they're read so much anyway (`United_States`, `London`) that they drown out the signal. Leave them out of story totals, or give them low weight.
+1. It reads `wiki_selection.parquet` and `wiki_entity_daily.parquet` from `gs://undercurrent-data-cooper/wiki/` (download commands: "Wikipedia files for B" in `docs/DATA_COVERAGE.md`). It needs no network.
+2. It matches the GDELT names in a story's first articles to `wiki_selection.name`, normalised the same way `wiki_names` counts them (`normalise_name`: lower case, single spaces).
+3. It keeps the 5 entities named in the most articles, each in at least 2. An entity counts only once its `first_week` has ended.
+4. It leaves out countries, capitals, dateline cities, seats of government, media and platforms, and generic or wrong matches (`excluded()`). They're read so much anyway (`United_States`, `Reuters`) that they drown out the story's own signal.
+
+**Still to do: the exporter.** Fill these from `story_wiki_entities` and `wiki_entity_daily.parquet`:
+
+- `Entity.wikipedia_title`: `title_en`. Leave it empty when there's no match; never guess.
+- `Entity.pageviews_7d` / `edits_7d`: the sum of `views` / `edits` over the 7 days ending on the snapshot day.
+- `TimelinePoint.wiki_pageviews`: the sum of `views` over the story's entities for that day, or empty if there's no data.
+
+Use the same `full_from` rule as the forecast, or the globe will show numbers the model wasn't allowed to see.
+
+**Names outside the selection** (places, smaller names): resolve them with `resolve_entities(names)`, write the titles to `data/processed/wiki_titles.txt`, then run `wiki --titles-file` (step 3 above; about 5 seconds per entity). Don't send every GDELT name: there are hundreds of thousands. These are for the globe only. `stories/wiki_entities.py` uses only names in the selection, because those have a `first_week` to check. An entity fetched this way would need its own point-in-time rule before the forecast could use it.
 
 ### C: Forecast
 
-1. **Read only the parquet files**, never the internet, so your training is repeatable and works offline.
-2. **No peeking into the future.** For a forecast made on day t, use only rows with `day <= t`. Strictly, pageviews for day t aren't published until about day t+1, so the most honest choice is `day <= t - 1` for pageviews. Edits are known straight away. Pick one rule, use it everywhere, and write it in your Notes in `PLAN.md`.
-3. **Suggested features**, per story, from `wiki_entity_daily`:
-   - **growth:** `log2((views over the last 7 days + 1) / (views over the 7 days before + 1))`, and the same for edits;
-   - **acceleration:** this week's growth minus last week's;
-   - **spread:** how many languages show rising views (from the `views_<lang>` columns);
-   - **non-English share:** views outside English divided by total views; a rising share suggests the story is spreading internationally;
-   - **top-1000 presence:** how many of the story's entities are in a top-1000 list that day (`wiki_top`, with bots removed).
-4. **Missing isn't zero.** An entity with no rows was never fetched; treat it as missing (NaN). The gradient boosting model handles NaN natively.
+**Done.** `forecast/panel.py` (`wiki_sql`) sums each story's entities per day, and `forecast/features.py` turns that into five features: `wiki_log_views7`, `wiki_growth_7d`, `wiki_edit_growth_7d`, `wiki_non_en_share`, `wiki_views_per_article`. The rules:
+
+1. **Read only the parquet files**, never the internet, so training is repeatable and works offline.
+2. **No peeking into the future.** A forecast made on day t uses pageviews up to t − 1 (they're published about a day late) and edits up to t (`settings.WIKI_VIEWS_LAG_DAYS`, `WIKI_EDITS_LAG_DAYS`).
+3. **8 languages and edits only from `full_from`.** A fetches 8 languages and edits for the whole history of any entity that was ever a weekly top 15 (tier 1), so before the week it got there they'd give away its later prominence. Before `full_from` the panel uses English views (`views_en`, fetched the same way for every entity) and edits are unknown. This means `wiki_views` jumps when an entity goes tier 1: the jump is real information on that day, not a leak.
+4. **Only the days around the story** are joined (43 before its first article, 7 after its last). No feature looks back further, and it keeps the full merge to about 10M rows instead of 300M.
+5. **Missing isn't zero.** A story with no entities, or a day with no rows, is NaN. The gradient boosting model handles NaN natively.
+
+Not built yet, and worth trying: the number of languages with rising views (from the `views_<lang>` columns, only after `full_from`), and top-1000 presence (`wiki_top`, bots removed).
 
 ### D: Web and API
 

@@ -193,6 +193,8 @@ gcloud storage rsync -r gs://$BUCKET/export data/export        # on each laptop;
 
 ## 5. Parallel lane: Wikipedia
 
+> **Status (2026-11-08):** done from Lucy's laptop. The tables are in `gs://undercurrent-data-cooper/wiki/` (`docs/DATA_COVERAGE.md`), and `scripts/merge.sh` uses them (`docs/ARCHITECTURE.md`, "Wikipedia features, end to end").
+
 Rate-limited, not compute-limited, so it doesn't need the GPU machine. As soon as there are stories, run tier 1 entities from a laptop or the pull VM (`README.md`, "Wikipedia: what the data agent (A) should do now"; `pipeline/undercurrent/ingest/WIKIPEDIA.md`). The top-1000 history needs no entities and can start at step 3.
 
 ## 6. Turn things off
