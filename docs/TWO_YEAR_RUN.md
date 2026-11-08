@@ -115,6 +115,7 @@ git -C ~/undercurrent pull -q
 | Is the translated feed there? | `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (it should be about 2× English) |
 | Cooper only: calibrate the cutoffs | `vm.sh pairs`, then `vm.sh calibrate "1011 0010 ..."` (see "Calibrate the cutoffs" below) |
 | After "cutoffs pushed" | `bash ~/undercurrent/scripts/gcp/vm.sh track` (resumes if it stops; `track-fresh` starts again) |
+| Cooper only: the first real data for the globe | `vm.sh export` (the newest 60 days; see "The first 60 days on the globe" below). Needs those days embedded; doesn't wait for the block's `track` |
 | Tracking finished | `bash ~/undercurrent/scripts/gcp/vm.sh finish`: uploads your own days and writes `status/block-N.done` |
 | Then | `bash ~/undercurrent/scripts/gcp/vm.sh stop` |
 | Setup went wrong | `bash ~/undercurrent/scripts/gcp/vm.sh log` (the setup log, no SSH) |
@@ -301,7 +302,13 @@ gcloud storage buckets add-iam-policy-binding gs://$BUCKET --member=serviceAccou
 2. Label each pair **1** if both headlines report the same specific event or story (the same incident, decision, match or announcement, in any wording or language), **0** if they are the same kind of thing but a different event or place, or merely related. When unsure, 0. Write the labels as one string in order: `1011 0010 ...`.
 3. `bash ~/undercurrent/scripts/gcp/vm.sh calibrate "1011 0010 ..."` prints a table of precision by cutoff and the cutoff for 90% precision, with a range for how far another sample could move it. A string of the wrong length is refused, so a missed digit can't shift the labels.
 4. Put the cutoff in `vectors/thresholds.py` (and add the pair to `CALIBRATED`), commit, push, and post **"cutoffs pushed"**.
-5. Track the newest 60 days first and read 20 stories before telling anyone to go.
+5. Track the newest 60 days first and read 20 stories before telling anyone to go (`vm.sh preview` for a quick look at 14 days; the next section for the 60).
+
+**The first 60 days on the globe** (Cooper; doesn't wait for the other blocks or for the block's own `track`).
+1. The embedders go oldest to newest, so the newest days are the last to be ready. The command checks that every day it needs is embedded (the 60 days plus 28 to warm the tracker up) and says which are missing if not.
+2. In Cloud Shell: `bash ~/undercurrent/scripts/gcp/vm.sh export`. It pulls the code on the VM, tracks those 88 days into its own folder (`~uc/export_work`; the block's tracker state and story files are never touched), exports the last 60 into `~uc/export` and uploads it to `gs://$BUCKET/export`. With no numbers it uses the cutoffs in `thresholds.py`, like `track`; `vm.sh export 60 0.80 0.85` forces a pair, and `vm.sh export 30` does fewer days. It competes with a running `track` for the CPU.
+3. On your laptop (this needs `gcloud` there): `gcloud storage rsync -r gs://$BUCKET/export data/export`, then `npm run dev`. Days in `meta.dates` come from this export, and the rest of the time bar keeps the illustrative archive until the full export replaces it.
+4. It has no forecast yet (the model needs the merged blocks), which the contract allows. The story ids come from this one tracker run, so they may differ from the ids in the final merged export.
 
 **Merge, train, export** (when every `status/block-N.done` exists, `gcloud storage ls gs://$BUCKET/status/`):
 

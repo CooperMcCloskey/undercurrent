@@ -16,6 +16,10 @@
 #   preview [LINK ASSIGN [START END]]  try a cutoff on real days without touching the block: tracks
 #                START..END (default 2026-10-24..2026-11-06) with LINK/ASSIGN (default 0.80 0.85) into
 #                ~uc/preview, then prints story sizes and about 20 stories to read. Takes a while.
+#   export [DAYS [LINK ASSIGN]]  the first real data for the globe, without waiting for the whole block:
+#                track the newest DAYS days (default 60, plus 28 days to warm the tracker up) in its own
+#                folder, export them and upload them to gs://BUCKET/export. Needs those days embedded.
+#                With no cutoffs it uses the ones in thresholds.py, like `track`. The block is untouched.
 #   track        after "cutoffs pushed": track the block (resumes if it stopped)
 #   track-fresh  track from the start again (after the cutoffs changed)
 #   finish       upload this block's own story days and mark the block done
@@ -109,6 +113,54 @@ OMP_NUM_THREADS=$(nproc) nice uv run python -m undercurrent.stories.track --proc
 uv run python -m undercurrent.stories.preview --processed "$P" --day "$END"
 EOF
   ;;
+export)
+  DAYS=${2:-60} CUTS=""
+  [[ "$DAYS" =~ ^[0-9]+$ ]] && [ "$DAYS" -ge 8 ] ||
+    { echo "usage: vm.sh export [DAYS [LINK ASSIGN]]   e.g. vm.sh export 60   or   vm.sh export 60 0.80 0.85" >&2; exit 1; }
+  if [ -n "${3:-}" ]; then
+    [[ "$3" =~ ^[01]\.[0-9]+$ && "${4:-}" =~ ^[01]\.[0-9]+$ ]] ||
+      { echo "give both cutoffs: vm.sh export $DAYS LINK ASSIGN   e.g. vm.sh export 60 0.80 0.85" >&2; exit 1; }
+    CUTS="--link-sim $3 --assign-sim $4"
+  fi
+  # Like `preview`, this works in its own copy (~uc/export_work; the vectors and articles are linked,
+  # not copied), so the block's tracker state and story files are never touched. It does compete with
+  # a running `track` for the CPU. The dates are worked out in Python on the VM, not with `date`.
+  { echo "DAYS=$DAYS CUTS='$CUTS'"; cat; } <<'EOF' | gcloud compute ssh "$VM" --zone="$ZONE" --command='sudo -u uc -H bash -s' -- -o ServerAliveInterval=30
+cd ~/undercurrent && source ~/block.env && export PATH=$HOME/.local/bin:$PATH
+git pull -q --ff-only || { echo "git pull failed on the VM; nothing started." >&2; exit 1; }
+uv sync -q
+read -r START WARM < <(uv run python -c "
+import datetime as dt
+end = dt.date.fromisoformat('$OWN_END')
+start = end - dt.timedelta(days=$DAYS - 1)
+print(start, start - dt.timedelta(days=28))")
+MISSING=$(uv run python - "$WARM" "$OWN_END" <<'PY'
+import datetime as dt, pathlib, sys
+first, last = (dt.date.fromisoformat(a) for a in sys.argv[1:3])
+vectors = pathlib.Path("data/processed/vectors/news")
+days = (first + dt.timedelta(i) for i in range((last - first).days + 1))
+print(" ".join(str(d) for d in days if not (vectors / f"{d}.parquet").exists()))
+PY
+)
+if [ -n "$MISSING" ]; then
+  echo "Not every day from $WARM to $OWN_END is embedded yet; missing: $(echo $MISSING | cut -c1-200)" >&2
+  echo "The embedders go oldest to newest, so the newest days come last. Check: bash ~/undercurrent/scripts/gcp/vm.sh status" >&2
+  exit 1
+fi
+W=$HOME/export_work OUT=$HOME/export
+rm -rf "$W" "$OUT" && mkdir -p "$W"
+ln -s "$PWD/data/processed/vectors" "$W/vectors"
+ln -s "$PWD/data/processed/articles" "$W/articles"
+echo "Tracking $WARM to $OWN_END (the first 28 days only warm the tracker up), then exporting $START to $OWN_END."
+OMP_NUM_THREADS=$(nproc) nice uv run python -m undercurrent.stories.track --processed "$W" --fresh \
+  --start "$WARM" --end "$OWN_END" $CUTS || exit 1
+uv run python -m undercurrent.stories.export --processed "$W" --out "$OUT" --start "$START" --end "$OWN_END" || exit 1
+gcloud storage rsync -r "$OUT" "gs://$BUCKET/export" -q || exit 1
+echo
+echo "Exported $START to $OWN_END and uploaded it to gs://$BUCKET/export."
+echo "On your laptop (needs gcloud there):  gcloud storage rsync -r gs://$BUCKET/export data/export   then  npm run dev"
+EOF
+  ;;
 log)
   gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | grep uc-startup | tail -20
   ;;
@@ -116,7 +168,7 @@ stop)
   gcloud compute instances stop "$VM" --zone="$ZONE"
   ;;
 *)
-  sed -n '2,23p' "$0"
+  sed -n '2,27p' "$0"
   exit 1
   ;;
 esac
