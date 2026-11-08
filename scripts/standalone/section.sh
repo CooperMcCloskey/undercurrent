@@ -5,13 +5,17 @@
 #   bash ~/undercurrent/scripts/standalone/section.sh setup SECTION   once: tools, code, GPU check, settings
 #   bash ~/undercurrent/scripts/standalone/section.sh start           pull + embed + upload loops (safe to rerun)
 #   bash ~/undercurrent/scripts/standalone/section.sh status          progress, speed, GPU, logs, bucket access
-#   bash ~/undercurrent/scripts/standalone/section.sh track           after "cutoffs pushed": track, following the embedding
-#   bash ~/undercurrent/scripts/standalone/section.sh track-fresh     the same, starting the timeline again
+#   bash ~/undercurrent/scripts/standalone/section.sh track [N]       after "cutoffs pushed": track, following the embedding
+#   bash ~/undercurrent/scripts/standalone/section.sh track-fresh [N] the same, starting the timeline again (after the
+#                                                                     cutoffs changed); the old story tables are moved aside
 #   bash ~/undercurrent/scripts/standalone/section.sh finish          upload the section's own story days, mark it done
 #
 # SECTION: 3, 4, 5, 6a, 6b or 7-10 (docs/DATA_COVERAGE.md). The pull reads GDELT's 15-minute zip files
 # (ingest/gdelt_zip.py), so no BigQuery or Google Cloud project is needed; only `gcloud` logged in
 # with write access to the bucket. Everything resumes where it stopped: after a reboot, run `start`.
+# Tracking uses every CPU the machine allows (less what this section's pull and embedders still
+# need), unless N threads are given; its searches run on the GPU (stories/search.py).
+# Quick reference for all of this: docs/SECTION_RUNBOOK.md.
 set -uo pipefail
 R=$(cd "$(dirname "$0")/../.." && pwd)
 L=$R/logs
@@ -51,6 +55,27 @@ tracked() { ls data/processed/stories_daily 2>/dev/null | sed -n 's/\.parquet$//
 running() { tmux ls -F '#{session_name}' 2>/dev/null | grep -c "^$1" || true; }
 launch() { tmux has-session -t "$1" 2>/dev/null || tmux new -d -s "$1" -c "$R" "$2"; }
 bucket_ok() { gcloud storage ls "gs://$BUCKET/processed/" >/dev/null 2>&1; }
+# CPUs we may use: nproc, capped by a container's CPU quota (inside one, nproc often counts the host).
+usable_cpus() {
+  local n q p
+  n=$(nproc)
+  if [ -r /sys/fs/cgroup/cpu.max ]; then
+    read -r q p </sys/fs/cgroup/cpu.max
+  elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then
+    q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us) p=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+  fi
+  if [[ "${q:-}" =~ ^[0-9]+$ && "${p:-0}" -gt 0 ]]; then
+    q=$((q / p))
+    [ "$q" -ge 1 ] || q=1
+    [ "$q" -lt "$n" ] && n=$q
+  fi
+  echo "$n"
+}
+# Tracker threads: every usable CPU, less ~2 per embedder and 4 for the pull of this section still running.
+track_threads() {
+  local t=$(($(usable_cpus) - 2 * $(running embed) - 4 * $(running pull)))
+  [ "$t" -ge 2 ] && echo "$t" || echo 2
+}
 
 case "${1:-}" in
 setup)
@@ -94,7 +119,7 @@ setup)
 export BLOCK=$SECTION PULL_START=$PS OWN_START=$OS OWN_END=$OE
 export BUCKET=$BUCKET
 export UC_HALF=1 GPUS=$GPUS EMBED_PROCS=$((GPUS * PER_GPU)) BATCH_SIZE=$([ "$GPU_GB" -ge 40 ] && echo 1024 || echo 512)
-export PULL_WORKERS=$([ "$CPUS" -ge 12 ] && echo 8 || echo 4) TRACK_THREADS=$([ "$CPUS" -ge 12 ] && echo 6 || echo 2)
+export PULL_WORKERS=$([ "$CPUS" -ge 12 ] && echo 8 || echo 4)
 EOF
   echo "== settings (~/block.env):"; cat "$HOME/block.env"
 
@@ -151,21 +176,43 @@ _upload)
   done
   ;;
 track | track-fresh)
+  N=${2:-auto}
+  [[ "$N" = auto || "$N" =~ ^[1-9][0-9]*$ ]] || { echo "usage: section.sh $1 [THREADS]"; exit 1; }
   git pull -q --ff-only && uv sync -q
   tmux kill-session -t track 2>/dev/null
-  launch track "bash $SELF _track $([ "$1" = track-fresh ] && echo --fresh)"
-  echo "tracking $PULL_START..$OWN_END, following the embedding; watch: tail -f $L/track.log"
+  for _ in $(seq 30); do # let the old tracker exit before touching its tables
+    pgrep -f "undercurrent.stories.track --start $PULL_START " >/dev/null || break
+    sleep 1
+  done
+  rm -f "$L/TRACK_DONE"
+  if [ "$1" = track-fresh ]; then
+    # Moved, not deleted: a new timeline must not be mixed with (or finished on) the old one's days.
+    OLD=data/processed/_superseded/$(date -u +%Y%m%dT%H%M%S)
+    for T in story_assignments stories_daily story_lineage tracker_state; do
+      [ -d "data/processed/$T" ] && mkdir -p "$OLD" && mv "data/processed/$T" "$OLD/"
+    done
+    [ -d "$OLD" ] && echo "the previous story tables are in $R/$OLD (not deleted)"
+  fi
+  launch track "bash $SELF _track $([ "$1" = track-fresh ] && echo --fresh || echo -) $N"
+  echo "tracking $PULL_START..$OWN_END, following the embedding; watch: tail -F $L/track.log"
   ;;
 _track)
-  F=${2:-}
+  F=${2:--} T=${3:-auto}
+  [ "$F" = - ] && F=""
   # The tracker stops at the first day without vectors; carry on from there until the section is done.
-  until OMP_NUM_THREADS=$TRACK_THREADS uv run python -m undercurrent.stories.track --start "$PULL_START" --end "$OWN_END" $F >>"$L/track.log" 2>&1; do
+  # The thread count is worked out again on each run, so it grows as the pull and embedders finish.
+  until
+    N=$([ "$T" = auto ] && track_threads || echo "$T")
+    echo "$(date -u) tracking with $N threads" >>"$L/track.log"
+    OMP_NUM_THREADS=$N uv run python -m undercurrent.stories.track --start "$PULL_START" --end "$OWN_END" $F >>"$L/track.log" 2>&1
+  do
     F="" # --fresh only on the first run
     sleep 120
   done
   echo "$(date -u) TRACK DONE" | tee -a "$L/track.log" >"$L/TRACK_DONE"
   ;;
 finish)
+  [ -f "$L/TRACK_DONE" ] || { echo "Tracking hasn't finished (no $L/TRACK_DONE). Not uploading."; exit 1; }
   shopt -s nullglob
   WANT=$((($(date -ud "$OWN_END" +%s) - $(date -ud "$OWN_START" +%s)) / 86400 + 1))
   rm -rf "$HOME/own"
