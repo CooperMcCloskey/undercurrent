@@ -96,7 +96,8 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - [x] `categorize()`: story category from vectors (`vectors/categories.py`). Still to do: more examples for weak categories, and recheck on real stories
 - [x] `load()` and `threshold()`; the store per source and day (float16, L2-normalised), deduped by text hash and reusing the last 3 days (`vectors/store.py`, run with `python -m undercurrent.vectors.store`)
 - [ ] Model benchmark (speed on your laptop + ~100 labelled pairs) → set `config.EMBEDDING_MODEL`, **locked at the H+2 sync**
-- [ ] Wikipedia "Current events" bullets for the backfill range → `wiki_events.parquet`
+- [x] Wikipedia "Current events" fetcher and parser → `wiki_events.parquet` (`vectors/wiki_events.py`, 20 offline tests; run for 30 days: 498 events, 456 embedded)
+- [ ] Run it for the whole backfill range, then embed the settled days: `uv run python -m undercurrent.vectors.wiki_events --start ... --end ...` (one request per day: two years is about 730, a few minutes, and it shares Wikimedia's rate limit with A's downloads)
 - [ ] Vectors for A's last 7 days, embedded day by day as they land (H+6)
 - [ ] Thresholds per source pair (news–news, bluesky–news, wiki_events–news), from ~50 labelled pairs each (H+8). The tool is built (`python -m undercurrent.vectors.calibrate`); the values in `vectors/thresholds.py` are still placeholders and warn when used
 - [ ] Vectors for the backfill (newest 60 days first, then the rest), day by day as A parses it, kept in the bucket (H+11 for the first 60 days)
@@ -108,6 +109,9 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 **Notes:**
 - The store (`vectors/store.py`) is tested with a fake model, and was run once with the real model on the 102 demo headlines: 5 days embedded, a second run skipped them all, `load()` and the manifest were right. Not yet run on real articles. Its only knowledge of A's schema is `day_inputs()`.
 - `embed()` cleans and embeds raw text; the store uses `embed_cleaned()` because cleaning twice can strip real words. `embed()` still behaves as before.
+- `wiki_events`: a day's page is 5 to 25 bullets (498 over the last 30 days), almost all with linked articles. The page nests topic > sub-topic > event; an item is an event if it carries a source link, or has no sub-list and reads as a sentence. Each row also has `section`, `topic` and `topic_titles` (the headings an event sits under, and their Wikipedia articles): the story's own article, a free entity for B and C. The parser was checked against real pages from 2021 to 2026 (it matched an independent count of sourced bullets on all five).
+- **Embed only settled days.** Bullets keep being added to a day's page for a few days, so `wiki_events.py` fetches a day again until its copy is 3 days old (`SETTLE_DAYS`). The store marks a day done after embedding it, so run it with `--end` at least 4 days ago, or a bullet added later never gets a vector. The same rule gives point-in-time: a day's bullets may differ from what existed on that day.
+- Still open for `wiki_events`: the `wiki_events`–news cutoff is a guess (0.38) until news vectors exist to label pairs against. The text is the bare bullet; if its match to headlines is weak, prefixing the `topic` is the first thing to try.
 - Device is picked automatically (CUDA, then MPS, then CPU). **PyTorch and FAISS crash each other on macOS** if used in one process: keep embedding and story tracking as separate processes (`README.md`, "Clustering").
 - Category prototypes are cached on disk (`data/cache/category_prototypes/`), so the tracker can label stories without loading the embedding model.
 

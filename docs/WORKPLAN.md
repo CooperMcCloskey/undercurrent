@@ -189,7 +189,7 @@ V fetches and embeds these; A's Wikipedia tables (3.2) stay the numeric pageview
 
 | File | Columns |
 |---|---|
-| `processed/wiki_events.parquet` | `id: str` (`<day>:<n>`), `day: date`, `text: str` (one bullet from the daily "Current events" page), `titles: list<str>` (the articles it links to) |
+| `processed/wiki_events.parquet` | `id: str` (`<day>:<n>`), `day: date`, `text: str` (one bullet from the daily "Current events" page, source citations removed), `titles: list<str>` (the articles it links to), `section: str` (the page's heading, e.g. "Armed conflicts and attacks"), `topic: str` (the headings it sits under, joined with " > "; empty if none), `topic_titles: list<str>` (the articles those headings link to: the story's own article). Written by `vectors/wiki_events.py` |
 | `processed/wiki_new.parquet` | `id: str` (page id), `day: date` (created), `title: str`, `text: str` (title + first sentence) |
 
 Current-events bullets are short, curated event summaries going back years, so they embed well against headlines and work for the backfill. Their links also give B and C Wikipedia titles for free. New event articles ("2026 Kenyan election recount") are a strong "this is getting big" signal.

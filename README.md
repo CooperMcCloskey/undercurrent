@@ -41,6 +41,7 @@ Until the real pipeline exports, the globe shows the mock data (`npm run dev:moc
 | `uv run python -m undercurrent.forecast.run --source synthetic` | Train, backtest and forecast on made-up stories (no data needed). `--source proxy` uses A's `articles.parquet`; `--source stories` uses B's stories. Add `--model hgb gru` for the neural net. See "Future prediction" below |
 | `uv run python -m undercurrent.vectors.store --source news --start D --end D` | Embed each day's headlines into the vector store (resumable; `--shard i/n` splits days across machines) |
 | `uv run python -m undercurrent.stories.track --start D --end D` | Run the story tracker over a range of days (resumable) |
+| `uv run python -m undercurrent.vectors.wiki_events --days 30` | Download Wikipedia's daily "Current events" bullets → `data/processed/wiki_events.parquet` (one request a day; resumable). Then embed them with `undercurrent.vectors.store --source wiki_events`, on days at least 4 days old |
 | `uv run python -m undercurrent.demo` | Embed + cluster the hand-written demo items, score them, export to `data/export/` (then `npm run dev` shows them) |
 
 ## Scaling up: the plan to maximise performance
