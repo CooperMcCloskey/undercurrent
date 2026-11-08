@@ -7,3 +7,4 @@ package-lock.json
 uv.lock
 web/public/mock/
 web/src/api/types.gen.ts
+demo/
