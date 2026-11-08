@@ -13,6 +13,9 @@
 #                scores, to label "same story?" (1 or 0). Writes ~uc/pairs_unlabelled.csv on the VM.
 #   calibrate "LABELS"  measure the "same story" cutoff from your labels, one digit per pair in order,
 #                e.g. "1011 0010 ..." (spaces ignored). Prints the cutoff to put in thresholds.py.
+#   preview [LINK ASSIGN [START END]]  try a cutoff on real days without touching the block: tracks
+#                START..END (default 2026-10-24..2026-11-06) with LINK/ASSIGN (default 0.80 0.85) into
+#                ~uc/preview, then prints story sizes and about 20 stories to read. Takes a while.
 #   track        after "cutoffs pushed": track the block (resumes if it stopped)
 #   track-fresh  track from the start again (after the cutoffs changed)
 #   finish       upload this block's own story days and mark the block done
@@ -84,6 +87,28 @@ uv run python "$HOME/calibrate.py" --pairs "$HOME/pairs_unlabelled.csv" --labels
 EOF
   fi
   ;;
+preview)
+  LINK=${2:-0.80} ASSIGN=${3:-0.85} START=${4:-2026-10-24} END=${5:-2026-11-06}
+  [[ "$LINK" =~ ^[01]\.[0-9]+$ && "$ASSIGN" =~ ^[01]\.[0-9]+$ ]] ||
+    { echo "usage: vm.sh preview [LINK ASSIGN [START END]]   e.g. vm.sh preview 0.80 0.85" >&2; exit 1; }
+  [[ "$START" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$END" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] ||
+    { echo "dates look like 2026-10-24" >&2; exit 1; }
+  # Its own copy of the output in ~uc/preview (the vectors and articles are linked, not copied), so
+  # the block's tracker state and story files are never touched. The VM does pull the code: by now
+  # the embedders have finished, which is when block.sh track pulls too.
+  { echo "LINK=$LINK ASSIGN=$ASSIGN START=$START END=$END"; cat; } <<'EOF' | gcloud compute ssh "$VM" --zone="$ZONE" --command='sudo -u uc -H bash -s' -- -o ServerAliveInterval=30
+cd ~/undercurrent && export PATH=$HOME/.local/bin:$PATH
+git pull -q --ff-only || { echo "git pull failed on the VM; nothing started." >&2; exit 1; }
+uv sync -q
+P=$HOME/preview
+rm -rf "$P" && mkdir -p "$P"
+ln -s "$PWD/data/processed/vectors" "$P/vectors"
+ln -s "$PWD/data/processed/articles" "$P/articles"
+OMP_NUM_THREADS=$(nproc) nice uv run python -m undercurrent.stories.track --processed "$P" --fresh \
+  --start "$START" --end "$END" --link-sim "$LINK" --assign-sim "$ASSIGN" || exit 1
+uv run python -m undercurrent.stories.preview --processed "$P" --day "$END"
+EOF
+  ;;
 log)
   gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | grep uc-startup | tail -20
   ;;
@@ -91,7 +116,7 @@ stop)
   gcloud compute instances stop "$VM" --zone="$ZONE"
   ;;
 *)
-  sed -n '2,20p' "$0"
+  sed -n '2,23p' "$0"
   exit 1
   ;;
 esac
