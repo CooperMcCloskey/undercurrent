@@ -9,6 +9,7 @@
 #   bash ~/undercurrent/scripts/standalone/section.sh track-fresh [N] the same, starting the timeline again (after the
 #                                                                     cutoffs changed); the old story tables are moved aside
 #   bash ~/undercurrent/scripts/standalone/section.sh finish          upload the section's own story days, mark it done
+#   bash ~/undercurrent/scripts/standalone/section.sh verify          read-only: is everything this section made in the bucket?
 #   bash ~/undercurrent/scripts/standalone/section.sh fetch           instead of `start`, for a section pulled and embedded
 #                                                                     elsewhere (3b, 7b): download its articles and vectors
 #                                                                     from the bucket, then `track` (it keeps fetching new days)
@@ -270,6 +271,66 @@ finish)
   fi
   echo "section $BLOCK $OWN_START..$OWN_END done $(date -u)" | gcloud storage cp - "gs://$BUCKET/status/block-$BLOCK.done"
   echo "Uploaded. Mark section $BLOCK done in docs/DATA_COVERAGE.md and post it in the chat."
+  echo
+  bash "$SELF" verify
+  ;;
+verify)
+  # Read-only: is everything this section made in the bucket? Its own days of the three story
+  # tables (same size as here), the articles and vectors of every day (warm-up too), the done marker.
+  bucket_ok || { echo "Can't reach gs://$BUCKET: gcloud auth login --no-launch-browser"; exit 1; }
+  B=gs://$BUCKET/processed
+  TMP=$(mktemp -d)
+  trap 'rm -rf "$TMP"' EXIT
+  for T in stories_daily story_assignments story_lineage; do # "size name" per object
+    gcloud storage ls -l "$B/$T/" 2>/dev/null | awk '$3 ~ /^gs:/ {n = $3; sub(".*/", "", n); print n, $1}' | sort >"$TMP/$T"
+  done
+  gcloud storage ls "$B/vectors/news/" 2>/dev/null | sed 's|.*/||' | sort >"$TMP/vectors"
+  for T in articles gdelt_totals; do
+    gcloud storage ls "$B/$T/" 2>/dev/null | sed -n 's|.*/day=\([0-9-]*\)/$|\1|p' | sort >"$TMP/$T"
+  done
+  days() { d=$1; while [[ ! "$d" > "$2" ]]; do echo "$d"; d=$(date -ud "$d + 1 day" +%F); done; }
+  WANT=$((($(date -ud "$OWN_END" +%s) - $(date -ud "$OWN_START" +%s)) / 86400 + 1))
+  ALL=$(expected)
+  BAD=0
+  for T in stories_daily story_assignments story_lineage; do
+    shopt -s nullglob
+    tot=0 same=0
+    for f in data/processed/$T/*.parquet; do
+      d=$(basename "$f" .parquet)
+      [[ "$d" < "$OWN_START" || "$d" > "$OWN_END" ]] && continue
+      tot=$((tot + 1))
+      [ "$(awk -v n="$d.parquet" '$1 == n {print $2}' "$TMP/$T")" = "$(stat -c %s "$f")" ] && same=$((same + 1))
+    done
+    need=$([ $T = story_lineage ] && echo "$tot" || echo "$WANT")
+    state=ok
+    [ "$tot" -lt "$need" ] && state="ONLY $tot OF $WANT OWN DAYS HERE: is tracking finished?"
+    [ "$same" -lt "$tot" ] && state="$((tot - same)) MISSING OR DIFFERENT IN THE BUCKET: run finish"
+    [ "$state" = ok ] || BAD=1
+    printf '  %-18s %4d/%-4d own-day files in the bucket, same size  %s\n' "$T" "$same" "$tot" "$state"
+  done
+  missing=$(days "$PULL_START" "$OWN_END" | while read -r d; do
+    grep -qx "$d.npy" "$TMP/vectors" && grep -qx "$d.parquet" "$TMP/vectors" || echo "$d"; done | wc -l)
+  printf '  %-18s %4d/%-4d days (npy and parquet)                  %s\n' vectors $((ALL - missing)) "$ALL" "$([ "$missing" = 0 ] && echo ok || echo "MISSING: run finish")"
+  [ "$missing" = 0 ] || BAD=1
+  for T in articles gdelt_totals; do
+    missing=$(days "$PULL_START" "$OWN_END" | grep -cvxFf "$TMP/$T")
+    printf '  %-18s %4d/%-4d days                                     %s\n' "$T" $((ALL - missing)) "$ALL" "$([ "$missing" = 0 ] && echo ok || echo "MISSING: run finish")"
+    [ "$missing" = 0 ] || BAD=1
+  done
+  if gcloud storage ls "gs://$BUCKET/status/block-$BLOCK.done" >/dev/null 2>&1; then
+    echo "  done marker        status/block-$BLOCK.done                        ok"
+  else
+    echo "  done marker        status/block-$BLOCK.done                        MISSING: run finish"
+    BAD=1
+  fi
+  if [ $BAD = 0 ]; then
+    echo "Everything section $BLOCK made is in gs://$BUCKET. This server's copy is no longer needed:"
+    echo "  rm -rf $R/data/processed $R/data/raw"
+    echo "(or delete the server). If the cutoffs change again, 'fetch' brings the data back from the bucket."
+  else
+    echo "NOT everything is in the bucket yet: keep this server's data."
+    exit 1
+  fi
   ;;
 status)
   echo "section $BLOCK: $PULL_START..$OWN_END (owns from $OWN_START), bucket $BUCKET, $EMBED_PROCS embedder(s) on $GPUS GPU(s)"

@@ -4,9 +4,9 @@
 # logs and tmux. The first section's files and loops are never touched. Everything here runs at
 # lower CPU priority, so the first section's tracking keeps the CPUs it needs.
 #
-#   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION            set up and start (safe to rerun); for
+#   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION            set up, start and track (safe to rerun); for
 #                                                                            3b or 7b: fetch from the bucket and track
-#   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION progress   % pulled, embedded, tracked
+#   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION progress   every section on this server (progress.sh)
 #   bash ~/undercurrent/scripts/standalone/extra_section.sh SECTION status     or track, track-fresh, finish
 #
 # Its files are in /workspace/uc-home-SECTION (or ~/uc-home-SECTION without /workspace). A copy of
@@ -39,15 +39,15 @@ go)
     gcloud auth login --no-launch-browser || exit 1
   if [[ "$S" =~ ^[37]b$ ]]; then # tracking only: the data is in the bucket
     nice -n 10 bash "$SEC" fetch # if some days aren't uploaded yet, `track` fetches them as they arrive
-    nice -n 10 bash "$SEC" track
+    tmux has-session -t track 2>/dev/null || nice -n 10 bash "$SEC" track # (a rerun leaves a running tracker alone)
   else
     nice -n 10 bash "$SEC" start
+    tmux has-session -t track 2>/dev/null || nice -n 10 bash "$SEC" track # the cutoffs are out: track behind the embedding
   fi
   echo "Section $S is in $HOME/undercurrent. Watch it: bash $0 $S progress   (or status)"
   ;;
-progress)
-  bash "$SEC" status | grep -oE '(pulled|embedded|tracked) [0-9]+/[0-9]+' |
-    awk -F'[ /]' '{b=sprintf("%*s", int(20*$2/$3), ""); gsub(/ /, "#", b); printf "%-9s %4d/%-4d %3d%%  [%-20s]\n", $1, $2, $3, 100*$2/$3, b}'
+progress) # every section on this server, this one included
+  HOME=$OLD bash "$(cd "$(dirname "$0")" && pwd)/progress.sh"
   ;;
 *)
   nice -n 10 bash "$SEC" "$CMD" "${@:3}"

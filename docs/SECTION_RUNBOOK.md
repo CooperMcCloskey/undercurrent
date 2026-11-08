@@ -148,6 +148,7 @@ Each of these starts with `bash ~/undercurrent/scripts/standalone/section.sh`:
 | `track [N]` | After "cutoffs pushed": updates the code and tracks, following the embedding if it isn't finished. It resumes from the last finished day |
 | `track-fresh [N]` | Tracks again from the start, after the cutoffs or the tracker changed. The old story tables move to `data/processed/_superseded/`; nothing is deleted |
 | `finish` | Only once `status` shows `TRACK_DONE`: uploads the section's own story days and a last copy of everything else, and marks the section done in the bucket. It refuses to run without `TRACK_DONE` |
+| `verify` | Read-only: checks the bucket against this server. It looks for every own day of the three story tables (at the same size as here), the articles and vectors of every day, and the done marker. If everything is there, it prints the command that deletes this server's copy. `finish` runs it at the end |
 
 **How tracking uses the machine:**
 - **The CPUs:** it uses every CPU the server allows, less what this section's pull and embedders still need. Inside a container that's the container's real limit, not the host's count. Give `N` to choose the number yourself. Each run's first line in `track.log` says how many threads it got.
@@ -230,9 +231,10 @@ echo 'progress() { git -C ~/undercurrent pull -q; local z=$(gcloud compute insta
 
 1. **Claim and set up** (sections 1–2). Pulling and embedding a six-month section takes about 1–1.5 hours on one L40S with about 27 CPUs.
 2. **Wait for "cutoffs pushed"** (done: see the note at the top). Then `track`, or `track-fresh` if you'd already tracked. This takes hours, depending mostly on the CPUs.
-3. **When `status` shows `TRACK_DONE`:** run `finish`.
-4. **Mark the section done** in `docs/DATA_COVERAGE.md`, and post it in the chat.
-5. **Shut the server down** if you're paying for it by the hour.
+3. **When `progress` says `tracking done`:** run `finish`. It ends with `verify`, which says whether everything is in the bucket.
+4. **Only if `verify` gives the all-clear:** delete this server's copy with the `rm -rf` line it prints, or delete the server. If the cutoffs change again, `fetch` brings the data back from the bucket.
+5. **Mark the section done** in `docs/DATA_COVERAGE.md`, and post it in the chat.
+6. **Shut the server down** if you're paying for it by the hour.
 
 ## Why we track
 
