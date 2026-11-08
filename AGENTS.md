@@ -12,6 +12,7 @@ Undercurrent is a hackathon project (Hack the Burgh). It does three things:
 
 - Plan, owners and status: `PLAN.md`
 - Design, data sources and known pitfalls: `docs/ARCHITECTURE.md`. Read the section for your area before writing code.
+- **What data has been collected, and who is pulling which dates: `docs/DATA_COVERAGE.md`.** Before you pull, embed or track any GDELT days, claim them there and push, so no two machines do the same days.
 
 ## Layout and ownership
 
