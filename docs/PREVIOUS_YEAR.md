@@ -117,18 +117,6 @@ bash ~/undercurrent/scripts/standalone/section.sh finish
 
 It uploads the piece's own story days, a last copy of everything else, and `status/block-<piece>.done` to the bucket. Then mark the piece done in `docs/DATA_COVERAGE.md`, and shut the server down if you're paying for it by the hour.
 
-## Two sections on one server: `scripts/standalone/multi.sh`
-
-On a server with 2+ GPUs and 24+ vCPUs, run two sections at once (for example 5a and 5b). It runs `section.sh` once per section, each in its own clone (`~/uc-<S>/undercurrent`), its own home (so its own `block.env` and tmux sessions) and an equal share of the CPUs. The GPUs are shared.
-
-```bash
-sudo apt-get update -q && sudo apt-get install -y -q git
-git clone -q https://github.com/CooperMcCloskey/undercurrent.git ~/undercurrent
-bash ~/undercurrent/scripts/standalone/multi.sh setup 5a 5b && bash ~/undercurrent/scripts/standalone/multi.sh start
-```
-
-Then `multi.sh progress` (or `status`), `multi.sh track`, `multi.sh finish`: the same steps as above (`docs/SECTION_RUNBOOK.md`), run for every section. Also `multi.sh login` (gcloud, once for all sections), `multi.sh logs 5a` and `multi.sh attach 5b pull`.
-
 ## If something goes wrong
 
 | Problem | Fix |

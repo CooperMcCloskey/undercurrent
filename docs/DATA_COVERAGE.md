@@ -19,8 +19,8 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | 3b | 2025-08-07 → 2025-11-06 (92 days) | 2025-07-10 | **ControlThePancake** (tracking only: articles and vectors for 2025-07-10 → 2025-11-06 are in the bucket) | ✅ done (from section 3) | ✅ in the bucket (from section 3) | ⬜ `track`, from 2025-07-10 |
 | 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | **yeah-course** (`uc-gpu`, us-west1-a: no L4s in us-central1, `851470465448-compute@…`) | ✅ done (210/210) | ✅ done (210/210) | ⏳ tracking (cutoff 0.80) |
 | ~~5~~ | ~~2024-05-08 → 2024-11-06~~ | | split into 5a and 5b below (2026-11-08 ~05:15 UTC). Cooper's run on block 1's VM pulled only 5 days and is stopped: no more GPU quota in that project | | | |
-| 5a | 2024-05-08 → 2024-08-06 (91 days) | 2024-04-10 | **Lucy** (2× A100 PCIe, 32 vCPU server, 5a and 5b side by side: `scripts/standalone/multi.sh`) | ⏳ claimed 2026-11-08 04:35 UTC | | |
-| 5b | 2024-08-07 → 2024-11-06 (92 days) | 2024-07-10 | **Lucy** (2× A100 PCIe, 32 vCPU server, 5a and 5b side by side: `scripts/standalone/multi.sh`) | ⏳ claimed 2026-11-08 04:35 UTC | | |
+| 5a | 2024-05-08 → 2024-08-06 (91 days) | 2024-04-10 | **Lucy** (2× A100 PCIe, 32 vCPU server, `scripts/standalone/section.sh`) | ⏳ claimed 2026-11-08 04:35 UTC | | |
+| 5b | 2024-08-07 → 2024-11-06 (92 days) | 2024-07-10 | *free: needs a GPU server with 8+ vCPUs* (`section.sh setup 5b`) | | | |
 | 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ✅ done | ✅ done | ⬜ redo with `track-fresh`: its tracking started before the cutoffs |
 | 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ✅ done (119/119) | ✅ done (119/119) | ⬜ redo with `track-fresh`: its tracking started before the cutoffs |
 | ~~7~~ | ~~2023-05-08 → 2023-11-06~~ | | split into 7a and 7b below (2026-11-08), so the tracking runs on two machines. Pulled and embedded once, on yeah-course's second RunPod GPU | ⏳ (82/211 at 03:30 UTC) | ⏳ (76/211 at 03:30 UTC) | |

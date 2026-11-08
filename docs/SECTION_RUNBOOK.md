@@ -166,8 +166,6 @@ bash ~/undercurrent/scripts/standalone/extra_section.sh 9 status       # and tra
 
 **Don't run two new sections on one GPU at the same time:** they only split it. Start the next one when the current one's embedding is done.
 
-**Two new sections on a server with 2+ GPUs** (for example 5a and 5b on 2× A100, 32 vCPUs): use `scripts/standalone/multi.sh` instead (`docs/PREVIOUS_YEAR.md`, "Two sections on one server"). It gives each section its own clone, home and tmux, and half the CPUs, and keeps the total number of embedders to what one section would use on that machine.
-
 ## 6b. Tracking-only sections (3b, 7b): from the bucket
 
 Sections 3 and 7 were pulled and embedded whole on one machine each, then split in two for tracking. The a halves track where the data is. The b halves track anywhere, from the bucket's copy:
