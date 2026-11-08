@@ -15,7 +15,8 @@
 # bucket). Sections still tracking are left out; run this again later to add them.
 # Options (environment): BUCKET, MODELS (default "hgb"; "hgb gru" adds the net, best on a GPU),
 # PRETRAIN=proxy (pretrain the net on theme x country series from every article first),
-# START (first day to export, default: the first merged day), TOP (stories a day, default 300).
+# START (first day to export, default: the first merged day), TOP (stories a day, default 300),
+# WIKI=0 (skip the Wikipedia features; default on, from gs://BUCKET/wiki/).
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 SELF=$R/scripts/merge.sh
@@ -37,7 +38,7 @@ start)
     { echo "Can't read gs://$BUCKET with this login. gcloud auth login, then ask Cooper for access."; exit 1; }
   tmux has-session -t merge 2>/dev/null && { echo "A merge is already running: bash $SELF status"; exit 1; }
   : >"$L/merge.log"
-  tmux new -d -s merge -c "$R" "MODELS='$MODELS' PRETRAIN='${PRETRAIN:-}' TOP='$TOP' START='${START:-}' BUCKET='$BUCKET' bash $SELF _run >> $L/merge.log 2>&1"
+  tmux new -d -s merge -c "$R" "MODELS='$MODELS' PRETRAIN='${PRETRAIN:-}' TOP='$TOP' START='${START:-}' BUCKET='$BUCKET' WIKI='${WIKI:-1}' bash $SELF _run >> $L/merge.log 2>&1"
   echo "Merge started. Watch it: bash $SELF status   (or: tail -f $L/merge.log)"
   ;;
 _run)
@@ -76,6 +77,21 @@ for a, b in runs:
     print(f"    {a} -> {b} ({(b - a).days + 1} days)")
 PY
 
+  # Wikipedia features: A's two tables from the bucket, then each story's entities (B). If any
+  # of it fails, the forecast still runs, just without Wikipedia features. WIKI=0 skips it.
+  rm -f "$M/story_wiki_entities.parquet"
+  if [ "${WIKI:-1}" != 0 ]; then
+    step "Wikipedia: A's tables, then each story's entities (stories.wiki_entities)"
+    if gcloud storage cp -q "gs://$BUCKET/wiki/wiki_selection.parquet" \
+         "gs://$BUCKET/wiki/wiki_entity_daily.parquet" "$M/" &&
+       uv run python -m undercurrent.stories.wiki_entities --processed "$M"; then
+      echo "  Wikipedia features on"
+    else
+      rm -f "$M/story_wiki_entities.parquet"
+      echo "  Wikipedia step failed: the forecast runs without Wikipedia features"
+    fi
+  fi
+
   step "forecast ($MODELS) on every merged story; the backtest prints model vs baseline"
   DEV=cpu; command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 && DEV=cuda
   PRE=""; [ -n "${PRETRAIN:-}" ] && [[ " $MODELS " == *" gru "* ]] && PRE="--pretrain $PRETRAIN"
@@ -108,7 +124,7 @@ status)
   tail -n 6 "$L/merge.log" 2>/dev/null | cut -c1-200
   ;;
 *)
-  sed -n '2,19p' "$SELF"
+  sed -n '2,20p' "$SELF"
   exit 1
   ;;
 esac
