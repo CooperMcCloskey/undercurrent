@@ -54,7 +54,7 @@ gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '
 | GDELT zip-file test days: articles, `gdelt_totals`, `gdelt_files` (1,232,548 articles, 237 MB; 71–77% translated) | 2026-11-01 → 2026-11-05 | ControlThePancake | that laptop, not the bucket. Inside section 1's days, so it's a cross-check for the BigQuery pull |
 | Wikipedia `wiki_top.parquet` (8 languages) | 2025-11-07 → 2026-11-06 | Lucy | Lucy's laptop, `data/processed/wiki_top.parquet`. Not in the bucket. The full-range run below replaces it |
 | Wikipedia `wiki_top.parquet`, full range (8 languages) | 2024-10-10 → 2026-11-07 | **ControlThePancake** | ⏳ running on that laptop, started 2026-11-08 about 01:10 UTC (4 of 8 languages done at 01:55). Lands in `data/processed/wiki_top.parquet` there; not in the bucket yet |
-| Wikipedia pageviews and edits for each week's top GDELT people and orgs | 2021-10-10 → 2026-11-06 | **Lucy** | ⏳ setting up on Lucy's laptop (2026-11-08). See "Wikipedia from Lucy's laptop" below. Copied to `gs://undercurrent-data-cooper/wiki/` as it goes |
+| Wikipedia pageviews and edits for each week's top GDELT people and orgs | 2021-10-10 → 2026-11-06 | **Lucy** | ⏳ setting up on Lucy's laptop (2026-11-08). See "Wikipedia from Lucy's laptop" below. Copied to `gs://undercurrent-data-cooper/wiki/` as it goes (Lucy can write to `wiki/` only; see "Bucket access") |
 | Wikipedia pageviews and edits for story entities not covered above (places, smaller names) | | | after tracking (step 6 above) |
 | *(add new data here)* | | | |
 
@@ -82,4 +82,22 @@ gcloud storage cp data/processed/wiki_*.parquet gs://undercurrent-data-cooper/wi
 - **`--no-top`:** the top-1000 lists are ControlThePancake's job (step 4 above), so this run doesn't fetch them.
 - **Weeks that are only partly pulled** get a provisional top 50. The next run corrects it. A name fetched early that later drops out stays in the cache but isn't in `wiki_selection.parquet`, so it does no harm.
 - **Speed:** Wikimedia allows about 190 requests a minute per IP address. Expect 5–10k names and a day or more from one laptop. **To help**, use a machine on a **different network**: a phone hotspot or home broadband, not the same wifi as Lucy. Write your name here first, and tell Lucy so she switches to `fetch --no-top --shard 0/2`. Copy `gs://undercurrent-data-cooper/wiki/raw` into your `data/raw/wiki` (so names Lucy already fetched are skipped), then run the same commands with `fetch --no-top --shard 1/2`. Send Lucy `data/wiki_shard-1-of-2.tar.gz` and she runs `wiki_bulk merge`.
+- **Bucket access:** Lucy's account (`mccluskeylucy30@gmail.com`) can write only under `gs://undercurrent-data-cooper/wiki/`. A folder-limited grant can't cover *listing* the bucket, so `gcloud storage rsync` (step 3's first line) needs read access to the whole bucket as well (`roles/storage.objectViewer`). Without it, use `gcloud storage cp -r data/raw/wiki gs://undercurrent-data-cooper/wiki/raw` instead.
 - **Done when:** every section is pulled, `wiki_names` has counted every day, and a final `fetch` reports nothing new. Then `wiki_bulk build` writes the final `wiki_entity_daily.parquet` and `wiki_selection.parquet` to the bucket. The forecast should only use an entity from its `first_week` onwards (point-in-time).
+
+## Bucket access
+
+Who can write to `gs://undercurrent-data-cooper` (project `hackathon-514022`; Cooper grants it). Add yourself here once you've been granted, so the list stays complete.
+
+| Who | Account | Role | Where in the bucket | Granted |
+|---|---|---|---|---|
+| Section 1's VM (Cooper) | `972944720186-compute@developer.gserviceaccount.com` | owner's project editor | everything | from the start |
+| Section 2's VM (ControlThePancake) | `1025880049110-compute@developer.gserviceaccount.com` | `roles/storage.objectAdmin` | everything | 2026-11-08 |
+| A teammate's VM (which section? write it here) | `196306351948-compute@developer.gserviceaccount.com` | `roles/storage.objectAdmin` | everything | 2026-11-08 |
+| Lucy (Wikipedia backup) | `user:mccluskeylucy30@gmail.com` | `roles/storage.objectUser`, condition `wiki-only` | only `wiki/` | 2026-11-08 |
+
+**To check the real list** (Cloud Shell; the bucket is the truth, this table is the record):
+
+```bash
+gcloud storage buckets get-iam-policy gs://undercurrent-data-cooper --format=json
+```
