@@ -32,11 +32,11 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 
 ## Next, in order (as of 2026-11-08 02:00 UTC)
 
-1. **Section 3 has no owner, and it finishes the two years** (section 4 is yeah-course's). Take it now: `create_vm.sh 3` on Google Cloud, or `scripts/standalone/section.sh setup 3` on any other GPU server. It comes before 6a, 6b and 5.
+1. **Sections 3 and 4 are claimed by yeah-course**, completing ownership of the two-year range. See the table above for progress; do not start duplicate pulls.
 2. **Confirm that BigQuery has the translated feed.** It's about 73% of articles, and not checked yet for sections 1 and 2. On a section's VM: `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (translated should be about 2× English). Or compare the bucket's 2026-11-05 (inside section 1) with the zip-file test day below: 276,486 articles, 73% translated.
 3. **Cooper: "cutoffs pushed"** once a week of section 1 is embedded. Then every running section starts tracking (`vm.sh track`, or `section.sh track`).
 4. **Wikipedia top-1000 for the whole range: running** on ControlThePancake's laptop (started about 01:10 UTC; 4 of 8 languages done at 01:55). **Nobody else run it:** Wikimedia's limit is shared by everyone running our code.
-5. **Older data, once 1–4 are covered:** 6a and 6b are pulled and embedded, 5 is Cooper's, and 8–10 are ControlThePancake's (starting 03:00 UTC). **7 is the only free section left** (`docs/PREVIOUS_YEAR.md`, `scripts/standalone/section.sh setup 7`).
+5. **Older data, once 1–4 are covered:** 6a and 6b are pulled and embedded, 5 is Cooper's, and 8–10 are ControlThePancake's (starting 03:00 UTC). **7 is now claimed by yeah-course** on a second RunPod GPU; no sections are free.
 6. **When every section is tracked:** Cooper merges, trains and exports (`docs/TWO_YEAR_RUN.md`, "Cooper only"). Then the Wikipedia pageviews and edits for the stories' top entities (`README.md`, "Wikipedia"). Most of these will already be cached by Lucy's run (below), which picks entities from the articles as they land, so that step only fetches the leftovers, such as places.
 
 **Check what's really in the bucket** (Cloud Shell). This prints each continuous range of pulled days; a gap is a section nobody has pulled. Swap `articles/` for `vectors/news/` (embedded days) or `stories_daily/` (tracked days).
