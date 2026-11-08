@@ -209,10 +209,12 @@ def test_which_texts_are_worth_embedding() -> None:
 def test_cutoffs(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
     thresholds._warned.clear()
     with caplog.at_level(logging.WARNING):
-        assert thresholds.threshold("news", "news") == 0.42
+        assert thresholds.threshold("news", "news") == 0.80  # measured, so no warning
         assert thresholds.threshold("news", "bluesky") == thresholds.threshold("bluesky", "news")
-        thresholds.threshold("news", "news")
-    assert "PLACEHOLDER" in caplog.text and caplog.text.count("news vs news") == 1  # warns once
+        thresholds.threshold("news", "bluesky")
+    # a pair nobody has measured is still a placeholder, and says so, once
+    assert "PLACEHOLDER" in caplog.text and caplog.text.count("news vs bluesky") == 1
+    assert "news vs news" not in caplog.text
     monkeypatch.setattr(config, "EMBEDDING_MODEL", "some/other-model")
     with pytest.raises(KeyError, match="calibrate"):
         thresholds.threshold("news", "news")

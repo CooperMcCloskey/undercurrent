@@ -4,7 +4,9 @@ graph.py (a kNN graph and Louvain in networkx) is the right idea for a few hundr
 similarity matrix and its Python Louvain don't scale. This keeps the idea (link every item to its
 nearest neighbours above a cutoff, never across clearly different places) and changes how:
 
-1. Neighbours come from FAISS, exact and brute force (100k items x 384 dims take ~7 seconds).
+1. Neighbours come from an exact brute-force search (stories/search.py): on a GPU when there is
+   one (seconds for a real day), else FAISS (100k items x 384 dims take ~7 seconds on a laptop,
+   minutes on a 4-core VM).
 2. The link graph is cut into connected components (scipy; about a second).
 3. A component can still be several stories chained together (A~B, B~C, C~D joins things that
    share nothing), so every component with room for two stories is tried with Louvain. The split
@@ -16,7 +18,6 @@ nearest neighbours above a cutoff, never across clearly different places) and ch
 stories/tracker.py calls this on the items that matched no existing story.
 """
 
-import sys
 from collections.abc import Sequence
 
 import networkx as nx
@@ -25,32 +26,15 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from undercurrent.stories.graph import Place, far_apart
-
-
-def get_faiss():
-    """Import FAISS, safely.
-
-    PyTorch and FAISS each bring their own OpenMP runtime, and on macOS they crash each other
-    (segmentation fault) in one process unless PyTorch is loaded FIRST and FAISS then runs on one
-    thread. So FAISS is imported here, on first use, never at module level; and if PyTorch is
-    already loaded it gets one thread. The normal setup, embedding and tracking as separate
-    processes, never has both and FAISS keeps every core."""
-    import faiss
-
-    if "torch" in sys.modules:
-        faiss.omp_set_num_threads(1)
-    return faiss
+from undercurrent.stories.search import top_k
 
 
 def knn(vectors: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
     """Exact k nearest neighbours of every row among the other rows: (similarities, indices),
-    both (n, k), best first. `vectors` must be unit length."""
-    faiss = get_faiss()
+    both (n, k), best first. `vectors` must be unit length. On the GPU when there is one."""
     n = len(vectors)
     k = min(k, n - 1)
-    index = faiss.IndexFlatIP(vectors.shape[1])
-    index.add(np.ascontiguousarray(vectors, dtype=np.float32))
-    sims, idx = index.search(np.ascontiguousarray(vectors, dtype=np.float32), k + 1)
+    sims, idx = top_k(vectors, vectors, k + 1)
     # Drop each row's own entry. It is normally first, but with many identical vectors another
     # row can rank above it, or it can fall off the end: a stable sort on "is self" handles both.
     is_self = idx == np.arange(n)[:, None]

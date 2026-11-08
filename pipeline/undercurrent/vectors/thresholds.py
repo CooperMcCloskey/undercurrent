@@ -25,8 +25,14 @@ MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # model -> {(source a, source b): cutoff}. Pairs are unordered.
 THRESHOLDS: dict[str, dict[tuple[Source, Source], float]] = {
     MODEL: {
-        # Tuned on the hand-written demo items (stories/graph.py). Not yet checked on real titles.
-        ("news", "news"): 0.42,
+        # news-news: the cutoff the story tracker links headlines at (it assigns at this + 0.05).
+        # Chosen by reading real stories: `vm.sh preview 0.80 0.85` on 2026-11-01..06 gave coherent,
+        # multilingual stories (Paraguay, bomb threats on flights, Thomas Markle's arrest) apart from
+        # the languages the model can't separate, which vectors/languages.py now keeps out. Measured
+        # on 144 labelled pairs: pair precision 0.63 here (0.66 without those languages) while keeping
+        # 60% of true links; 0.85 gives 0.71 / 41%, and 0.864 is where precision first reaches 0.80.
+        # Higher cutoffs split real stories; lower ones merge same-topic different-event pairs.
+        ("news", "news"): 0.80,
         # Guesses: posts and Wikipedia bullets are shorter and looser than headlines.
         ("bluesky", "news"): 0.35,
         ("wiki_events", "news"): 0.38,
@@ -36,7 +42,7 @@ THRESHOLDS: dict[str, dict[tuple[Source, Source], float]] = {
 }
 
 # (model, pair) entries above that were measured on labelled pairs rather than guessed.
-CALIBRATED: set[tuple[str, tuple[Source, Source]]] = set()
+CALIBRATED: set[tuple[str, tuple[Source, Source]]] = {(MODEL, ("news", "news"))}
 
 
 _warned: set[tuple[str, tuple[Source, Source]]] = set()

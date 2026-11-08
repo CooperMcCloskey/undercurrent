@@ -39,6 +39,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from undercurrent import config
+from undercurrent.vectors import languages
 from undercurrent.vectors.clean import is_usable
 from undercurrent.vectors.embed import TEXT_VERSION, Source, clean_text, embed_cleaned
 
@@ -291,10 +292,56 @@ def load(
     return ids, vectors
 
 
+def article_languages(processed: Path, day: dt.date) -> dict[str, str | None] | None:
+    """{article id: language code} for one day from the articles table (A's `lang` column: three
+    letters on the translated feed, empty on the English feed), or None if there is no articles
+    table or it has no `lang` column."""
+    part = processed / "articles" / f"day={day:%Y-%m-%d}"
+    single = processed / "articles.parquet"
+    if part.is_dir():
+        path = str(part / "*.parquet")
+    elif single.exists():
+        path = str(single)
+    else:
+        return None
+    con = duckdb.connect()
+    columns = [
+        r[0] for r in con.execute("DESCRIBE SELECT * FROM read_parquet(?)", [path]).fetchall()
+    ]
+    if "lang" not in columns or "id" not in columns:
+        return None
+    rows = con.execute("SELECT id, lang FROM read_parquet(?)", [path]).fetchall()
+    return {str(i): (lang or None) for i, lang in rows}
+
+
 def load_day(
-    source: Source, day: dt.date, *, root: Path | None = None
+    source: Source, day: dt.date, *, root: Path | None = None, reliable_only: bool = True
 ) -> tuple[list[str], np.ndarray]:
-    return load(source, [day], root=root)
+    """One day's (ids, vectors). For news, headlines in a language the embedding model can't be
+    trusted with are left out (vectors/languages.py: it gives them all nearly the same vector, so the
+    tracker would glue them into one giant story). reliable_only=False returns everything."""
+    ids, vectors = load(source, [day], root=root)
+    if not (reliable_only and source == "news" and ids):
+        return ids, vectors
+    root = root or vectors_dir()
+    texts = (
+        pq.read_table(day_files(root, source, day)[1], columns=["text"]).column("text").to_pylist()
+    )
+    by_id = article_languages(root.parent, day)
+    langs = None if by_id is None else [by_id.get(i) for i in ids]
+    keep = languages.trusted_mask(texts, langs)
+    if not keep.all():
+        left = int((~keep).sum())
+        log.info(
+            "%s: left out %s of %s headlines in languages the model can't be trusted with (%s)",
+            day,
+            f"{left:,}",
+            f"{len(ids):,}",
+            languages.left_out_summary(texts, langs, keep),
+        )
+        ids = [i for i, ok in zip(ids, keep, strict=True) if ok]
+        vectors = vectors[keep]
+    return ids, vectors
 
 
 # ---- reading the texts to embed (A's and V's files) ---------------------------------------------
