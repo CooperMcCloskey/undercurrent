@@ -146,6 +146,8 @@ bash ~/undercurrent/scripts/standalone/extra_section.sh 9 status       # and tra
 
 **Don't run two new sections on one GPU at the same time:** they only split it. Start the next one when the current one's embedding is done.
 
+**Two new sections on a server with 2+ GPUs** (for example 5a and 5b on 2× A100, 32 vCPUs): use `scripts/standalone/multi.sh` instead (`docs/PREVIOUS_YEAR.md`, "Two sections on one server"). It gives each section its own clone, home and tmux, and half the CPUs, and keeps the total number of embedders to what one section would use on that machine.
+
 ## 7. Google Cloud block VMs (`create_vm.sh`)
 
 Run these from Cloud Shell. First update Cloud Shell's copy of the repo with `git -C ~/undercurrent pull -q`, then run `bash ~/undercurrent/scripts/gcp/vm.sh <command>`. It finds the VM and its zone itself.
