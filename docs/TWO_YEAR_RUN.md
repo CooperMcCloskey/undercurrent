@@ -101,20 +101,22 @@ rm -rf undercurrent && git clone -q https://github.com/CooperMcCloskey/undercurr
 - **The VM then sets itself up** (`scripts/gcp/vm_startup.sh`, at every boot): it checks the driver and PyTorch, installs the code, sizes `~/block.env` to the machine, runs the dry run (and stops if it's over 2,500 GB), then starts the pull, embed and upload loops. Embedding and uploading stop by themselves when the block is done.
 - **At the end it prints** the VM's service account: send it to Cooper for bucket access.
 
-From then on, everything is one command from Cloud Shell. Replace `ZONE` with the zone it printed:
+From then on, everything is one command from Cloud Shell, with nothing to fill in. `scripts/gcp/vm.sh` finds your VM and its zone itself. Update the copy in Cloud Shell first:
+
+```bash
+git -C ~/undercurrent pull -q
+```
 
 | When | Command |
 |---|---|
-| Any time: progress | `gcloud compute ssh uc-gpu --zone=ZONE --command='sudo -u uc -H bash /home/uc/undercurrent/scripts/gcp/block.sh status'` |
-| After "cutoffs pushed" | the same with `track` instead of `status` (it resumes if it stops; `track-fresh` starts again) |
-| Tracking finished | the same with `finish`: uploads your own days and writes `status/block-N.done` |
-| Then | `gcloud compute instances stop uc-gpu --zone=ZONE` |
-
-If setup goes wrong, its log is readable without SSH:
-
-```bash
-gcloud compute instances get-serial-port-output uc-gpu --zone=ZONE 2>/dev/null | grep uc-startup | tail -20
-```
+| Any time: progress | `bash ~/undercurrent/scripts/gcp/vm.sh status` |
+| Is the GPU kept busy? | `bash ~/undercurrent/scripts/gcp/vm.sh speed` |
+| VM started before 2026-11-08 01:15 UTC | `bash ~/undercurrent/scripts/gcp/vm.sh embed2`: two embedders per GPU, about 1.5–2× faster, nothing lost |
+| Is the translated feed there? | `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (it should be about 2× English) |
+| After "cutoffs pushed" | `bash ~/undercurrent/scripts/gcp/vm.sh track` (resumes if it stops; `track-fresh` starts again) |
+| Tracking finished | `bash ~/undercurrent/scripts/gcp/vm.sh finish`: uploads your own days and writes `status/block-N.done` |
+| Then | `bash ~/undercurrent/scripts/gcp/vm.sh stop` |
+| Setup went wrong | `bash ~/undercurrent/scripts/gcp/vm.sh log` (the setup log, no SSH) |
 
 The steps below are what the scripts do, by hand: use them to debug, or if the scripts fail.
 
