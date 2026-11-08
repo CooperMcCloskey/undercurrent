@@ -13,16 +13,16 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | Section | Own days | Warm-up from | Who | Pulled | Embedded | Tracked |
 |---|---|---|---|---|---|---|
 | **1** | 2026-05-08 → 2026-11-06 | 2026-04-10 | **Cooper** | ✅ done | ✅ done (211/211 at 01:52 UTC) | ⬜ waits for the cutoffs |
-| 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
+| 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ✅ done (210/210) | ✅ done (210/210 at 03:00 UTC) | ⬜ waits for the cutoffs |
 | 3 | 2025-05-08 → 2025-11-06 | 2025-04-10 | **yeah-course** (RunPod GPU, `scripts/standalone/section.sh`, zip-file pull) | ⏳ started 2026-11-08 | | ⬜ waits for the cutoffs |
 | 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | **yeah-course** (`uc-gpu`, us-west1-a: no L4s in us-central1, `851470465448-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
 | 5 | 2024-05-08 → 2024-11-06 | 2024-04-10 | **Cooper** (on the idle GPU of block 1's `uc-gpu`, as user `s5`: `vm.sh section 5`; paused while block 1 tracks) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
-| 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ⏳ starting | | |
-| 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ⏳ starting | | |
+| 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ✅ done | ✅ done | ⬜ waits for the cutoffs |
+| 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ✅ done (119/119) | ✅ done (119/119) | ⬜ waits for the cutoffs |
 | 7 | 2023-05-08 → 2023-11-06 | 2023-04-10 | *free* | | | |
-| 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | *free* | | | |
-| 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | *free* | | | |
-| 10 | 2021-11-07 → 2022-05-07 | 2021-10-10 | *free* | | | |
+| 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
+| 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
+| 10 | 2021-11-07 → 2022-05-07 | 2021-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
 
 - **Sections 1–4 are two years**, the plan for tonight. **Sections 5–10** reach back five years, for whoever has a free GPU.
 - **Order:** newest free section first. Each extra section helps the forecast less than the one before.
@@ -36,7 +36,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 2. **Confirm that BigQuery has the translated feed.** It's about 73% of articles, and not checked yet for sections 1 and 2. On a section's VM: `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (translated should be about 2× English). Or compare the bucket's 2026-11-05 (inside section 1) with the zip-file test day below: 276,486 articles, 73% translated.
 3. **Cooper: "cutoffs pushed"** once a week of section 1 is embedded. Then every running section starts tracking (`vm.sh track`, or `section.sh track`).
 4. **Wikipedia top-1000 for the whole range: running** on ControlThePancake's laptop (started about 01:10 UTC; 4 of 8 languages done at 01:55). **Nobody else run it:** Wikimedia's limit is shared by everyone running our code.
-5. **Older data, once 1–4 are covered:** 6a and 6b (ControlThePancake, starting), then 5 (`docs/PREVIOUS_YEAR.md`), then 7–10.
+5. **Older data, once 1–4 are covered:** 6a and 6b are pulled and embedded, 5 is Cooper's, and 8–10 are ControlThePancake's (starting 03:00 UTC). **7 is the only free section left** (`docs/PREVIOUS_YEAR.md`, `scripts/standalone/section.sh setup 7`).
 6. **When every section is tracked:** Cooper merges, trains and exports (`docs/TWO_YEAR_RUN.md`, "Cooper only"). Then the Wikipedia pageviews and edits for the stories' top entities (`README.md`, "Wikipedia"). Most of these will already be cached by Lucy's run (below), which picks entities from the articles as they land, so that step only fetches the leftovers, such as places.
 
 **Check what's really in the bucket** (Cloud Shell). This prints each continuous range of pulled days; a gap is a section nobody has pulled. Swap `articles/` for `vectors/news/` (embedded days) or `stories_daily/` (tracked days).
