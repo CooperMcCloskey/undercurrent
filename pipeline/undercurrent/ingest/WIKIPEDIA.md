@@ -182,10 +182,10 @@ Or from Python:
 from undercurrent.ingest.wiki_resolve import resolve, resolve_entities
 from undercurrent.ingest import wiki
 
-resolve("barack obama")                 # "Barack_Obama"
-resolve_entities(["barack obama"])      # {"barack obama": {"qid": "Q76", "title": "Barack_Obama",
-                                        #   "titles": {"en": "Barack_Obama", "ja": "バラク・オバマ", ...}}}
-wiki.fetch(["Barack_Obama"], start, end)   # downloads, then rebuilds the three tables
+resolve("barack obama")  # "Barack_Obama"
+resolve_entities(["barack obama"])  # {"barack obama": {"qid": "Q76", "title": "Barack_Obama",
+#   "titles": {"en": "Barack_Obama", "ja": "バラク・オバマ", ...}}}
+wiki.fetch(["Barack_Obama"], start, end)  # downloads, then rebuilds the three tables
 ```
 
 ---
