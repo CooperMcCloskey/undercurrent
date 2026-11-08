@@ -54,6 +54,12 @@ go | track-only)
     nice -n 10 bash "$SEC" fetch # if some days aren't uploaded yet, `track` fetches them as they arrive
     tmux has-session -t track 2>/dev/null || nice -n 10 bash "$SEC" track # (a rerun leaves a running tracker alone)
   else
+    if [ ! -s "$HOME/undercurrent/logs/pull.log" ]; then
+      # A new home (a new server, or one that lost its disk): start from whatever of this section is
+      # already in the bucket, so only the missing days are pulled and embedded again.
+      nice -n 10 bash "$SEC" fetch
+      rm -f "$HOME/undercurrent/logs/FETCHED" # this server pulls the rest: finish must upload them
+    fi
     nice -n 10 bash "$SEC" start
     OTHER=$(gcloud storage cat "$WHO" 2>/dev/null | awk '{print $1}')
     if [ -n "$OTHER" ] && [ "$OTHER" != "$(hostname)" ]; then
