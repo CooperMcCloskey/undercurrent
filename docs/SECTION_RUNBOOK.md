@@ -95,7 +95,30 @@ Check the `days/h` figure at the end of `tail -1 ~/undercurrent/logs/pull.log`: 
 
 ## 4. Progress
 
-Paste this once on each server:
+**Tracking, for every section on a server** (the main one and any `extra_section.sh` ones), counting only days tracked since the cutoffs were pushed:
+
+```bash
+bash ~/undercurrent/scripts/standalone/tracking.sh
+watch -n 60 bash ~/undercurrent/scripts/standalone/tracking.sh     # refreshes every minute; Ctrl-C stops it
+```
+
+```
+tracking since the cutoffs (2026-11-08 03:45:00 UTC), 05:10 UTC
+6b     57/119   47% [#########           ]  last 2024-03-06, 24 s/day ~0.4 h left  running
+3b     12/120   10% [##                  ]  last 2025-07-21, 31 s/day ~0.9 h left  running
+```
+
+**The last column says one of:**
+- `running`, `done` or `not started`;
+- `stopped: <the log's last line>`. "No news vectors for …" just means it's waiting for that day;
+- `OLD RUN … track-fresh`: the tracker started before the cutoffs.
+
+**On a Google Cloud block VM,** run it from Cloud Shell, after `git -C ~/undercurrent pull -q`:
+```bash
+gcloud compute ssh uc-gpu --zone=ZONE --command='sudo -u uc -H bash -s' < ~/undercurrent/scripts/standalone/tracking.sh
+```
+
+**Pulled, embedded and tracked for the main section:** paste this once on each server:
 
 ```bash
 cat >> ~/.bashrc <<'EOF'
