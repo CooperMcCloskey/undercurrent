@@ -13,20 +13,21 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | Section | Own days | Warm-up from | Who | Pulled | Embedded | Tracked |
 |---|---|---|---|---|---|---|
 | **1** | 2026-05-08 → 2026-11-06 | 2026-04-10 | **Cooper** (`uc-gpu`, us-central1-c) | ✅ done | ✅ done (211/211 at 01:52 UTC) | ⏳ tracking on the 0.80 cutoffs and the language filter: at 2026-06-11 (63/211 days) around 05:15 UTC, about 35 s a day, so done about 06:45 UTC |
-| 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ✅ done (210/210) | ✅ done (210/210 at 03:00 UTC) | ⬜ waits for the cutoffs |
+| 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ✅ done (210/210) | ✅ done (210/210 at 03:00 UTC) | ⬜ redo with `track-fresh`: its tracking started before the cutoffs |
 | 3 | 2025-05-08 → 2025-11-06 | 2025-04-10 | **yeah-course** (RunPod GPU, `scripts/standalone/section.sh`, zip-file pull) | ✅ done (211/211) | ⏳ (194/211 at 03:30 UTC) | ⏳ tracking (cutoff 0.80), follows the embedding |
 | 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | **yeah-course** (`uc-gpu`, us-west1-a: no L4s in us-central1, `851470465448-compute@…`) | ✅ done (210/210) | ✅ done (210/210) | ⏳ tracking (cutoff 0.80) |
 | ~~5~~ | ~~2024-05-08 → 2024-11-06~~ | | split into 5a and 5b below (2026-11-08 ~05:15 UTC). Cooper's run on block 1's VM pulled only 5 days and is stopped: no more GPU quota in that project | | | |
 | 5a | 2024-05-08 → 2024-08-06 (91 days) | 2024-04-10 | *free: needs a GPU server with 8+ vCPUs* (`section.sh setup 5a`) | | | |
 | 5b | 2024-08-07 → 2024-11-06 (92 days) | 2024-07-10 | *free: needs a GPU server with 8+ vCPUs* (`section.sh setup 5b`) | | | |
-| 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ✅ done | ✅ done | ⬜ waits for the cutoffs |
-| 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ✅ done (119/119) | ✅ done (119/119) | ⏳ 21/119 at 03:05 UTC, on the default cutoffs (`track-fresh` if they change) |
+| 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ✅ done | ✅ done | ⬜ redo with `track-fresh`: its tracking started before the cutoffs |
+| 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ✅ done (119/119) | ✅ done (119/119) | ⬜ redo with `track-fresh`: its tracking started before the cutoffs |
 | 7 | 2023-05-08 → 2023-11-06 | 2023-04-10 | **yeah-course** (second RunPod GPU, `scripts/standalone/section.sh`, zip-file pull) | ⏳ (82/211 at 03:30 UTC) | ⏳ (76/211 at 03:30 UTC) | ⏳ tracking (cutoff 0.80), follows the embedding |
-| 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | **ControlThePancake** (2× L40S server, 32 vCPU, `scripts/standalone/section.sh`) | ⏳ started 2026-11-08 03:28 UTC | | ⬜ waits for the cutoffs |
-| 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | **ControlThePancake** (on 6a's GPU server, alongside it in its own home `/workspace/uc-home-9`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
-| 10 | 2021-11-07 → 2022-05-07 | 2021-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
+| 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | **ControlThePancake** (2× L40S server, 32 vCPU, `scripts/standalone/section.sh`) | ⏳ started 2026-11-08 03:28 UTC | | ⬜ cutoffs are out: `track` |
+| 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | **ControlThePancake** (on 6a's GPU server, alongside it in its own home `/workspace/uc-home-9`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ cutoffs are out: `track` |
+| 10 | 2021-11-07 → 2022-05-07 | 2021-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ cutoffs are out: `track` |
 | **Gap** (inside 3) | 2025-06-15 → 2025-07-01 (17 days), plus 2025-06-14 after 17:45 UTC and 2025-07-02 before about 02:15 UTC | | *nobody: a GDELT outage* | ❌ 0 articles. GDELT has no files for these days: `gdelt_files/<day>.json` lists 0 per feed, and the zip URLs return 404. Not recoverable from the zip files; BigQuery not checked | n/a | n/a |
 
+- **Tracked:** only tracking started after the cutoffs were pushed (2026-11-08 03:45 UTC, `2ab8939`) counts; anything tracked before then has to be redone with `track-fresh`. Each section tracks only its own days, on its own server: `docs/SECTION_RUNBOOK.md`, "What gets tracked".
 - **Sections 1–4 are two years**, the plan for tonight. **Sections 5–10** reach back five years, for whoever has a free GPU.
 - **Order:** newest free section first. Each extra section helps the forecast less than the one before.
 - **Teammates already running:** two teammates' VMs have bucket access (`196306351948-compute@…` and `1025880049110-compute@…`, the second is section 2). If the first is yours, write your section in its row now. `docs/ONE_YEAR_EACH.md` (year-long blocks) is superseded: nobody started from it, and its dates would overlap these sections.
