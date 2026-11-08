@@ -6,7 +6,8 @@
 #
 #   status       progress: days pulled and embedded, what's running, latest log lines
 #   speed        GPU use (5 samples), top CPU users and load: is the GPU kept busy?
-#   embed2       switch a running VM to two embedders per GPU (safe; nothing is lost)
+#   embed2 [B]   switch a running VM to two embedders per GPU (safe; nothing is lost);
+#                B = batch size (default 256; 512 or 1024 keeps the GPU busier)
 #   feeds        GKG rows per feed so far (the translated feed should be about 2x English)
 #   track        after "cutoffs pushed": track the block (resumes if it stopped)
 #   track-fresh  track from the start again (after the cutoffs changed)
@@ -31,15 +32,17 @@ speed)
   gcloud compute ssh "$VM" --zone="$ZONE" --command='echo "GPU use, 5 samples:"; for i in 1 2 3 4 5; do nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader; sleep 2; done; uptime; top -bn1 -o %CPU | sed -n "7,12p"'
   ;;
 embed2)
-  as_uc <<'EOF'
+  B=${2:-256}
+  [[ "$B" =~ ^[0-9]+$ ]] || { echo "batch size must be a number" >&2; exit 1; }
+  { echo "B=$B"; cat; } <<'EOF' | as_uc
 cd ~/undercurrent && source ~/block.env && export PATH=$HOME/.local/bin:$PATH
 EXP=$(( ($(date -ud $OWN_END +%s) - $(date -ud $PULL_START +%s)) / 86400 + 1 ))
 EMB=$((GPUS * 2))
 for s in $(tmux ls -F '#{session_name}' 2>/dev/null | grep '^embed'); do tmux kill-session -t $s; done
 for k in $(seq 0 $((EMB - 1))); do
-  tmux new -d -s embed$k -c "$PWD" "while true; do CUDA_VISIBLE_DEVICES=$((k % GPUS)) UC_HALF=1 uv run python -m undercurrent.vectors.store --source news --start $PULL_START --end $OWN_END --shard $k/$EMB >> logs/embed-$k.log 2>&1; n=\$(find data/processed/vectors/news -name '*.parquet' | wc -l); [ \$n -ge $EXP ] && { echo \"all $EXP days embedded \$(date -u)\" > logs/EMBED_DONE; exit 0; }; sleep 60; done"
+  tmux new -d -s embed$k -c "$PWD" "while true; do CUDA_VISIBLE_DEVICES=$((k % GPUS)) UC_HALF=1 uv run python -m undercurrent.vectors.store --source news --start $PULL_START --end $OWN_END --shard $k/$EMB --batch-size $B >> logs/embed-$k.log 2>&1; n=\$(find data/processed/vectors/news -name '*.parquet' | wc -l); [ \$n -ge $EXP ] && { echo \"all $EXP days embedded \$(date -u)\" > logs/EMBED_DONE; exit 0; }; sleep 60; done"
 done
-echo "now running: $(tmux ls -F '#{session_name}' | tr '\n' ' ')"
+echo "batch size $B; now running: $(tmux ls -F '#{session_name}' | tr '\n' ' ')"
 EOF
   ;;
 feeds)
