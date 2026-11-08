@@ -20,6 +20,9 @@
 #                track the newest DAYS days (default 60, plus 28 days to warm the tracker up) in its own
 #                folder, export them and upload them to gs://BUCKET/export. Needs those days embedded.
 #                With no cutoffs it uses the ones in thresholds.py, like `track`. The block is untouched.
+#   section S [status|stop]  use the idle GPU for another section S (5, 6a or 6b; claim it in
+#                docs/DATA_COVERAGE.md first): pull, embed, upload, as its own user (sS) at low priority.
+#                `stop` pauses it (carry on with `section S`). Stop it before track or export: 4 CPUs, 16 GB.
 #   track        after "cutoffs pushed": track the block (resumes if it stopped)
 #   track-fresh  track from the start again (after the cutoffs changed)
 #   finish       upload this block's own story days and mark the block done
@@ -161,6 +164,35 @@ echo "Exported $START to $OWN_END and uploaded it to gs://$BUCKET/export."
 echo "On your laptop (needs gcloud there):  gcloud storage rsync -r gs://$BUCKET/export data/export   then  npm run dev"
 EOF
   ;;
+section)
+  SEC=${2:-} ACTION=${3:-start}
+  [[ "$SEC" =~ ^(5|6a|6b)$ && "$ACTION" =~ ^(start|status|stop)$ ]] ||
+    { echo "usage: vm.sh section SECTION [start|status|stop]   SECTION is 5, 6a or 6b (claim it in docs/DATA_COVERAGE.md first)" >&2; exit 1; }
+  # Its own user (s5...) with its own copy of the repo, settings, tmux and data, so the block's files and
+  # loops (user uc) are never touched. Everything runs at low CPU priority, but the VM has only 4 CPUs
+  # and 16 GB: stop the section (`section S stop`) before the block's `track` or `export`.
+  { echo "SEC=$SEC ACTION=$ACTION"; cat; } <<'EOF' | gcloud compute ssh "$VM" --zone="$ZONE" --command='sudo bash -s' -- -o ServerAliveInterval=30
+U=s$SEC
+if [ "$ACTION" = start ] && ! id "$U" >/dev/null 2>&1; then adduser --disabled-password --gecos "" "$U" >/dev/null; fi
+id "$U" >/dev/null 2>&1 || { echo "Section $SEC has not been started on this VM."; exit 1; }
+case "$ACTION" in
+start)
+  sudo -u "$U" -H nice -n 10 bash -s "$SEC" <<'INNER'
+cd ~ && { [ -d undercurrent ] || git clone -q https://github.com/CooperMcCloskey/undercurrent.git </dev/null; }
+cd undercurrent && git pull -q --ff-only </dev/null
+bash scripts/standalone/section.sh setup "$1" </dev/null && bash scripts/standalone/section.sh start </dev/null
+INNER
+  ;;
+status)
+  sudo -u "$U" -H bash "/home/$U/undercurrent/scripts/standalone/section.sh" status
+  ;;
+stop)
+  sudo -u "$U" -H tmux kill-server 2>/dev/null || true
+  echo "Section $SEC paused (nothing is lost). To carry on: bash ~/undercurrent/scripts/gcp/vm.sh section $SEC"
+  ;;
+esac
+EOF
+  ;;
 log)
   gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | grep uc-startup | tail -20
   ;;
@@ -168,7 +200,7 @@ stop)
   gcloud compute instances stop "$VM" --zone="$ZONE"
   ;;
 *)
-  sed -n '2,27p' "$0"
+  sed -n '2,30p' "$0"
   exit 1
   ;;
 esac

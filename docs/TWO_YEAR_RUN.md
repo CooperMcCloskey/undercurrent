@@ -116,6 +116,7 @@ git -C ~/undercurrent pull -q
 | Cooper only: calibrate the cutoffs | `vm.sh pairs`, then `vm.sh calibrate "1011 0010 ..."` (see "Calibrate the cutoffs" below) |
 | After "cutoffs pushed" | `bash ~/undercurrent/scripts/gcp/vm.sh track` (resumes if it stops; `track-fresh` starts again) |
 | Cooper only: the first real data for the globe | `vm.sh export` (the newest 60 days; see "The first 60 days on the globe" below). Needs those days embedded; doesn't wait for the block's `track` |
+| Cooper only: use the idle GPU for another section | `vm.sh section 5` (also `5 status`, `5 stop`). Its own user, low priority. The VM has 4 CPUs and 16 GB, so `section 5 stop` before `track` or `export`, and `section 5` again after |
 | Tracking finished | `bash ~/undercurrent/scripts/gcp/vm.sh finish`: uploads your own days and writes `status/block-N.done` |
 | Then | `bash ~/undercurrent/scripts/gcp/vm.sh stop` |
 | Setup went wrong | `bash ~/undercurrent/scripts/gcp/vm.sh log` (the setup log, no SSH) |
