@@ -5,11 +5,7 @@ import type { Group } from 'three'
 import countriesUrl from 'world-atlas/countries-50m.json?url'
 import { buildLandArrays, landObject, type CountriesTopology } from './land'
 
-export async function loadLand(options: {
-  altitude: number
-  land: string
-  border: string
-}): Promise<Group> {
+export async function loadLand(options: { altitude: number; border: string }): Promise<Group> {
   const res = await fetch(countriesUrl)
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${res.url}`)
   const topo = (await res.json()) as CountriesTopology

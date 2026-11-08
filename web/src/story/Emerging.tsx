@@ -1,114 +1,164 @@
-import { X } from 'lucide-react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { CATEGORY_STYLE } from '../globe/categories'
-import { describeFactor, type Emerging } from './forecast'
+import { describeFactor, type Emerging, type EmergingKind, type EmergingView } from './forecast'
+
+const HEADINGS: Record<EmergingKind, (days: number) => { title: string; note: string }> = {
+  prediction: (days) => ({
+    title: 'Prediction',
+    note: `Stories the model expects to jump over the next ${days} days, even at the low end of its range.`,
+  }),
+  actual: (days) => ({
+    title: `What jumped in the next ${days} days`,
+    note: 'Stories that at least doubled in the days after this one: what really happened.',
+  }),
+  momentum: () => ({
+    title: 'Growing fastest',
+    note: 'No forecast for this day yet, so this is not a prediction: the stories that at least doubled this week.',
+  }),
+}
 
 /**
- * The stories projected to grow, ranked by how much (docs: "What we predict, and how it's shown").
- * A row is the story, where, today's size, the 7-day projection with its range and its main
- * reason, and a sketch of the forecast. Clicking a row selects the story on the globe. For a day
- * in the past, each row also says what the story actually did.
+ * The stories that jump, always on screen. For a day near the present, where the model has a
+ * forecast, it is a prediction: ranked by projected growth, with the range, the main reason and a
+ * sketch. For an earlier day it is what actually happened, read from the later snapshots. With no
+ * forecast at all it falls back to the fastest-growing stories, and says it is not a prediction.
+ * Clicking a row selects the story on the globe.
  */
 export function EmergingList({
-  rows,
+  view,
+  loading,
+  open,
+  onToggle,
   selectedId,
   onSelect,
   onHover,
-  onClose,
   className = '',
 }: {
-  rows: readonly Emerging[]
+  view: EmergingView
+  loading: boolean
+  open: boolean
+  onToggle: () => void
   selectedId: string | null
   onSelect: (id: string) => void
   onHover: (id: string | null) => void
-  onClose: () => void
   className?: string
 }) {
-  const replay = rows.some((r) => r.actual !== null)
+  const { title, note } = HEADINGS[view.kind](view.days)
+  const accent = view.kind === 'prediction' ? 'text-amber-200' : 'text-emerald-300'
   return (
     <aside
-      className={`flex flex-col overflow-hidden rounded-lg bg-slate-900/95 shadow-xl ${className}`}
+      className={`flex flex-col overflow-hidden rounded-lg bg-slate-900/90 shadow-xl ${className}`}
     >
-      <header className="flex items-start justify-between border-b border-slate-700/60 p-3">
-        <div>
-          <h2 className="text-sm font-semibold">Emerging stories</h2>
-          <p className="text-[11px] text-slate-400">
-            Projected to be bigger in a week, even at the low end of the range.
-          </p>
-        </div>
-        <button
-          className="-m-1 rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-100"
-          onClick={onClose}
-          aria-label="Close the emerging stories list"
-        >
-          <X className="size-4" />
-        </button>
-      </header>
-      <ol className="min-h-0 flex-1 divide-y divide-slate-800 overflow-y-auto">
-        {rows.length === 0 && (
-          <li className="p-4 text-xs text-slate-400">
-            No story is projected to grow on this day (or none has a forecast yet).
-          </li>
-        )}
-        {rows.map((r) => {
-          const { color, label } = CATEGORY_STYLE[r.story.category]
-          const { horizon } = r
-          return (
-            <li key={r.story.id}>
-              <button
-                className={`block w-full px-3 py-2.5 text-left hover:bg-slate-800/70 ${r.story.id === selectedId ? 'bg-slate-800' : ''}`}
-                onClick={() => onSelect(r.story.id)}
-                onMouseEnter={() => onHover(r.story.id)}
-                onMouseLeave={() => onHover(null)}
-              >
-                <div className="flex items-center gap-1.5 text-[11px]" style={{ color }}>
-                  <span className="size-2 rounded-full" style={{ background: color }} />
-                  {label}
-                  <span className="ml-auto font-semibold text-emerald-300">
-                    ×{(2 ** r.growth).toFixed(1)}
-                  </span>
-                </div>
-                <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug">
-                  {r.story.title}
-                </p>
-                <p className="text-[11px] text-slate-400">{r.story.location.name}</p>
-                <div className="mt-1.5 flex items-center gap-3">
-                  <Sketch row={r} color={color} />
-                  <div className="text-[11px] leading-snug text-slate-300">
-                    <p>
-                      {r.story.article_count_7d} now → ~{Math.round(horizon.articles_7d)} in{' '}
-                      {horizon.days} days
-                    </p>
-                    <p className="text-slate-500">
-                      range {Math.round(horizon.low)}–{Math.round(horizon.high)}
-                      {r.factor && ` · ${describeFactor(r.factor)}`}
-                    </p>
-                    {r.actual !== null && (
-                      <p
-                        className={
-                          r.actual >= horizon.low && r.actual <= horizon.high
-                            ? 'text-emerald-300'
-                            : 'text-amber-300'
-                        }
-                      >
-                        Actually {r.actual}
-                        {r.actual >= horizon.low && r.actual <= horizon.high
-                          ? ': inside the range'
-                          : ': outside the range'}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </button>
-            </li>
-          )
-        })}
-      </ol>
-      {replay && (
-        <footer className="border-t border-slate-700/60 px-3 py-2 text-[11px] text-slate-500">
-          This day is in the past, so each row says what the story actually did.
-        </footer>
+      <button
+        className="flex items-start justify-between gap-2 p-3 text-left hover:bg-slate-800/60"
+        onClick={onToggle}
+        aria-expanded={open}
+      >
+        <span>
+          <span className={`block text-sm font-semibold ${accent}`}>{title}</span>
+          {open && (
+            <span className="mt-0.5 block text-[11px] leading-snug text-slate-400">{note}</span>
+          )}
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-400">
+          {view.rows.length}
+          {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        </span>
+      </button>
+      {open && (
+        <ol className="min-h-0 flex-1 divide-y divide-slate-800 overflow-y-auto border-t border-slate-700/60">
+          {loading && <li className="p-3 text-xs text-slate-400">Loading…</li>}
+          {!loading && view.rows.length === 0 && (
+            <li className="p-3 text-xs text-slate-400">No story jumps on this day.</li>
+          )}
+          {view.rows.map((row) => (
+            <Row
+              key={row.story.id}
+              row={row}
+              kind={view.kind}
+              days={view.days}
+              selected={row.story.id === selectedId}
+              onSelect={onSelect}
+              onHover={onHover}
+            />
+          ))}
+        </ol>
       )}
     </aside>
+  )
+}
+
+function Row({
+  row,
+  kind,
+  days,
+  selected,
+  onSelect,
+  onHover,
+}: {
+  row: Emerging
+  kind: EmergingKind
+  days: number
+  selected: boolean
+  onSelect: (id: string) => void
+  onHover: (id: string | null) => void
+}) {
+  const { color, label } = CATEGORY_STYLE[row.story.category]
+  const { horizon } = row
+  const inside = row.actual !== null && row.actual >= horizon.low && row.actual <= horizon.high
+  return (
+    <li>
+      <button
+        className={`block w-full px-3 py-2 text-left hover:bg-slate-800/70 ${selected ? 'bg-slate-800' : ''}`}
+        onClick={() => onSelect(row.story.id)}
+        onMouseEnter={() => onHover(row.story.id)}
+        onMouseLeave={() => onHover(null)}
+      >
+        <div className="flex items-center gap-1.5 text-[11px]" style={{ color }}>
+          <span className="size-2 rounded-full" style={{ background: color }} />
+          {label}
+          <span className="ml-auto font-semibold text-emerald-300">
+            {row.isNew ? 'New' : `×${(2 ** row.growth).toFixed(1)}`}
+          </span>
+        </div>
+        <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug">{row.story.title}</p>
+        <p className="text-[11px] text-slate-400">{row.story.location.name}</p>
+        <div className="mt-1.5 flex items-center gap-3">
+          {kind === 'prediction' && <Sketch row={row} color={color} />}
+          <div className="text-[11px] leading-snug text-slate-300">
+            {kind === 'prediction' && (
+              <>
+                <p>
+                  {row.story.article_count_7d} now → ~{Math.round(horizon.articles_7d)} in {days}{' '}
+                  days
+                </p>
+                <p className="text-slate-500">
+                  range {Math.round(horizon.low)}–{Math.round(horizon.high)}
+                  {row.factor && ` · ${describeFactor(row.factor)}`}
+                </p>
+                {row.actual !== null && (
+                  <p className={inside ? 'text-emerald-300' : 'text-amber-300'}>
+                    Actually {row.actual}: {inside ? 'inside' : 'outside'} the range
+                  </p>
+                )}
+              </>
+            )}
+            {kind === 'actual' && (
+              <p>
+                {row.story.article_count_7d} articles a week →{' '}
+                <b>{Math.round(horizon.articles_7d)}</b> {days} days later
+              </p>
+            )}
+            {kind === 'momentum' && (
+              <p>
+                {row.story.article_count_7d} articles this week
+                {row.isNew ? ', almost none last week' : ', up from last week'}
+              </p>
+            )}
+          </div>
+        </div>
+      </button>
+    </li>
   )
 }
 

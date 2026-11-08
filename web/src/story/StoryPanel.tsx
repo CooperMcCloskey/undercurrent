@@ -13,7 +13,14 @@ import {
   type Article,
   type SourceKind,
 } from './articles'
-import { describeFactor, describeForecast, headlineHorizon } from './forecast'
+import {
+  describeFactor,
+  describeForecast,
+  describeGrowth,
+  headlineHorizon,
+  isNewThisWeek,
+  previousWeek,
+} from './forecast'
 import { ForecastChart, buildSeries, type Measure } from './ForecastChart'
 import { KindGlyph } from './KindGlyph'
 import { toIndex } from '../timeline/days'
@@ -120,8 +127,13 @@ export function StoryPanel({
           <Stat term="Posts, 7 days" value={story.post_count_7d} />
           <Stat
             term="Vs previous week"
-            value={`${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}×`}
+            value={describeGrowth(story)}
             tone={ratio >= 1 ? 'up' : 'down'}
+            title={
+              isNewThisWeek(story)
+                ? `About ${Math.round(previousWeek(story))} articles the week before: too few to compare`
+                : undefined
+            }
           />
         </dl>
         <ForecastSection story={story} timeline={timeline} asOf={asOf} color={color} />
@@ -305,13 +317,15 @@ function Stat({
   term,
   value,
   tone,
+  title,
 }: {
   term: string
   value: string | number
   tone?: 'up' | 'down'
+  title?: string
 }) {
   return (
-    <div className="rounded bg-slate-800/70 px-2 py-1.5">
+    <div className="rounded bg-slate-800/70 px-2 py-1.5" title={title}>
       <dt className="text-[11px] text-slate-400">{term}</dt>
       <dd
         className={`text-base font-semibold ${tone === 'up' ? 'text-emerald-300' : tone === 'down' ? 'text-rose-300' : ''}`}

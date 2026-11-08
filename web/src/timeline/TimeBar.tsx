@@ -10,6 +10,22 @@ import { makeTicks } from './ticks'
  */
 const SWEEP_SECONDS = 130
 const MIN_DAYS_PER_SECOND = 0.5
+/** Play speed levels: a multiple of the speed the zoom gives (keys [ and ] step through them). */
+const SPEEDS = [
+  { label: 'Slow', factor: 0.5 },
+  { label: 'Normal', factor: 1 },
+  { label: 'Fast', factor: 3 },
+] as const
+const SPEED_STORAGE = 'undercurrent.playSpeed'
+
+function savedSpeed(): number {
+  try {
+    const saved = Number(window.localStorage.getItem(SPEED_STORAGE))
+    return Number.isInteger(saved) && saved >= 0 && saved < SPEEDS.length ? saved : 1
+  } catch {
+    return 1 // storage can be blocked: the speed just isn't remembered
+  }
+}
 const MIN_VIEW_DAYS = 7
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
@@ -37,7 +53,7 @@ interface View {
  * days, as you zoom in) marked and labelled under it. Drag or click it to pick a day. Scroll over
  * it to zoom around the pointer, scroll sideways to move along it. Playing runs slower the more
  * you have zoomed in. Keys: arrows ±1 day, Shift ±30, PageUp/PageDown ±1 year, Home/End, Space to
- * play, + and - to zoom, 0 to see everything.
+ * play, [ and ] for the play speed, + and - to zoom, 0 to see everything.
  */
 export function TimeBar({
   start,
@@ -128,7 +144,18 @@ export function TimeBar({
 
   // Playing advances by real time, so the speed doesn't depend on the frame rate. The speed is
   // read every frame, so zooming while it plays changes it at once.
-  const daysPerSecond = Math.max(MIN_DAYS_PER_SECOND, view.span / SWEEP_SECONDS)
+  const [level, setLevel] = useState(savedSpeed)
+  const chooseLevel = useCallback((next: number) => {
+    const clamped = Math.min(SPEEDS.length - 1, Math.max(0, next))
+    setLevel(clamped)
+    try {
+      window.localStorage.setItem(SPEED_STORAGE, String(clamped))
+    } catch {
+      // not remembered: fine
+    }
+  }, [])
+  const daysPerSecond =
+    Math.max(MIN_DAYS_PER_SECOND, view.span / SWEEP_SECONDS) * SPEEDS[level].factor
   const speed = useRef(daysPerSecond)
   speed.current = daysPerSecond
   const [playing, setPlaying] = useState(false)
@@ -179,6 +206,9 @@ export function TimeBar({
       e.preventDefault()
       const day = clamp(value, view.start, viewEnd)
       zoomBy(e.key === '+' || e.key === '=' ? 0.6 : 1 / 0.6, (day - view.start) / view.span, day)
+    } else if (e.key === '[' || e.key === ']') {
+      e.preventDefault()
+      chooseLevel(level + (e.key === ']' ? 1 : -1))
     } else if (e.key === '0') {
       e.preventDefault()
       setView({ start, span: full })
@@ -276,7 +306,24 @@ export function TimeBar({
           )}
         </div>
       </div>
-      <div className="flex w-44 shrink-0 items-center justify-end gap-1.5 pt-1 text-[11px] tabular-nums text-white/50">
+      <div className="flex w-72 shrink-0 items-center justify-end gap-2 pt-1 text-[11px] tabular-nums text-white/50">
+        <span
+          className="flex overflow-hidden rounded bg-white/10"
+          role="group"
+          aria-label="Play speed"
+        >
+          {SPEEDS.map(({ label, factor }, i) => (
+            <button
+              key={label}
+              aria-pressed={level === i}
+              className={`px-1.5 py-0.5 ${level === i ? 'bg-white/80 text-slate-900' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+              title={`${label} (${factor}×): keys [ and ] change it`}
+              onClick={() => chooseLevel(i)}
+            >
+              {factor}×
+            </button>
+          ))}
+        </span>
         <span title="How much time the bar shows, and how fast it plays">
           {zoomed ? `${describeSpan(view.span)} in view · ` : 'Scroll to zoom · '}
           {describeSpeed(daysPerSecond)}

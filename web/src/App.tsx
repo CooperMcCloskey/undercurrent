@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import Globe, { type GlobeMethods } from 'react-globe.gl'
-import { MeshLambertMaterial, type Object3D, type PerspectiveCamera } from 'three'
+import type { Object3D, PerspectiveCamera } from 'three'
 import { api } from './api/client'
 import type { StorySummary } from './api/types.gen'
 import { CATEGORY_ORDER, CATEGORY_STYLE, hexToRgb, type Category } from './globe/categories'
@@ -12,6 +12,7 @@ import { loadLand } from './globe/countries'
 import { createGlowLayer, type GlowPoint } from './globe/glow'
 import { pickStories } from './globe/select'
 import { createHeatLayer, type HeatPoint } from './globe/heat'
+import { createOcean } from './globe/ocean'
 import { createStars } from './globe/stars'
 import { buildConstellation, type ConstellationItem } from './globe/constellation'
 import { MAX_PLACE_LABELS, cullLabels, labelElement, type GlobeLabel } from './globe/labels'
@@ -29,6 +30,10 @@ import { EmergingList } from './story/Emerging'
 import {
   describeForecastShort,
   emergingStories,
+  fastestGrowing,
+  jumpedStories,
+  lookaheadDays,
+  type EmergingView,
   projectStory,
   trustedForecast,
 } from './story/forecast'
@@ -46,10 +51,8 @@ import { useEasedStories, type EasedStory } from './timeline/useEasedStories'
 // stays the big thing; globe/constellation.ts), with its busiest places labelled (globe/labels.ts).
 // Hovering only outlines the story and shows its title, so browsing stays uncluttered.
 const COLORS = {
-  ocean: '#0b1424',
-  land: '#1c2a3f',
-  border: '#3d5373',
-  atmosphere: '#7dd3fc',
+  border: '#5d7068', // country borders and coasts: a pale green-grey
+  atmosphere: '#78cbe6',
 }
 // Layers stack outwards, as a fraction of the globe radius.
 const LAND_ALTITUDE = 0.005
@@ -60,18 +63,24 @@ const MARKER_ALTITUDE = 0.011
 const OUTLINE_SPREAD_KM = 60
 // Each story's marker has a soft glow behind it, like a star: diameter in degrees of arc, from the
 // smallest story to the biggest, and how bright it is (dimmed while one story is highlighted).
-const GLOW_DIAMETER_MIN_DEG = 2.2
-const GLOW_DIAMETER_MAX_DEG = 6
+const GLOW_DIAMETER_MIN_DEG = 2.4
+const GLOW_DIAMETER_MAX_DEG = 9
 const GLOW_OPACITY = 0.55
 const GLOW_OPACITY_DIMMED = 0.15
 // Marker size in degrees of arc; the hovered one grows.
-const MARKER_RADIUS = 0.9 // the biggest story's; smaller stories shrink to half of it
+// How big a story's marker is: the smallest drawn is MARKER_RADIUS_MIN, the biggest MARKER_RADIUS_MAX
+// (degrees of arc), and in between it follows the log of its article count, so a story ten times
+// the size is clearly bigger, and not a speck next to a giant.
+const MARKER_RADIUS_MIN = 0.3
+const MARKER_RADIUS_MAX = 1.4
 // How many stories the globe draws is up to the slider: the biggest first, so it reads as a handful
 // of main stories rather than hundreds of overlapping markers. Stories projected to grow, and the
 // one selected, are always drawn.
 const DEFAULT_STORIES = 60
+// The Emerging card lists at most this many stories.
+const EMERGING_ROWS = 30
 const MIN_STORIES = 10
-const MARKER_RADIUS_HOVERED = 1.1
+const MARKER_RADIUS_HOVERED = 1.1 // at least this big while hovered
 // Selecting a story flies the camera to the story's marker, high enough up (altitude, in globe
 // radii) to see all its dots: roughly 1 radius of altitude shows 32 degrees around the marker.
 const SELECT_CAMERA_MIN_ALTITUDE = 0.8
@@ -96,7 +105,7 @@ const MIN_NEAR = 0.05
 // react-globe.gl re-processes a whole layer whenever a data or accessor prop changes, and inline
 // arrow functions or `?? []` are new on every render. So accessors, materials and config live at
 // module scope, and data arrays are memoised.
-const OCEAN = new MeshLambertMaterial({ color: COLORS.ocean })
+const OCEAN = createOcean()
 const RENDERER_CONFIG = { powerPreference: 'high-performance' } as const // discrete GPU if present
 const NO_STORIES: StorySummary[] = []
 const alwaysPresent = () => 1
@@ -109,10 +118,13 @@ interface Marker {
   lng: number
   /** Size, 0..1, eased: the marker grows in as its story arrives and shrinks as it fades. */
   level: number
-  /** 0.5..1: how big the story is next to the biggest one drawn. */
+  /** 0..1: how big the story is, on a log scale from the smallest drawn to the biggest. */
   size: number
 }
 const marker = (o: object) => o as Marker
+const markerRadius = (m: Marker) =>
+  MARKER_RADIUS_MIN + (MARKER_RADIUS_MAX - MARKER_RADIUS_MIN) * m.size
+const hoveredRadius = (m: Marker) => Math.max(MARKER_RADIUS_HOVERED, markerRadius(m) * 1.25)
 const pointLat = (o: object) => marker(o).lat
 const pointLng = (o: object) => marker(o).lng
 const pointColor = (o: object) => colorOf(marker(o).story)
@@ -123,7 +135,7 @@ const ringColor = (o: object) => {
   return (t: number) => `rgba(${r},${g},${b},${(1 - t) * 0.8})`
 }
 const NO_MARKERS: Marker[] = []
-const RING_SPACING_DEG = 2.2 // between stories at one place: two markers' radii, and a gap
+const RING_SPACING_DEG = 3.2 // between stories at one place: two big markers' radii, and a gap
 // Markers smaller than this aren't drawn.
 const MIN_MARKER_LEVEL = 0.02
 
@@ -134,7 +146,16 @@ const MIN_MARKER_LEVEL = 0.02
  * to frame, so the globe updates the marker in place while it grows or fades.
  */
 function placeMarkers(eased: readonly EasedStory[], cache: Map<string, Marker>): Marker[] {
-  const biggest = eased.reduce((m, e) => Math.max(m, e.count), 1)
+  const counts = eased.filter((e) => e.level >= MIN_MARKER_LEVEL).map((e) => Math.max(e.count, 1))
+  const smallest = counts.length ? Math.min(...counts) : 1
+  const biggest = counts.length ? Math.max(...counts) : 1
+  const sizeOf = (count: number) =>
+    biggest > smallest
+      ? Math.min(
+          1,
+          Math.max(0, Math.log(Math.max(count, 1) / smallest) / Math.log(biggest / smallest)),
+        )
+      : 1
   const byPlace = new Map<string, EasedStory[]>()
   for (const e of eased) {
     if (e.level < MIN_MARKER_LEVEL) continue
@@ -163,7 +184,7 @@ function placeMarkers(eased: readonly EasedStory[], cache: Map<string, Marker>):
       return Object.assign(m, {
         story,
         level,
-        size: 0.5 + 0.5 * Math.sqrt(count / biggest),
+        size: sizeOf(count),
         lat: lat + r * Math.sin(angle),
         lng: lon + (r * Math.cos(angle)) / Math.max(Math.cos((lat * Math.PI) / 180), 0.2),
       })
@@ -298,7 +319,49 @@ export default function App() {
     () => (ahead > 0 ? dayStories.map((s) => projectStory(s, ahead)) : dayStories),
     [dayStories, ahead],
   )
-  const emerging = useMemo(() => emergingStories(dayStories), [dayStories])
+  // The Emerging list. Within the model's reach of the present (7 to 14 days, as far as it beats
+  // "it stays the size it is"), the days after this one haven't all happened, so it is a
+  // prediction. Further back they have, so it shows which stories really jumped.
+  const lookahead = lookaheadDays(model)
+  const predicting =
+    ahead > 0 || (dataDay !== null && latest !== null && dataDay + lookahead > latest)
+  const laterDay = useMemo(
+    () =>
+      predicting || dataDay === null
+        ? undefined
+        : exportedDays.findLast((d) => d <= dataDay + lookahead),
+    [predicting, dataDay, lookahead, exportedDays],
+  )
+  const later = useQuery({
+    queryKey: ['snapshot', laterDay === undefined ? undefined : toDay(laterDay)],
+    queryFn: () => api.snapshot(toDay(laterDay!)),
+    enabled: laterDay !== undefined && laterDay !== dataDay,
+  })
+  const emergingView = useMemo<EmergingView>(() => {
+    if (predicting) {
+      const rows = emergingStories(dayStories)
+      // No forecasts at all (none exported yet): say so, and show the fastest growing instead.
+      return rows.length || dayStories.some((s) => s.forecast)
+        ? { kind: 'prediction', days: lookahead, rows: rows.slice(0, EMERGING_ROWS) }
+        : { kind: 'momentum', days: 0, rows: fastestGrowing(dayStories).slice(0, EMERGING_ROWS) }
+    }
+    const days = laterDay !== undefined && dataDay !== null ? laterDay - dataDay : lookahead
+    return {
+      kind: 'actual',
+      days,
+      rows:
+        later.data && days > 0
+          ? jumpedStories(dayStories, later.data.stories, days).slice(0, EMERGING_ROWS)
+          : [],
+    }
+  }, [predicting, dayStories, lookahead, laterDay, dataDay, later.data])
+  const emergingLoading = emergingView.kind === 'actual' && later.isPending && laterDay !== dataDay
+  // The rings on the globe are for the stories predicted to jump.
+  const emerging = useMemo(
+    () => (emergingView.kind === 'prediction' ? emergingView.rows : []),
+    [emergingView],
+  )
+  const listed = useMemo(() => emergingView.rows.map((r) => r.story.id), [emergingView])
   // Category filter: categories in `hidden` are left off the globe.
   const [hidden, setHidden] = useState<ReadonlySet<Category>>(() => new Set())
   const toggleCategory = (category: Category) =>
@@ -323,10 +386,10 @@ export default function App() {
   )
   const [wanted, setWanted] = useState(DEFAULT_STORIES)
   const shown = useMemo(() => {
-    const keep = new Set(emerging.map((e) => e.story.id))
+    const keep = new Set(listed)
     if (selectedId) keep.add(selectedId)
     return pickStories(visible, wanted, keep)
-  }, [visible, wanted, emerging, selectedId])
+  }, [visible, wanted, listed, selectedId])
   const focus = hovered ?? selected
   const active = focus && !hidden.has(focus.category) ? focus : null
   const leaveTimer = useRef<number | undefined>(undefined)
@@ -342,7 +405,7 @@ export default function App() {
   )
   const pointRadius = useCallback(
     (o: object) =>
-      (marker(o).story.id === active?.id ? MARKER_RADIUS_HOVERED : MARKER_RADIUS * marker(o).size) *
+      (marker(o).story.id === active?.id ? hoveredRadius(marker(o)) : markerRadius(marker(o))) *
       marker(o).level,
     [active],
   )
@@ -373,6 +436,7 @@ export default function App() {
     }
     scene.onBeforeRender = (renderer) => {
       glow.setViewport(renderer, camera.fov)
+      OCEAN.setTime(performance.now() / 1000)
       stars.setTime(performance.now() / 1000)
       const near = Math.max(MIN_NEAR, (camera.position.length() - NEAR_CLEARANCE_RADIUS) / 2)
       if (Math.abs(near - camera.near) > near * 0.01) {
@@ -425,7 +489,7 @@ export default function App() {
     [active, markers],
   )
   const focusDots = useMemo(
-    () => (anchor ? layoutDots(focusArticles.articles, anchor, MARKER_RADIUS_HOVERED) : NO_DOTS),
+    () => (anchor ? layoutDots(focusArticles.articles, anchor, hoveredRadius(anchor)) : NO_DOTS),
     [anchor, focusArticles.articles],
   )
   useEffect(() => {
@@ -444,7 +508,7 @@ export default function App() {
   const dots = useMemo(
     () =>
       selectedAnchor
-        ? layoutDots(selectedArticles.articles, selectedAnchor, MARKER_RADIUS_HOVERED)
+        ? layoutDots(selectedArticles.articles, selectedAnchor, hoveredRadius(selectedAnchor))
         : NO_DOTS,
     [selectedAnchor, selectedArticles.articles],
   )
@@ -504,8 +568,19 @@ export default function App() {
       })).filter((group) => group.count > 0),
     [stories],
   )
+  // The legend's size key: the smallest and biggest story drawn, in articles this week.
+  const sizeKey = useMemo(
+    () =>
+      shown.length > 1
+        ? {
+            smallest: Math.min(...shown.map((s) => s.article_count_7d)),
+            biggest: Math.max(...shown.map((s) => s.article_count_7d)),
+          }
+        : null,
+    [shown],
+  )
   // Emerging stories: a list on the left, and rings on the globe.
-  const [showEmerging, setShowEmerging] = useState(false)
+  const [showEmerging, setShowEmerging] = useState(true)
   const surgeIds = useMemo(() => new Set(emerging.map((e) => e.story.id)), [emerging])
   const rings = useMemo(
     () => (ahead > 0 ? NO_MARKERS : markers.filter((m) => surgeIds.has(m.story.id))),
@@ -533,9 +608,7 @@ export default function App() {
     const points: GlowPoint[] = markers.map((m) => ({
       lat: m.lat,
       lng: m.lng,
-      diameterDeg:
-        GLOW_DIAMETER_MIN_DEG +
-        (GLOW_DIAMETER_MAX_DEG - GLOW_DIAMETER_MIN_DEG) * Math.min(1, (m.size - 0.5) * 2),
+      diameterDeg: GLOW_DIAMETER_MIN_DEG + (GLOW_DIAMETER_MAX_DEG - GLOW_DIAMETER_MIN_DEG) * m.size,
       color: hexToRgb(colorOf(m.story)),
       strength: m.level,
     }))
@@ -565,7 +638,7 @@ export default function App() {
         ref={globeRef}
         rendererConfig={RENDERER_CONFIG}
         backgroundColor="rgba(0,0,0,0)"
-        globeMaterial={OCEAN}
+        globeMaterial={OCEAN.material}
         atmosphereColor={COLORS.atmosphere}
         atmosphereAltitude={0.18}
         customLayerData={layers}
@@ -686,15 +759,6 @@ export default function App() {
               </div>
             )}
             <div className="pointer-events-auto mt-2 flex items-start gap-2">
-              {emerging.length > 0 || showEmerging ? (
-                <button
-                  className={`rounded px-2 py-0.5 text-xs ${showEmerging ? 'bg-slate-200 text-slate-900' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'}`}
-                  aria-pressed={showEmerging}
-                  onClick={() => setShowEmerging(!showEmerging)}
-                >
-                  Emerging stories {emerging.length}
-                </button>
-              ) : null}
               {model && <ModelCard model={model} />}
             </div>
           </>
@@ -702,19 +766,20 @@ export default function App() {
           <p className="text-sm text-slate-400">Loading…</p>
         )}
       </header>
-      {showEmerging && (
-        <EmergingList
-          rows={emerging}
-          selectedId={selectedId}
-          onSelect={selectById}
-          onHover={hoverById}
-          onClose={() => setShowEmerging(false)}
-          className="absolute bottom-24 left-6 top-40 z-10 w-80"
-        />
-      )}
-      {legend.length > 0 && !showEmerging && (
+      <EmergingList
+        view={emergingView}
+        loading={emergingLoading}
+        open={showEmerging}
+        onToggle={() => setShowEmerging(!showEmerging)}
+        selectedId={selectedId}
+        onSelect={selectById}
+        onHover={hoverById}
+        className="absolute left-6 top-44 z-10 max-h-[calc(100vh-34rem)] w-80"
+      />
+      {legend.length > 0 && (
         // Sits on top of the time bar.
         <Legend
+          sizeKey={sizeKey}
           groups={legend}
           hidden={hidden}
           onToggle={toggleCategory}

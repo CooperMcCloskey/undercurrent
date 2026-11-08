@@ -11,6 +11,7 @@ import { feature, mesh } from 'topojson-client'
 import {
   BufferAttribute,
   BufferGeometry,
+  Color,
   Group,
   LineBasicMaterial,
   LineSegments,
@@ -193,16 +194,53 @@ export function buildLandArrays(topo: CountriesTopology, altitude: number): Land
   }
 }
 
-export function landObject(arrays: LandArrays, colors: { land: string; border: string }): Group {
+// The land's colour by latitude (distance from the equator, degrees): rainforest green, dry olive
+// and sand in the subtropics, green again, grey-green for the northern forests, then ice. Dark and
+// muted, so the story markers stay the brightest things on the globe.
+const LAND_STOPS: [number, string][] = [
+  [0, '#37503a'],
+  [18, '#4b5438'],
+  [28, '#665a41'],
+  [42, '#415239'],
+  [58, '#3b4a45'],
+  [72, '#74868f'],
+  [90, '#a9b8bf'],
+]
+const stopColors = LAND_STOPS.map(([lat, hex]) => ({ lat, color: new Color(hex) }))
+
+/** The land colour (linear RGB) at `lat` degrees, blended between the stops. */
+export function landColorAt(lat: number): [number, number, number] {
+  const a = Math.min(90, Math.abs(lat))
+  let i = stopColors.findIndex((s) => s.lat >= a)
+  if (i <= 0) i = 1
+  const lo = stopColors[i - 1]
+  const hi = stopColors[i]
+  const k = (a - lo.lat) / (hi.lat - lo.lat)
+  const c = lo.color.clone().lerp(hi.color, Math.min(1, Math.max(0, k)))
+  return [c.r, c.g, c.b]
+}
+
+export function landObject(arrays: LandArrays, colors: { border: string }): Group {
   const fillGeometry = new BufferGeometry()
   fillGeometry.setAttribute('position', new BufferAttribute(arrays.fillPositions, 3))
+  const vertexColors = new Float32Array(arrays.fillPositions.length)
+  for (let i = 0; i < arrays.fillPositions.length; i += 3) {
+    const [x, y, z] = [
+      arrays.fillPositions[i],
+      arrays.fillPositions[i + 1],
+      arrays.fillPositions[i + 2],
+    ]
+    const lat = Math.asin(y / Math.hypot(x, y, z)) / DEG
+    vertexColors.set(landColorAt(lat), i)
+  }
+  fillGeometry.setAttribute('color', new BufferAttribute(vertexColors, 3))
   fillGeometry.setAttribute('normal', new BufferAttribute(arrays.fillNormals, 3))
   fillGeometry.setIndex(new BufferAttribute(arrays.fillIndex, 1))
   // Push the fill back slightly in depth so borders always win and never flicker.
   const fill = new Mesh(
     fillGeometry,
     new MeshLambertMaterial({
-      color: colors.land,
+      vertexColors: true,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
