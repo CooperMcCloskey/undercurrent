@@ -33,6 +33,9 @@
 #   track        after "cutoffs pushed": track the block (resumes if it stopped)
 #   track-fresh  track from the start again (after the cutoffs changed)
 #   finish       upload this block's own story days and mark the block done
+#   frontend     tracking still running? Say how far. Finished? Run `finish`, export the block's own
+#                days (English titles, junk left out) and put it in the bucket as one file,
+#                export-block<N>.tgz, to download for the web app. Safe to run again.
 #   log          the VM's setup log (no SSH)
 #   stop         stop the VM (only once `finish` has run)
 set -euo pipefail
@@ -183,6 +186,31 @@ stop)
   echo "Section $SEC paused (nothing is lost). To carry on: bash ~/undercurrent/scripts/gcp/vm.sh section $SEC"
   ;;
 esac
+EOF
+  ;;
+frontend)
+  as_uc <<'EOF'
+cd ~/undercurrent && export PATH=$HOME/.local/bin:$PATH && source ~/block.env
+EXP=$(( ($(date -ud $OWN_END +%s) - $(date -ud $PULL_START +%s)) / 86400 + 1 ))
+N=$(ls data/processed/stories_daily 2>/dev/null | wc -l)
+if tmux has-session -t track 2>/dev/null; then
+  echo "Still tracking: $N / $EXP days. Latest:"
+  grep -E "^[0-9]{4}-" logs/track.log | tail -1 | cut -c1-110
+  echo "Run this again when it's done (about 2 days a minute)."
+  exit 0
+fi
+[ "$N" -ge "$EXP" ] || { echo "Tracking isn't running but only $N / $EXP days are tracked. Start it: vm.sh track"; exit 1; }
+echo "== tracking done ($N / $EXP days). finish: upload this block's own story days"
+bash scripts/gcp/block.sh finish || exit 1
+echo "== export $OWN_START .. $OWN_END (takes a few minutes)"
+git pull -q --ff-only && uv sync -q
+O=$HOME/export-block$BLOCK
+nice uv run python -m undercurrent.stories.export --processed data/processed --start $OWN_START --end $OWN_END --out $O 2>&1 | tail -15
+[ -f $O/meta.json ] || { echo "The export didn't finish: see the lines above."; exit 1; }
+tar czf $HOME/export-block$BLOCK.tgz -C $HOME export-block$BLOCK
+gcloud storage cp $HOME/export-block$BLOCK.tgz gs://$BUCKET/export-block$BLOCK.tgz -q
+echo "== ready: export-block$BLOCK.tgz ($(du -h $HOME/export-block$BLOCK.tgz | cut -f1))"
+echo "Download it: https://console.cloud.google.com/storage/browser/$BUCKET (click the file, then Download)"
 EOF
   ;;
 log)
