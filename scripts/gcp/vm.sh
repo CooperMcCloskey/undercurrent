@@ -9,6 +9,10 @@
 #   embed2 [B]   switch a running VM to two embedders per GPU (safe; nothing is lost);
 #                B = batch size (default 256; 512 or 1024 keeps the GPU busier)
 #   feeds        GKG rows per feed so far (the translated feed should be about 2x English)
+#   pairs [N]    sample headline pairs from N embedded days (default 4) and print them numbered, without
+#                scores, to label "same story?" (1 or 0). Writes ~uc/pairs_unlabelled.csv on the VM.
+#   calibrate "LABELS"  measure the "same story" cutoff from your labels, one digit per pair in order,
+#                e.g. "1011 0010 ..." (spaces ignored). Prints the cutoff to put in thresholds.py.
 #   track        after "cutoffs pushed": track the block (resumes if it stopped)
 #   track-fresh  track from the start again (after the cutoffs changed)
 #   finish       upload this block's own story days and mark the block done
@@ -54,6 +58,32 @@ print(d.groupby("feed")[["records", "with_title"]].sum())
 PY
 EOF
   ;;
+pairs | calibrate)
+  # These two scripts are sent to the VM rather than pulled there: a running block's loops use the
+  # copy of the repo cloned at boot, so don't `git pull` on the VM. (Update Cloud Shell's copy.)
+  SCRIPT=pipeline/undercurrent/vectors/sample_pairs.py
+  [ "$1" = calibrate ] && SCRIPT=pipeline/undercurrent/vectors/calibrate.py
+  SRC="$(cd "$(dirname "$0")/../.." && pwd)/$SCRIPT"
+  [ -f "$SRC" ] || { echo "Can't find $SRC. Run git pull in Cloud Shell's ~/undercurrent first." >&2; exit 1; }
+  if [ "$1" = pairs ]; then
+    N=${2:-4}
+    [[ "$N" =~ ^[0-9]+$ ]] || { echo "usage: vm.sh pairs [number of days]" >&2; exit 1; }
+    { echo "N=$N"; echo "B64=$(base64 <"$SRC" | tr -d '\n')"; cat; } <<'EOF' | as_uc
+cd ~/undercurrent && export PATH=$HOME/.local/bin:$PATH
+echo "$B64" | base64 -d > "$HOME/sample_pairs.py"
+nice -n 19 uv run python "$HOME/sample_pairs.py" --days "$N" --out "$HOME/pairs_unlabelled.csv" --print
+EOF
+  else
+    LABELS=${2:-}
+    [ -n "$LABELS" ] || { echo 'usage: vm.sh calibrate "1011 0010 ..."  (one digit per pair, in order)' >&2; exit 1; }
+    { echo "L64=$(printf %s "$LABELS" | base64 | tr -d '\n')"; echo "B64=$(base64 <"$SRC" | tr -d '\n')"; cat; } <<'EOF' | as_uc
+cd ~/undercurrent && export PATH=$HOME/.local/bin:$PATH
+echo "$B64" | base64 -d > "$HOME/calibrate.py"
+LABELS=$(echo "$L64" | base64 -d)
+uv run python "$HOME/calibrate.py" --pairs "$HOME/pairs_unlabelled.csv" --labels "$LABELS"
+EOF
+  fi
+  ;;
 log)
   gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | grep uc-startup | tail -20
   ;;
@@ -61,7 +91,7 @@ stop)
   gcloud compute instances stop "$VM" --zone="$ZONE"
   ;;
 *)
-  sed -n '2,17p' "$0"
+  sed -n '2,20p' "$0"
   exit 1
   ;;
 esac

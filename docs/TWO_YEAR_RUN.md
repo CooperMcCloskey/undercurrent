@@ -113,6 +113,7 @@ git -C ~/undercurrent pull -q
 | Is the GPU kept busy? | `bash ~/undercurrent/scripts/gcp/vm.sh speed` |
 | VM started before 2026-11-08 01:15 UTC | `bash ~/undercurrent/scripts/gcp/vm.sh embed2`: two embedders per GPU, about 1.5–2× faster, nothing lost |
 | Is the translated feed there? | `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (it should be about 2× English) |
+| Cooper only: calibrate the cutoffs | `vm.sh pairs`, then `vm.sh calibrate "1011 0010 ..."` (see "Calibrate the cutoffs" below) |
 | After "cutoffs pushed" | `bash ~/undercurrent/scripts/gcp/vm.sh track` (resumes if it stops; `track-fresh` starts again) |
 | Tracking finished | `bash ~/undercurrent/scripts/gcp/vm.sh finish`: uploads your own days and writes `status/block-N.done` |
 | Then | `bash ~/undercurrent/scripts/gcp/vm.sh stop` |
@@ -296,10 +297,11 @@ gcloud storage buckets add-iam-policy-binding gs://$BUCKET --member=serviceAccou
 ```
 
 **Calibrate the cutoffs (the gate for everyone's step 7, deadline 4:00).**
-1. Once a week of block 1 is embedded, label "same story?" pairs of real headlines into `pairs.csv` (`text_a,text_b,same`). Include close calls: the same kind of event in different places.
-2. Run `uv run python -m undercurrent.vectors.calibrate --pairs pairs.csv`.
-3. Put the result in `vectors/thresholds.py`, commit, push, and post **"cutoffs pushed"**.
-4. Track the newest 60 days first and read 20 stories before telling anyone to go.
+1. Once a few days of block 1 are embedded, in Cloud Shell: `git pull` (Cloud Shell's copy, not the VM's), then `bash ~/undercurrent/scripts/gcp/vm.sh pairs`. It prints about 150 numbered pairs of real headlines: random headlines and their nearest neighbours that day, spread across similarity bands, **without their scores** so the labels come from the text alone. It also saves them as `pairs_unlabelled.csv` in `uc`'s home on the VM. The script is sent to the VM, so nothing is pulled there.
+2. Label each pair **1** if both headlines report the same specific event or story (the same incident, decision, match or announcement, in any wording or language), **0** if they are the same kind of thing but a different event or place, or merely related. When unsure, 0. Write the labels as one string in order: `1011 0010 ...`.
+3. `bash ~/undercurrent/scripts/gcp/vm.sh calibrate "1011 0010 ..."` prints a table of precision by cutoff and the cutoff for 90% precision, with a range for how far another sample could move it. A string of the wrong length is refused, so a missed digit can't shift the labels.
+4. Put the cutoff in `vectors/thresholds.py` (and add the pair to `CALIBRATED`), commit, push, and post **"cutoffs pushed"**.
+5. Track the newest 60 days first and read 20 stories before telling anyone to go.
 
 **Merge, train, export** (when every `status/block-N.done` exists, `gcloud storage ls gs://$BUCKET/status/`):
 
