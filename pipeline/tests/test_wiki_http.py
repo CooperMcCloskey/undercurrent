@@ -407,3 +407,67 @@ def test_fetch_end_to_end_across_languages(fake) -> None:
     assert (d1["qid"], d1["title_en"], d1["n_langs"]) == ("Q1", "Real_News", 2)
     assert (d1["views"], d1["views_en"], d1["views_ja"]) == (52, 42, 10)  # summed over languages
     assert d1["edits"] == 4  # 2 per language
+
+
+def test_bulk_shards_fetch_pack_and_merge(fake, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two machines each fetch their share of the names, pack, and a third merges them."""
+    from undercurrent.ingest import wiki_bulk
+
+    week = dt.date(2026, 10, 26)
+    names = pd.DataFrame(
+        [
+            (week, "orgs", "real news", 100, 1, 1),
+            (week, "orgs", "un", 50, 2, 2),
+            (week, "persons", "john smith", 40, 1, 1),  # ambiguous: never fetched
+        ],
+        columns=["week", "kind", "name", "mentions", "rank", "tier"],
+    )
+    langs = ["en", "ja"]
+    tarballs = []
+    for i in range(2):
+        machine = tmp_path / f"m{i}"
+        # each "machine" has its own data/ folder
+        monkeypatch.setattr(wiki_resolve, "_cache", None)
+        monkeypatch.setattr(wiki_resolve, "_links", None)
+        for mod, attr, rel in (
+            (wiki_resolve, "CACHE_FILE", "cache/wiki_resolve.json"),
+            (wiki_resolve, "LINKS_FILE", "cache/wiki_links.json"),
+            (wiki_top, "RAW_DIR", "raw/wiki/top"),
+            (wiki_top, "OUT", "processed/wiki_top.parquet"),
+            (wiki, "RAW", "raw"),
+            (wiki, "PROCESSED", "processed"),
+        ):
+            monkeypatch.setattr(mod, attr, machine / rel)
+        wiki_bulk.fetch_shard(names, i, 2, D1, D2, langs)
+        tarballs.append(wiki_bulk.pack(i, 2, data=machine))
+
+    merged = tmp_path / "merged"
+    monkeypatch.setattr(wiki_resolve, "_cache", None)
+    monkeypatch.setattr(wiki_resolve, "_links", None)
+    for mod, attr, rel in (
+        (wiki_resolve, "CACHE_FILE", "cache/wiki_resolve.json"),
+        (wiki_resolve, "LINKS_FILE", "cache/wiki_links.json"),
+        (wiki_top, "RAW_DIR", "raw/wiki/top"),
+        (wiki_top, "OUT", "processed/wiki_top.parquet"),
+        (wiki, "RAW", "raw"),
+        (wiki, "PROCESSED", "processed"),
+    ):
+        monkeypatch.setattr(mod, attr, merged / rel)
+    names_path = merged / "processed" / "wiki_names.parquet"
+    names_path.parent.mkdir(parents=True)
+    names.to_parquet(names_path, index=False)
+    calls_before = sum(fake.calls.values())
+    wiki_bulk.merge(tarballs, data=merged)
+    wiki_bulk.build(langs, names_path=names_path)
+    assert sum(fake.calls.values()) == calls_before  # the merge needs no network
+
+    ent = pd.read_parquet(merged / "processed/wiki_entity_daily.parquet").set_index("qid")
+    d1 = ent[ent["day"] == D1]
+    assert d1.loc["Q1", "views"] == 52 and d1.loc["Q1", "n_langs"] == 2  # tier 1: en + ja
+    assert d1.loc["Q1065", "views"] == 42 and d1.loc["Q1065", "n_langs"] == 1  # tier 2: en only
+    assert d1.loc["Q1", "edits"] == 2 and pd.isna(d1.loc["Q1065", "edits"])  # edits: tier 1 only
+    top = pd.read_parquet(merged / "processed/wiki_top.parquet")
+    assert set(top["day"]) == {D1, D2}  # each day came from one machine
+    sel = pd.read_parquet(merged / "processed/wiki_selection.parquet").set_index("name")
+    assert sel.loc["un", "title_en"] == "United_Nations" and sel.loc["un", "qid"] == "Q1065"
+    assert pd.isna(sel.loc["john smith", "title_en"])

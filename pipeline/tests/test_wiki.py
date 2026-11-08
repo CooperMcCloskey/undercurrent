@@ -135,3 +135,98 @@ def test_build_entity_table_sums_languages(monkeypatch: pytest.MonkeyPatch, tmp_
     assert (obama["day"], obama["views"], obama["edits"], obama["n_langs"]) == (d1, 120, 3, 2)
     assert (obama["views_en"], obama["views_ja"], obama["edits_ja"]) == (100, 20, 3)
     assert rows["en:Orphan"]["views"] == 7 and rows["en:Orphan"]["n_langs"] == 1
+
+
+# wiki_names and wiki_bulk (pure parts) ----------------------------------------------------------
+
+
+def test_count_day_weights_by_dup_count_and_normalises() -> None:
+    from undercurrent.ingest.wiki_names import count_day
+
+    articles = pd.DataFrame(
+        {
+            "persons": [["Barack Obama", "x"], ["barack  obama"], None],
+            "orgs": [["United Nations"], [], ["united nations"]],
+            "dup_count": [3, 1, 2],
+        }
+    )
+    out = count_day(articles, dt.date(2026, 11, 2))
+    rows = {(r["kind"], r["name"]): (r["mentions"], r["articles"]) for r in out.to_dict("records")}
+    assert rows == {
+        ("persons", "barack obama"): (4, 2),  # one-letter names like "x" are dropped
+        ("orgs", "united nations"): (5, 2),
+    }
+
+
+def test_select_ranks_each_week_and_kind_into_tiers() -> None:
+    from undercurrent.ingest.wiki_names import entities, select
+
+    mon, sun, next_mon = dt.date(2026, 11, 2), dt.date(2026, 11, 8), dt.date(2026, 11, 9)
+    counts = pd.DataFrame(
+        [
+            (mon, "persons", "a", 10),
+            (sun, "persons", "a", 5),  # same ISO week: summed to 15
+            (mon, "persons", "b", 12),
+            (mon, "persons", "c", 1),  # rank 3: over --top 2
+            (mon, "orgs", "o", 1),
+            (next_mon, "persons", "c", 50),  # next week, where c is rank 1
+        ],
+        columns=["day", "kind", "name", "mentions"],
+    )
+    names = select(counts, top=2, tier1=1)
+    got = {
+        (r["week"], r["kind"], r["name"]): (r["rank"], r["tier"]) for r in names.to_dict("records")
+    }
+    assert got == {
+        (mon, "persons", "a"): (1, 1),
+        (mon, "persons", "b"): (2, 2),
+        (mon, "orgs", "o"): (1, 1),
+        (next_mon, "persons", "c"): (1, 1),
+    }
+    ents = entities(names).set_index("name")
+    assert ents.loc["c", "first_week"] == next_mon  # chosen only once it was big
+    assert ents.loc["b", "tier"] == 2
+
+
+def test_shards_split_names_exactly_once() -> None:
+    from undercurrent.ingest.wiki_bulk import in_shard, parse_shard
+
+    names = [f"name {k}" for k in range(500)]
+    owners = [[i for i in range(4) if in_shard(x, i, 4)] for x in names]
+    assert all(len(o) == 1 for o in owners)
+    assert {o[0] for o in owners} == {0, 1, 2, 3}
+    assert parse_shard("3/4") == (3, 4)
+    with pytest.raises(SystemExit):
+        parse_shard("4/4")
+
+
+def test_merge_caches_prefers_hits_and_more_languages() -> None:
+    from undercurrent.ingest.wiki_bulk import merge_links, merge_resolve
+
+    resolve = {"a": None, "b": "B"}
+    merge_resolve(resolve, {"a": "A", "b": None, "c": None})
+    assert resolve == {"a": "A", "b": "B", "c": None}
+    links = {"A": {"qid": "Q1", "titles": {"en": "A"}, "checked": ["en"]}}
+    more = {"qid": "Q1", "titles": {"en": "A", "ja": "あ"}, "checked": ["en", "ja"]}
+    merge_links(links, {"A": more})
+    assert links["A"] == more
+    merge_links(links, {"A": {"qid": "Q1", "titles": {"en": "A"}, "checked": ["en"]}})
+    assert links["A"] == more
+
+
+def test_entity_table_counts_only_fetched_languages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A tier-2 entity linked in 2 languages but fetched in English only has n_langs 1, and a
+    run with no edits at all still builds."""
+    monkeypatch.setattr(wiki, "PROCESSED", tmp_path)
+    d1 = dt.date(2026, 11, 1)
+    views = pd.DataFrame(
+        [("en", "Tier_Two", d1, 5, True)], columns=["lang", "title", "day", "views", "complete"]
+    )
+    edits = pd.DataFrame(columns=["lang", "title", "day", "edits", "complete"])
+    links = {"Tier_Two": {"qid": "Q2", "titles": {"en": "Tier_Two", "ja": "第二"}}}
+    out = wiki.build_entity_table(views, edits, links, ["en", "ja"])
+    row = out.iloc[0]
+    assert (row["qid"], row["views"], row["n_langs"]) == ("Q2", 5, 1)
+    assert pd.isna(row["edits"])

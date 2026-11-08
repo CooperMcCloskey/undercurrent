@@ -126,7 +126,7 @@ One row per entity per day, all languages added together. Only complete days are
 | `day` | `2026-11-04` | |
 | `views` | `111251` | readers across all languages |
 | `edits` | `3` | edits across all languages |
-| `n_langs` | `8` | how many of the 8 languages have an article on this entity |
+| `n_langs` | `8` | how many languages we have pageviews for: those with an article on this entity, or 1 for a `wiki_bulk` tier-2 entity (English only) |
 | `views_en` … `views_zh` | `75834` (en) | readers in each language (empty if there's no article in that language) |
 | `edits_en` … `edits_zh` | `0` (en) | edits in each language |
 
@@ -187,6 +187,50 @@ resolve_entities(["barack obama"])  # {"barack obama": {"qid": "Q76", "title": "
 #   "titles": {"en": "Barack_Obama", "ja": "バラク・オバマ", ...}}}
 wiki.fetch(["Barack_Obama"], start, end)  # downloads, then rebuilds the three tables
 ```
+
+---
+
+## Two years, on several machines (`wiki_names` + `wiki_bulk`)
+
+For the two-year GDELT run, entity names come from the articles themselves, not from stories (which don't exist until tracking runs), and the work is split across machines.
+
+**Why split it:** Wikimedia's limit is about 200 requests a minute **per client**, and anonymous clients are told apart by IP address. Machines on **different networks** (home broadband, a phone hotspot, a cloud VM) each get their own budget. Machines behind the **same router or the same hackathon wifi share one budget** and gain nothing. Use one machine there, or set `UC_WIKI_REQUESTS_PER_MINUTE=47` on each of 4.
+
+```bash
+# 1. ONE machine: pick names. Counts each day once (resumable), then picks each ISO week's
+#    top 50 people and top 50 orgs by mentions (weighted by dup_count). The top 15 of each are tier 1.
+#    Run it again as more days land; only new days are counted.
+uv run python -m undercurrent.ingest.wiki_names --bucket gs://undercurrent-data-cooper   # needs gcloud + read access
+uv run python -m undercurrent.ingest.wiki_names                                          # or: local data/processed/articles
+#    -> data/processed/wiki_names.parquet (small). Copy it to the same path on every machine.
+
+# 2. EVERY machine i of n (0-based). Resumable: just run it again if it stops.
+uv run python -m undercurrent.ingest.wiki_bulk fetch --shard 0/4
+#    -> data/wiki_shard-0-of-4.tar.gz
+
+# 3. ONE machine: merge everyone's tarballs and build every table (no network).
+uv run python -m undercurrent.ingest.wiki_bulk merge wiki_shard-*-of-4.tar.gz
+```
+
+What each machine fetches (`fetch --shard i/n`). The default range is five years, 2021-10-10 (section 10's warm-up) to 2026-11-06 (the last GDELT day). It's a fixed date, not "yesterday": an article's cache is reused only if it covers the whole requested range, so a moving end date (or a start moved earlier later on) would refetch every cached article on every run. Keep the same `--start`/`--end` for the whole run.
+
+| Step | What | Requests |
+|---|---|---|
+| Top-1000 | 8 languages × 2 lists, on the days where `day.toordinal() % n == i` | about 12,000 in total for two years, split n ways |
+| Resolve | Its names (`sha1(name) % n == i`), linked to all 8 languages | about 0.5 per name |
+| Tier 1 | Pageviews in all 8 languages, then English edits | about 6 + 3 per entity |
+| Tier 2 | English pageviews only | 1 per entity |
+
+`wiki_names` prints an estimate of the total for the names it picked. Change `--top` / `--tier1` to trade coverage for time. One pageviews request covers the whole two years, so the cost is per entity, not per day.
+
+**Extra outputs:**
+
+- `data/processed/wiki_names.parquet`: `week, kind, name, mentions, rank, tier`.
+- `data/processed/wiki_selection.parquet` (written by `merge` / `build`): `name, kind, tier, first_week, mentions, title_en, qid`.
+
+**Point-in-time (C):** a name is chosen by one week's mentions, never by what happened later. But its pageviews are fetched for the whole range, including weeks before it was chosen. So "this entity has data" quietly says "it got big at some point". For a forecast made on day t, use only entities whose `first_week` ended by t.
+
+**Not covered:** places (GDELT `locations`), and names that never reach a weekly top 50. When stories exist, their top entities can be fetched the usual way (`wiki --titles-file`). Everything already cached is skipped.
 
 ---
 

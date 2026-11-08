@@ -73,6 +73,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - [x] Wikipedia daily edit counts for given titles (revisions API) → `wiki_edits.parquet` (`ingest/wiki.py`)
 - [x] Entity name → Wikipedia title resolver, cached (B and C both need it) (`ingest/wiki_resolve.py`)
 - [x] Wikipedia daily top-1000 (bulk signal, bot-flagged) → `wiki_top.parquet` (`ingest/wiki_top.py`)
+- [x] Two-year Wikipedia run across several machines: weekly top GDELT people/orgs → tiers → sharded fetch → merge (`ingest/wiki_names.py`, `ingest/wiki_bulk.py`)
 - [ ] Bluesky Jetstream consumer → `bluesky/*.parquet`, plus an in-process hook that D can use for `/api/live`
 - [ ] (stretch) Reddit, only if API access was approved
 
@@ -84,6 +85,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - `wiki_top.parquet`: 8 languages × 60 days (2026-09-08..11-06) downloaded, with likely bots flagged (`suspect_bot`).
 - **GDELT, measured on 2026-11-01..05 (both feeds, zip files, `gdelt_zip.py`):** 1.39 GB zipped a day (0.51 GB English + 0.88 GB translated), about 341k GKG rows, 248–281k articles after dedupe on weekdays (156k on the Sunday), 50–57 MB of Parquet, about 20 s a day on 10 workers. So a year is about 20 GB of articles and 2 hours on one 16-vCPU machine. Details: `ingest/GDELT.md`.
 - **The run:** block 1 (Cooper, 2026-04-10 → 2026-11-06) has been running since 23:23 UTC on 2026-11-07. It's pulled from BigQuery on its L4 VM (`docs/TWO_YEAR_RUN.md`, `scripts/gcp/create_vm.sh`), into `gs://undercurrent-data-cooper`. The other blocks may instead use one year per person from the zip files on a CPU VM (`docs/ONE_YEAR_EACH.md` and `ingest/gdelt_zip.py`, not on `main` yet). Their newest block must own the days up to 2026-05-07.
+- **Wikipedia for the two-year run:** `wiki_names` (one machine, from the bucket's articles) → `wiki_bulk fetch --shard i/n` (each machine) → `wiki_bulk merge` (one machine). Machines must be on **different networks**: Wikimedia's 200/min limit is per IP. New: `wiki_selection.parquet` has each entity's `first_week`; C should only use entities first chosen by day t (`ingest/WIKIPEDIA.md`).
 - **Translated-feed `<PAGE_TITLE>` is in the original language**, not English. About 70% of articles come from that feed; `lang` is ISO 639-3 (`spa`, `zho`, `rus`, ...).
 
 ### V: Vectors (owner: Cooper)

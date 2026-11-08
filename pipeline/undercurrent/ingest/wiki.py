@@ -180,10 +180,16 @@ def build_entity_table(
         ],
         columns=["lang", "title", "qid", "title_en"],
     ).drop_duplicates(["lang", "title"])
-    n_langs = owner.groupby("qid")["lang"].nunique().rename("n_langs")
+    # n_langs counts the languages whose pageviews we actually have, so an entity fetched in
+    # English only (wiki_bulk's tier 2) says 1, not the 8 languages Wikidata lists.
+    fetched = owner.merge(views[["lang", "title"]].drop_duplicates(), on=["lang", "title"])
+    n_langs = fetched.groupby("qid")["lang"].nunique().rename("n_langs")
 
     def wide(df: pd.DataFrame, col: str) -> pd.DataFrame:
-        df = df[df["complete"]].merge(owner, on=["lang", "title"])
+        df = df[df["complete"].astype(bool)].merge(owner, on=["lang", "title"])
+        if df.empty:  # e.g. no edits fetched at all (wiki_bulk fetch --no-edits)
+            idx = pd.MultiIndex.from_tuples([], names=["qid", "title_en", "day"])
+            return pd.DataFrame({col: pd.Series(dtype="float64")}, index=idx)
         per_lang = df.pivot_table(
             index=["qid", "title_en", "day"], columns="lang", values=col, aggfunc="sum"
         )
@@ -202,6 +208,62 @@ def build_entity_table(
     return out
 
 
+def download(
+    titles: list[str],
+    start: dt.date,
+    end: dt.date,
+    kinds: list[str] | tuple[str, ...] = tuple(KINDS),
+    langs: list[str] | tuple[str, ...] = LANGUAGES,
+    workers: int = 3,
+    link_langs: list[str] | tuple[str, ...] | None = None,
+) -> Counter[str]:
+    """Link English titles to `langs` and fill the per-article cache. No tables are written.
+
+    link_langs (default: langs) is the set of languages to look up on Wikidata. wiki_bulk links
+    every entity in all 8 languages, even when it only downloads English, so a later build in
+    all languages needs no network.
+    """
+    langs = list(dict.fromkeys(["en", *langs]))
+    links = link_languages(titles, list(dict.fromkeys([*langs, *(link_langs or [])])))
+    jobs = sorted(
+        {(lang, t) for e in links.values() for lang, t in e["titles"].items() if lang in langs}
+    )
+    print(f"{len(links)} entities -> {len(jobs)} articles in {len(langs)} languages")
+
+    client = WikiClient()
+    statuses: Counter[str] = Counter()
+    for kind in kinds:
+
+        def work(job: tuple[str, str], kind: str = kind) -> str:
+            lang, title = job
+            try:
+                return update_title(client, kind, lang, title, start, end)
+            except RuntimeError as e:
+                print(f"  failed {kind} {lang}:{title}: {e}")
+                return "failed"
+
+        kind_statuses: Counter[str] = Counter()
+        with ThreadPoolExecutor(workers) as pool:
+            for status in tqdm(pool.map(work, jobs), total=len(jobs), desc=kind):
+                kind_statuses[status] += 1
+        print(f"{kind}: {dict(kind_statuses)}")
+        statuses += kind_statuses
+    client.close()
+    return statuses
+
+
+def build(langs: list[str] | tuple[str, ...] = LANGUAGES) -> pd.DataFrame:
+    """Rebuild wiki_pageviews, wiki_edits and wiki_entity_daily from every cached article."""
+    langs = list(dict.fromkeys(["en", *langs]))
+    for kind in KINDS:
+        df = build_table(kind)
+        print(f"wiki_{kind}: {len(df):,} rows")
+    all_links = link_languages(_all_cached_en_titles(), langs)
+    ent = build_entity_table(_table("pageviews"), _table("edits"), all_links, langs)
+    print(f"wiki_entity_daily: {len(ent):,} rows, {ent['qid'].nunique():,} entities")
+    return ent
+
+
 def fetch(
     titles: list[str],
     start: dt.date,
@@ -212,33 +274,8 @@ def fetch(
 ) -> None:
     """Python entry point: link English titles to every language, fetch what's missing, then
     rebuild the tables. Safe to re-run."""
-    langs = list(dict.fromkeys(["en", *langs]))
-    links = link_languages(titles, langs)
-    jobs = sorted({(lang, t) for e in links.values() for lang, t in e["titles"].items()})
-    print(f"{len(links)} entities -> {len(jobs)} articles in {len(langs)} languages")
-
-    client = WikiClient()
-    for kind in kinds:
-        statuses: Counter[str] = Counter()
-
-        def work(job: tuple[str, str], kind: str = kind) -> str:
-            lang, title = job
-            try:
-                return update_title(client, kind, lang, title, start, end)
-            except RuntimeError as e:
-                print(f"  failed {kind} {lang}:{title}: {e}")
-                return "failed"
-
-        with ThreadPoolExecutor(workers) as pool:
-            for status in tqdm(pool.map(work, jobs), total=len(jobs), desc=kind):
-                statuses[status] += 1
-        df = build_table(kind)
-        print(f"{kind}: {dict(statuses)} -> {len(df):,} rows")
-    client.close()
-
-    all_links = link_languages(_all_cached_en_titles(), langs)
-    ent = build_entity_table(_table("pageviews"), _table("edits"), all_links, langs)
-    print(f"wiki_entity_daily: {len(ent):,} rows, {ent['qid'].nunique():,} entities")
+    download(titles, start, end, kinds, langs, workers)
+    build(langs)
 
 
 def _table(kind: str) -> pd.DataFrame:
