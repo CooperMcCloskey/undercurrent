@@ -138,7 +138,7 @@ def write_day(processed: Path, result: DayResult) -> None:
 
 def make_prototypes() -> None:
     """Make the category prototypes in a separate process, once. Making them loads PyTorch, and a
-    process that has loaded PyTorch runs FAISS on one thread (cluster.get_faiss): on the first real
+    process that has loaded PyTorch runs FAISS on one thread (search.get_faiss): on the first real
     run that made every day of tracking several times slower."""
     code = "from undercurrent.vectors.categories import prototypes; prototypes()"
     if subprocess.run([sys.executable, "-c", code], check=False).returncode != 0:
@@ -253,7 +253,8 @@ def main(argv: list[str] | None = None) -> None:
         print(
             f"{day}  {s['items']:>8,} items  {s['joined_existing']:>8,} joined  {s['new_stories']:>6,} new "
             f"({s['in_new_stories']:,} items)  {s['no_story']:>8,} no story  {s['merged']:>4} merged  "
-            f"{s['retired']:>5} retired  {s['active']:>7,} active  {time.time() - started:6.1f}s",
+            f"{s['retired']:>5} retired  {s['active']:>7,} active  {time.time() - started:6.1f}s "
+            f"(match {s['t_match']:.0f}s, cluster {s['t_cluster']:.0f}s, fold+merge {s['t_merge']:.0f}s)",
             flush=True,
         )
         day += dt.timedelta(days=1)

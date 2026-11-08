@@ -24,6 +24,7 @@ import hashlib
 import os
 import pickle
 import re
+import time
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -32,8 +33,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from undercurrent.stories.cluster import cluster_items, get_faiss
+from undercurrent.stories.cluster import cluster_items
 from undercurrent.stories.graph import Place, far_apart
+from undercurrent.stories.search import top_k
 from undercurrent.vectors.thresholds import threshold
 
 STATE_VERSION = 1
@@ -190,6 +192,7 @@ class Tracker:
         ):
             raise ValueError("ids, vectors, titles and places must have one entry per item")
         cfg = self.cfg
+        t_start = time.perf_counter()
 
         # Sort by id, so the result doesn't depend on the order the items arrived in.
         order = np.argsort(np.asarray(ids, dtype=str), kind="stable")
@@ -208,10 +211,7 @@ class Tracker:
         assigned = np.full(n, -1, dtype=np.int64)
         similarity = np.zeros(n, dtype=np.float32)
         if n_old and n:
-            faiss = get_faiss()
-            index = faiss.IndexFlatIP(self.dim)
-            index.add(self._unit())
-            sims, nearest = index.search(vectors, min(cfg.candidates, n_old))
+            sims, nearest = top_k(vectors, self._unit(), cfg.candidates)
             item_has, item_cc = self._item_geo(places, n)
             story_has, story_cc = self._story_geo()
             for j in range(sims.shape[1]):
@@ -233,6 +233,8 @@ class Tracker:
                 taken = pending[ok]
                 assigned[taken] = nearest[taken, j]
                 similarity[taken] = sims[taken, j]
+
+        t_matched = time.perf_counter()
 
         # 3. start new stories from the leftovers
         left = np.flatnonzero(assigned < 0)
@@ -282,6 +284,8 @@ class Tracker:
                 self.places.extend(new_places)
                 self._top_cache.extend([None] * n_new)
 
+        t_clustered = time.perf_counter()
+
         # 4. fold today's items into the stories they joined
         matched = np.flatnonzero(assigned >= 0)
         total = len(self.ids)
@@ -307,6 +311,8 @@ class Tracker:
         dead = np.zeros(total, dtype=bool)
         if cfg.merge_sim is not None and total > 1 and len(matched):
             self._merge(day, today, dead, merged_into, lineage)
+
+        t_merged = time.perf_counter()
 
         # 6. retire the idle
         idle = (day.toordinal() - self.last_day) > cfg.idle_days
@@ -349,6 +355,11 @@ class Tracker:
             "new_stories": n_new,
             "merged": len(lineage),
             "retired": retired,
+            # where the time went, in seconds (not saved anywhere): matching to known stories,
+            # clustering the leftovers, folding in and merging
+            "t_match": round(t_matched - t_start, 1),
+            "t_cluster": round(t_clustered - t_matched, 1),
+            "t_merge": round(t_merged - t_clustered, 1),
         }
 
         # 8. forget the dead
@@ -375,12 +386,9 @@ class Tracker:
         today can have crossed the line, so only they are looked up."""
         cfg = self.cfg
         total = len(self.ids)
-        faiss = get_faiss()
         centroids = self._unit()
-        index = faiss.IndexFlatIP(self.dim)
-        index.add(centroids)
         queries = np.flatnonzero(today > 0)
-        sims, nearest = index.search(centroids[queries], min(5, total))
+        sims, nearest = top_k(centroids[queries], centroids, 5)
         parent = list(range(total))
 
         def find(x: int) -> int:
@@ -432,10 +440,7 @@ class Tracker:
         assign_sim). For matching a live post to a story."""
         if not len(self.ids):
             return [None] * len(vectors)
-        faiss = get_faiss()
-        index = faiss.IndexFlatIP(self.dim)
-        index.add(self._unit())
-        sims, nearest = index.search(np.ascontiguousarray(vectors, dtype=np.float32), 1)
+        sims, nearest = top_k(vectors, self._unit(), 1)
         floor = self.cfg.assign_sim if min_sim is None else min_sim
         return [
             (self.ids[int(i)], float(s)) if s >= floor else None
