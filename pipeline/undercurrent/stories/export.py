@@ -25,6 +25,12 @@ serves half of it. It only replaces an export this command or the demo wrote (--
   snapshots (pipeline/tests/test_contracts.py checks they agree).
 - **Footprint** (`stories/footprint.py`): each article spreads one unit of attention over the
   places it names, over the same 7 days. Items get the same places as `Item.locations`.
+- **Junk stories are left off the globe** (`--keep-all-stories` to keep them): a story is shown
+  only if at least NAME_SHARE_MIN of its articles share a person or organisation, or at least
+  COUNTRY_SHARE_MIN have the same first-named country. The tracker groups by embedding alone,
+  and some groups are not news: generic headlines that all sit near the average vector, daily
+  horoscopes, headlines that are mostly a date. They share no names and no country. The rule is
+  measured over each story's articles up to --end. The tracker's output is untouched.
 """
 
 import argparse
@@ -53,6 +59,13 @@ WINDOW = 7  # days in article_count_7d
 MARKER = ".stories-export"
 REPLACEABLE = (MARKER, ".demo-export")  # exports this may overwrite without --force
 CATEGORIES = set(typing.get_args(c.Category))
+
+# Junk-story rule (see the docstring). Measured on block 1's 25 biggest stories on 2026-04-29: the
+# two junk ones had 4-5% of articles sharing their top name and 11-34% their top country; the
+# weakest real story had 13% / 73%, all others 15%+ on names. GDELT extracts names from an English
+# translation for the translated feed, so they are comparable across languages.
+NAME_SHARE_MIN = 0.10
+COUNTRY_SHARE_MIN = 0.50
 
 # Columns read from articles, with the type to fill in when a column is missing.
 ARTICLE_COLUMNS = {
@@ -238,6 +251,44 @@ class Source:
             {"end": ordinal(end), "limit": limit},
         ).df()
 
+    def story_quality(self, end: dt.date, min_articles: int) -> pd.DataFrame:
+        """Per story with at least `min_articles` articles up to `end`: n, name_share (the share of
+        its articles naming its most-named person or organisation) and country_share (the share
+        whose first location is in its most common country). Indexed by story_id."""
+        return (
+            self.con.execute(
+                """WITH m AS (
+                       SELECT story_id, article_id, persons, orgs, locations FROM joined
+                       WHERE d <= $end
+                   ), n AS (
+                       SELECT story_id, count(*) AS n FROM m GROUP BY 1 HAVING count(*) >= $min
+                   ), names AS (
+                       SELECT story_id, name, count(DISTINCT article_id) AS k FROM (
+                           SELECT story_id, article_id, unnest(list_distinct(list_concat(
+                               coalesce(persons, CAST([] AS VARCHAR[])),
+                               coalesce(orgs, CAST([] AS VARCHAR[]))))) AS name
+                           FROM m WHERE story_id IN (SELECT story_id FROM n)
+                       ) WHERE name IS NOT NULL AND name <> '' GROUP BY 1, 2
+                   ), top_name AS (
+                       SELECT story_id, max(k) AS k FROM names GROUP BY 1
+                   ), countries AS (
+                       SELECT story_id, locations[1].country AS country, count(*) AS k FROM m
+                       WHERE story_id IN (SELECT story_id FROM n) AND len(locations) > 0
+                         AND locations[1].country IS NOT NULL
+                       GROUP BY 1, 2
+                   ), top_country AS (
+                       SELECT story_id, max(k) AS k FROM countries GROUP BY 1
+                   )
+                   SELECT n.story_id, n.n,
+                          coalesce(top_name.k, 0) / n.n AS name_share,
+                          coalesce(top_country.k, 0) / n.n AS country_share
+                   FROM n LEFT JOIN top_name USING (story_id) LEFT JOIN top_country USING (story_id)""",
+                {"end": ordinal(end), "min": min_articles},
+            )
+            .df()
+            .set_index("story_id")
+        )
+
     def entities(self, story_ids: list[str], end: dt.date, limit: int) -> pd.DataFrame:
         """The people and organisations each story's articles name most (at least twice)."""
         self._pick(story_ids)
@@ -380,6 +431,7 @@ class Exporter:
         forecasts: dict,
         horizons: list[int],
         metrics: c.ModelMetrics | None,
+        keep_all: bool = False,
     ) -> None:
         self.src, self.start, self.end = source, start, end
         self.top, self.n_items, self.min_articles = top, items, min_articles
@@ -392,6 +444,8 @@ class Exporter:
         }
         self.days = sorted(d for d in tracked if start <= d <= end)
         self.stats = defaultdict(int)
+        self.quality = None if keep_all else source.story_quality(end, min_articles)
+        self.dropped: set[str] = set()
 
     def snapshots(self) -> dict[dt.date, c.Snapshot]:
         windows = {day: seven_day(self.counts, day) for day in self.days}
@@ -418,6 +472,10 @@ class Exporter:
             self.stats["skipped: no stories_daily row"] += len(chunk) - len(known)
             weights = self.src.place_weights(known, t - WINDOW + 1, t)
             for sid in known:
+                if not self.looks_like_news(sid):
+                    self.dropped.add(sid)
+                    self.stats["story-days left out: no shared name or country"] += 1
+                    continue
                 made = footprint(weights.get(sid, {}))
                 if made is None:
                     self.stats["skipped: no places"] += 1
@@ -426,6 +484,14 @@ class Exporter:
                 if len(stories) == self.top:
                     return c.Snapshot(as_of=as_of, stories=stories)
         return c.Snapshot(as_of=as_of, stories=stories)
+
+    def looks_like_news(self, sid: str) -> bool:
+        if self.quality is None:
+            return True
+        if sid not in self.quality.index:
+            return False
+        q = self.quality.loc[sid]
+        return bool(q["name_share"] >= NAME_SHARE_MIN or q["country_share"] >= COUNTRY_SHARE_MIN)
 
     def summary(self, sid, as_of, agg_row, meta_row, made, a7_on) -> c.StorySummary:
         points, location = made
@@ -536,6 +602,7 @@ def run(
     items: int = 25,
     min_articles: int = 3,
     force: bool = False,
+    keep_all: bool = False,
 ) -> Path:
     check_target(out, force)
     source = Source(processed)
@@ -548,7 +615,9 @@ def run(
             f"No tracked days between {start} and {end} (tracked: {tracked[0]}..{tracked[-1]})"
         )
     forecasts, horizons, metrics = load_forecast_inputs(processed)
-    ex = Exporter(source, start, end, top, items, min_articles, forecasts, horizons, metrics)
+    ex = Exporter(
+        source, start, end, top, items, min_articles, forecasts, horizons, metrics, keep_all
+    )
 
     tmp = out.with_name(out.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
@@ -575,6 +644,16 @@ def run(
     )
     for what, n in sorted(ex.stats.items()):
         print(f"  {what}: {n}")
+    if ex.dropped:
+        labels = latest_rows(ex.story_days, 0, ordinal(end))["label"]
+        biggest = sorted(ex.dropped, key=lambda s: -int(ex.quality.at[s, "n"]))[:5]
+        print(f"  left off the globe as junk: {len(ex.dropped)} stories, biggest:")
+        for sid in biggest:
+            q = ex.quality.loc[sid]
+            print(
+                f"    {int(q['n']):>7,} articles, names {q['name_share']:.2f}, country "
+                f"{q['country_share']:.2f}: {str(labels.get(sid, sid))[:80]}"
+            )
     return out
 
 
@@ -596,6 +675,11 @@ def main() -> None:
     parser.add_argument("--processed", type=Path, default=config.PROCESSED)
     parser.add_argument("--out", type=Path, default=config.EXPORT)
     parser.add_argument("--force", action="store_true", help="replace an export this didn't write")
+    parser.add_argument(
+        "--keep-all-stories",
+        action="store_true",
+        help="don't leave out stories whose articles share no name or country",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     run(
@@ -607,6 +691,7 @@ def main() -> None:
         args.items,
         args.min_articles,
         args.force,
+        args.keep_all_stories,
     )
 
 

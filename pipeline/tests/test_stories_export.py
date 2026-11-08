@@ -34,12 +34,13 @@ FRANCE = loc("France", "FR", 46.0, 2.0, 1)
 GERMANY = loc("Germany", "DE", 51.0, 9.0, 1)
 BERLIN = loc("Berlin, Berlin, Germany", "DE", 52.52, 13.4, 4)
 
-STRIKE, QUAKE, TINY, NOWHERE, SUMMIT = (
+STRIKE, QUAKE, TINY, NOWHERE, SUMMIT, JUNK = (
     "port-strike-in-rotterdam-aaaaaa",
     "earthquake-in-japan-bbbbbb",
     "tiny-story-cccccc",
     "no-places-dddddd",
     "summit-eeeeee",
+    "story-ffffff",
 )
 CATEGORY = {
     STRIKE: "economy",
@@ -47,6 +48,7 @@ CATEGORY = {
     TINY: "other",
     NOWHERE: "politics",
     SUMMIT: "politics",
+    JUNK: "other",
 }
 SUMMIT_PLACES = [[PARIS, FRANCE, GERMANY], [BERLIN, GERMANY], [GERMANY]]
 
@@ -89,6 +91,9 @@ def articles_for(day: dt.date) -> list[tuple[str, dict]]:
     if day == END:
         for k, places in enumerate(SUMMIT_PLACES):
             art(SUMMIT, k, places)
+    # A "story" of unrelated generic headlines: no shared names, a different country each time.
+    for k, place in enumerate([JAPAN, PARIS, BERLIN, ROTTERDAM]):
+        art(JUNK, k, [place])
     return out
 
 
@@ -286,3 +291,13 @@ def test_stale_model_card_is_left_out(processed: Path, tmp_path: Path) -> None:
     out = export.run(processed, tmp_path / "export")
     meta = load(out, "meta.json")
     assert meta["horizons"] == [1, 3] and meta["model"] is None
+
+
+def test_junk_stories_are_left_off_the_globe(processed: Path, tmp_path: Path) -> None:
+    """JUNK is big enough to rank second (28 articles a week) but its articles share no name and
+    no country, so it stays out. QUAKE names nobody either, but is all in Japan: kept."""
+    out = export.run(processed, tmp_path / "export")
+    assert JUNK not in snapshot(out, END) and QUAKE in snapshot(out, END)
+    assert not (out / "stories" / f"{JUNK}.json").exists()
+    kept = export.run(processed, tmp_path / "all", keep_all=True)
+    assert list(snapshot(kept, END))[:2] == [STRIKE, JUNK]
