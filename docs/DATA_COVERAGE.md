@@ -19,7 +19,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | 5 | 2024-05-08 → 2024-11-06 | 2024-04-10 | **Cooper** (on the idle GPU of block 1's `uc-gpu`, as user `s5`: `vm.sh section 5`; paused while block 1 tracks) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
 | 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ✅ done | ✅ done | ⬜ waits for the cutoffs |
 | 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ✅ done (119/119) | ✅ done (119/119) | ⬜ waits for the cutoffs |
-| 7 | 2023-05-08 → 2023-11-06 | 2023-04-10 | *free* | | | |
+| 7 | 2023-05-08 → 2023-11-06 | 2023-04-10 | **yeah-course** (second RunPod GPU, `scripts/standalone/section.sh`, zip-file pull) | ⏳ started 2026-11-08 | | ⬜ waits for the cutoffs |
 | 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
 | 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
 | 10 | 2021-11-07 → 2022-05-07 | 2021-10-10 | **ControlThePancake** (GPU server, `scripts/standalone/section.sh`) | ⏳ starting 2026-11-08 03:00 UTC | | ⬜ waits for the cutoffs |
