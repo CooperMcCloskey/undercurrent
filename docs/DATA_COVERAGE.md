@@ -14,7 +14,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 |---|---|---|---|---|---|---|
 | **1** | 2026-05-08 → 2026-11-06 | 2026-04-10 | **Cooper** | ✅ done | ⏳ in progress (75/211 at 00:40 UTC) | ⬜ waits for the cutoffs |
 | 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
-| **3** | 2025-05-08 → 2025-11-06 | 2025-04-10 | **Lucy** (VM `satanisreal`, us-central1-b) | ⏳ started | ⏳ started | ⬜ waits for the cutoffs |
+| 3 | 2025-05-08 → 2025-11-06 | 2025-04-10 | *free* | | | |
 | 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | **yeah-course** (`uc-gpu`, us-west1-a: no L4s in us-central1, `851470465448-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
 | 5 | 2024-05-08 → 2024-11-06 | 2024-04-10 | *free* | | | |
 | 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ⏳ starting | | |
@@ -32,7 +32,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 
 ## Next, in order (as of 2026-11-08 02:00 UTC)
 
-1. **Section 4 has no owner yet, and it finishes the two years** (section 3 is Lucy's). Take it now: `create_vm.sh 4` on Google Cloud, or `scripts/standalone/section.sh setup 4` on any other GPU server. It comes before 6a, 6b and 5.
+1. **Section 3 has no owner, and it finishes the two years** (section 4 is yeah-course's). Take it now: `create_vm.sh 3` on Google Cloud, or `scripts/standalone/section.sh setup 3` on any other GPU server. It comes before 6a, 6b and 5.
 2. **Confirm that BigQuery has the translated feed.** It's about 73% of articles, and not checked yet for sections 1 and 2. On a section's VM: `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (translated should be about 2× English). Or compare the bucket's 2026-11-05 (inside section 1) with the zip-file test day below: 276,486 articles, 73% translated.
 3. **Cooper: "cutoffs pushed"** once a week of section 1 is embedded. Then every running section starts tracking (`vm.sh track`, or `section.sh track`).
 4. **Wikipedia top-1000 for the whole range: running** on ControlThePancake's laptop (started about 01:10 UTC; 4 of 8 languages done at 01:55). **Nobody else run it:** Wikimedia's limit is shared by everyone running our code.
