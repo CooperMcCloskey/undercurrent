@@ -25,6 +25,11 @@ serves half of it. It only replaces an export this command or the demo wrote (--
   snapshots (pipeline/tests/test_contracts.py checks they agree).
 - **Footprint** (`stories/footprint.py`): each article spreads one unit of attention over the
   places it names, over the same 7 days. Items get the same places as `Item.locations`.
+- **Titles are in English** where the story has any English headline: on each day's globe, the
+  most central English-feed headline of that week (else of any earlier day; never a later one),
+  and in the story panel the most central one overall. A story with no English headline gets
+  its top GDELT names and main place ("Emmanuel Macron · Paris"), which GDELT gives in English.
+  The tracker's own label is the headline the story started with, in any language.
 - **Junk stories are left off the globe** (`--keep-all-stories` to keep them): a story is shown
   only if at least NAME_SHARE_MIN of its articles share a person or organisation, or at least
   COUNTRY_SHARE_MIN have the same first-named country. The tracker groups by embedding alone,
@@ -97,6 +102,19 @@ WITH flat AS (
 )
 SELECT story_id, d, name, type, country, lat, lon, sum(1.0 / n) AS w
 FROM kept GROUP BY ALL ORDER BY d, story_id
+"""
+
+# One English-feed headline per story and day: the one closest to the story's centroid. "English"
+# means the English feed (no `lang`) and a title written (90%+) in plain Latin letters.
+ENGLISH_DAILY_SQL = r"""
+CREATE TEMP TABLE english_daily AS
+SELECT story_id, d, arg_max(title, similarity) AS title, max(similarity) AS sim
+FROM joined
+WHERE d <= $end AND lang IS NULL AND title IS NOT NULL
+  AND length(regexp_replace(title, '[^\pL]', '', 'g')) > 0
+  AND length(regexp_replace(title, '[^A-Za-z]', '', 'g'))
+      >= 0.9 * length(regexp_replace(title, '[^\pL]', '', 'g'))
+GROUP BY 1, 2
 """
 
 # GDELT's translated feed gives ISO 639-2 codes; the web app expects two letters ("en", "fr").
@@ -215,6 +233,22 @@ class Source:
 
     def build_places(self, end: dt.date) -> None:
         self.con.execute(PLACE_WEIGHTS_SQL, {"end": ordinal(end)})
+
+    def build_english(self, end: dt.date) -> None:
+        self.con.execute(ENGLISH_DAILY_SQL, {"end": ordinal(end)})
+
+    def english_titles(self, story_ids: list[str], lo: int, hi: int) -> dict[str, str]:
+        """Each story's most central English headline over days lo..hi (ordinals)."""
+        if not story_ids:
+            return {}
+        self._pick(story_ids)
+        rows = self.con.execute(
+            """SELECT story_id, arg_max(title, sim) FROM english_daily
+               WHERE d BETWEEN $lo AND $hi AND story_id IN (SELECT story_id FROM picked)
+               GROUP BY 1""",
+            {"lo": lo, "hi": hi},
+        ).fetchall()
+        return {sid: title for sid, title in rows}
 
     def _pick(self, story_ids: list[str]) -> None:
         self.con.register("picked", pd.DataFrame({"story_id": pd.Series(story_ids, dtype=str)}))
@@ -384,6 +418,15 @@ def outcome_for(
     return c.Outcome(horizons=known) if known else None
 
 
+def fallback_title(names: list[str], location: c.Location | None, meta_row) -> str:
+    """For a story with no English headline: its top names and main place, which GDELT gives in
+    English ("Emmanuel Macron, Elysee Palace · Paris"). Without either, the tracker's label."""
+    place = location.name.split(",")[0].strip() if location is not None else ""
+    parts = [", ".join(names[:2]), place]
+    title = " · ".join(p for p in parts if p)
+    return title or str(meta_row["label"])
+
+
 def story_item(row) -> c.Item:
     published = row.published_at
     if published is None or pd.isna(published):
@@ -439,6 +482,7 @@ class Exporter:
         self.counts = source.counts(end)
         self.story_days = source.story_days(end)
         source.build_places(end)
+        source.build_english(end)
         tracked = {from_ordinal(d) for d in self.story_days["d"].unique()} | {
             from_ordinal(d) for d in self.counts["d"].unique()
         }
@@ -446,6 +490,7 @@ class Exporter:
         self.stats = defaultdict(int)
         self.quality = None if keep_all else source.story_quality(end, min_articles)
         self.dropped: set[str] = set()
+        self.names: dict[str, list[str]] = {}  # GDELT names, for stories with no English headline
 
     def snapshots(self) -> dict[dt.date, c.Snapshot]:
         windows = {day: seven_day(self.counts, day) for day in self.days}
@@ -471,6 +516,7 @@ class Exporter:
             known = [s for s in chunk.index if s in meta.index]
             self.stats["skipped: no stories_daily row"] += len(chunk) - len(known)
             weights = self.src.place_weights(known, t - WINDOW + 1, t)
+            titles = self.titles(known, t)
             for sid in known:
                 if not self.looks_like_news(sid):
                     self.dropped.add(sid)
@@ -480,10 +526,31 @@ class Exporter:
                 if made is None:
                     self.stats["skipped: no places"] += 1
                     continue
-                stories.append(self.summary(sid, as_of, chunk.loc[sid], meta.loc[sid], made, a7_on))
+                title = titles.get(sid) or fallback_title(
+                    self.names.get(sid, []), made[1], meta.loc[sid]
+                )
+                stories.append(
+                    self.summary(sid, as_of, chunk.loc[sid], meta.loc[sid], made, a7_on, title)
+                )
                 if len(stories) == self.top:
                     return c.Snapshot(as_of=as_of, stories=stories)
         return c.Snapshot(as_of=as_of, stories=stories)
+
+    def titles(self, story_ids: list[str], t: int) -> dict[str, str]:
+        """English titles as of day t: this week's most central English headline, else the most
+        central one of any earlier day. Stories with neither get names for fallback_title()."""
+        week = self.src.english_titles(story_ids, t - WINDOW + 1, t)
+        rest = [s for s in story_ids if s not in week]
+        earlier = self.src.english_titles(rest, 0, t)
+        none = [s for s in rest if s not in earlier and s not in self.names]
+        if none:
+            ents = self.src.entities(none, from_ordinal(t), 2)
+            for sid, g in ents.groupby("story_id"):
+                self.names[sid] = [display_name(n) for n in g["name"]]
+        self.stats["titles: this week's English headline"] += len(week)
+        self.stats["titles: an earlier English headline"] += len(earlier)
+        self.stats["titles: no English headline (names and place)"] += len(rest) - len(earlier)
+        return {**earlier, **week}
 
     def looks_like_news(self, sid: str) -> bool:
         if self.quality is None:
@@ -493,7 +560,7 @@ class Exporter:
         q = self.quality.loc[sid]
         return bool(q["name_share"] >= NAME_SHARE_MIN or q["country_share"] >= COUNTRY_SHARE_MIN)
 
-    def summary(self, sid, as_of, agg_row, meta_row, made, a7_on) -> c.StorySummary:
+    def summary(self, sid, as_of, agg_row, meta_row, made, a7_on, title) -> c.StorySummary:
         points, location = made
         a7, prev7 = int(agg_row["a7"]), int(agg_row["prev7"])
         forecast, outcome = None, None
@@ -510,7 +577,7 @@ class Exporter:
                 self.stats["forecast actuals that differ from the tracker (stale forecast?)"] += 1
         return c.StorySummary(
             id=sid,
-            title=str(meta_row["label"]),
+            title=title,
             location=location,
             category=category_of(meta_row["category"]),
             footprint=points,
@@ -530,6 +597,7 @@ class Exporter:
         items = self.src.top_items(story_ids, self.end, self.n_items)
         items["day"] = pd.to_datetime(items["day"]).dt.date
         entities = self.src.entities(story_ids, self.end, 12)
+        english = self.src.english_titles(story_ids, 0, end)
         counts = self.counts[self.counts["story_id"].isin(story_ids)]
         items_by = {sid: g for sid, g in items.groupby("story_id")}
         entities_by = {sid: g for sid, g in entities.groupby("story_id")}
@@ -539,13 +607,16 @@ class Exporter:
             row = meta.loc[sid]
             its = items_by.get(sid)
             ents = entities_by.get(sid)
+            places = top_locations(weights.get(sid, {}))
+            names = [] if ents is None else [display_name(n) for n in ents["name"][:2]]
+            title = english.get(sid) or fallback_title(names, places[0] if places else None, row)
             out.append(
                 c.StoryDetail(
                     id=sid,
-                    title=str(row["label"]),
+                    title=title,
                     summary=None,
                     first_seen=row["first_seen"],
-                    locations=top_locations(weights.get(sid, {})),
+                    locations=places,
                     entities=[]
                     if ents is None
                     else [

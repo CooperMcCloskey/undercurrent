@@ -3,6 +3,7 @@ against the contract tests and by hand (counts, footprints, point in time, outco
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -34,13 +35,14 @@ FRANCE = loc("France", "FR", 46.0, 2.0, 1)
 GERMANY = loc("Germany", "DE", 51.0, 9.0, 1)
 BERLIN = loc("Berlin, Berlin, Germany", "DE", 52.52, 13.4, 4)
 
-STRIKE, QUAKE, TINY, NOWHERE, SUMMIT, JUNK = (
+STRIKE, QUAKE, TINY, NOWHERE, SUMMIT, JUNK, FRENCH = (
     "port-strike-in-rotterdam-aaaaaa",
     "earthquake-in-japan-bbbbbb",
     "tiny-story-cccccc",
     "no-places-dddddd",
     "summit-eeeeee",
     "story-ffffff",
+    "zz-only-french-gggggg",
 )
 CATEGORY = {
     STRIKE: "economy",
@@ -49,6 +51,7 @@ CATEGORY = {
     NOWHERE: "politics",
     SUMMIT: "politics",
     JUNK: "other",
+    FRENCH: "politics",
 }
 SUMMIT_PLACES = [[PARIS, FRANCE, GERMANY], [BERLIN, GERMANY], [GERMANY]]
 
@@ -94,6 +97,10 @@ def articles_for(day: dt.date) -> list[tuple[str, dict]]:
     # A "story" of unrelated generic headlines: no shared names, a different country each time.
     for k, place in enumerate([JAPAN, PARIS, BERLIN, ROTTERDAM]):
         art(JUNK, k, [place])
+    # A story with no English headline at all: its title falls back to names and place.
+    if day == END:
+        for k in range(3):
+            art(FRENCH, k, [PARIS], lang="fra", translated=True, persons=["emmanuel macron"])
     return out
 
 
@@ -191,13 +198,15 @@ def test_export_end_to_end(processed: Path, tmp_path: Path) -> None:
     assert meta.horizons == [1, 3] and meta.model and meta.model.model_version == "test-1"
 
     last = snapshot(out, END)
-    assert list(last) == [STRIKE, QUAKE, SUMMIT]  # biggest first; NOWHERE has no places
+    assert list(last) == [STRIKE, QUAKE, SUMMIT, FRENCH]  # biggest first; NOWHERE has no places
     strike, quake = last[STRIKE], last[QUAKE]
     assert strike["article_count_7d"] == 35 and quake["article_count_7d"] == 14
     # 35 articles vs 15 in days 0-2 (the data starts there): log2(36 / 16)
     assert strike["growth_7d"] == 1.17 and strike["tone"] == -2.0
     assert strike["category"] == "economy" and strike["first_seen"] == str(D0)
-    assert strike["title"] == "port strike in rotterdam"
+    # The most central English headline of the week: k = 0 is French, so k = 1 (similarity 0.89)
+    assert re.fullmatch(rf"{STRIKE} headline \d-1", strike["title"]), strike["title"]
+    assert last[FRENCH]["title"] == "Emmanuel Macron · Paris"
     # "Netherlands" is covered by Rotterdam: all the heat is on the city
     assert strike["footprint"] == [{"lat": 51.92, "lon": 4.48, "weight": 1.0, "radius_km": 75}]
     assert strike["location"]["name"].startswith("Rotterdam")
@@ -301,3 +310,16 @@ def test_junk_stories_are_left_off_the_globe(processed: Path, tmp_path: Path) ->
     assert not (out / "stories" / f"{JUNK}.json").exists()
     kept = export.run(processed, tmp_path / "all", keep_all=True)
     assert list(snapshot(kept, END))[:2] == [STRIKE, JUNK]
+
+
+def test_titles_are_english_and_point_in_time(processed: Path, tmp_path: Path) -> None:
+    out = export.run(processed, tmp_path / "export")
+    for day in DAYS:
+        for story in snapshot(out, day).values():
+            title = story["title"]
+            if story["id"] == FRENCH:
+                continue
+            assert "headline" in title, title  # a real (synthetic) headline, not a label
+            assert int(title.split()[-1].split("-")[0]) <= (day - D0).days, "a headline from later"
+    detail = c.StoryDetail.model_validate(load(out, f"stories/{FRENCH}.json"))
+    assert detail.title == "Emmanuel Macron · Paris"
