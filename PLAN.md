@@ -77,8 +77,12 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - [ ] Bluesky Jetstream consumer → `bluesky/*.parquet`, plus an in-process hook that D can use for `/api/live`
 - [ ] (stretch) Reddit, only if API access was approved
 
-**Needs from others:** none yet
+**Needs from others:**
+- **B:** `story_wiki_entities.parquet` (see C's needs) from `wiki_selection.parquet`, now in the bucket. Also fill `Entity.wikipedia_title` / `pageviews_7d` / `edits_7d` and `TimelinePoint.wiki_pageviews` in the export.
+- **Whoever owns `scripts/merge.sh`:** it doesn't download `wiki/wiki_entity_daily.parquet` or build `story_wiki_entities.parquet` into `data/merged/`, so the final forecast has no Wikipedia features yet.
+
 **Notes:**
+- **Wikipedia files for B are in the bucket** (2026-11-08 06:18 UTC): `gs://undercurrent-data-cooper/wiki/{wiki_selection,wiki_entity_daily}.parquet` and `wiki/cache/`. 1,761 entities with every day 2021-10-10 → 2026-11-06; names picked from 2022-10-10 (sections 9 and 10 are out of scope for now). Checked offline from a clean copy; details and download commands are in `docs/DATA_COVERAGE.md`, "Wikipedia files for B".
 - Wikipedia: full guide in `pipeline/undercurrent/ingest/WIKIPEDIA.md`. Query on demand + disk cache, not dumps (dumps are about 42 GB for 60 days). After fetching, everything works offline.
 - **8 languages** (en ja de fr ru es it zh, the most-read Wikipedias), linked by Wikidata ID. Start from `wiki_entity_daily.parquet`: one row per entity and day, languages summed, with per-language columns.
 - **Wikimedia rate limit: 200 requests/min total, at most 3 at once** (new in 2026). About 5 s per entity (8 languages × pageviews + edits), so 1,000 entities take about 1.5 h. Pick entities carefully and start early.

@@ -238,6 +238,8 @@ What each machine fetches (`fetch --shard i/n`). The default range is five years
 
 ### B: Stories
 
+**Getting the files:** the two-year run's tables are in `gs://undercurrent-data-cooper/wiki/`: `wiki_selection.parquet`, `wiki_entity_daily.parquet` and `cache/wiki_{resolve,links}.json`. Copy them to `data/processed/` and `data/cache/` (commands, checks and known gaps: "Wikipedia files for B" in `docs/DATA_COVERAGE.md`). With those files, **join a story's GDELT names straight to `wiki_selection.name`** (lowercase, as in the articles). That needs no network. Keep an entity only if its `first_week` started by the story's first day. The steps below are for names outside the selection.
+
 1. **For each story, pick its top entities** (for example the 5 most-mentioned people and organisations) and resolve them with `resolve_entities(names)`. Use the Python call, not the CLI: it's cached and fast after the first time.
 2. Put the English title in `Entity.wikipedia_title` in the export. Leave it empty when nothing was found; never guess.
 3. **Write the resolved titles to `data/processed/wiki_titles.txt`** and run step 3 above, or ask A to. Don't send every GDELT name. There are hundreds of thousands, and at about 5 seconds per entity it would take days.

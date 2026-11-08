@@ -96,7 +96,7 @@ git -C ~/undercurrent pull -q && bash ~/undercurrent/scripts/merge.sh start
 |---|---|---|---|
 | GDELT zip-file test days: articles, `gdelt_totals`, `gdelt_files` (1,232,548 articles, 237 MB; 71–77% translated) | 2026-11-01 → 2026-11-05 | ControlThePancake | that laptop, not the bucket. Inside section 1's days, so it's a cross-check for the BigQuery pull |
 | Wikipedia `wiki_top.parquet` (8 languages; replaces Lucy's earlier 2025-11-07 → 2026-11-06 copy) | 2024-10-10 → 2026-11-07 | **ControlThePancake** | ⏳ running on that laptop, started 2026-11-08 about 01:10 UTC (4 of 8 languages done at 01:55). Lands in `data/processed/wiki_top.parquet` there; not in the bucket yet |
-| Wikipedia pageviews and edits for each week's top GDELT people and orgs | 2021-10-10 → 2026-11-06 | **Lucy** | ⏳ setting up on Lucy's laptop (2026-11-08). See "Wikipedia from Lucy's laptop" below. Copied to `gs://undercurrent-data-cooper/wiki/` as it goes (Lucy can write to `wiki/` only; see "Bucket access") |
+| Wikipedia pageviews and edits for each week's top GDELT people and orgs | 2021-10-10 → 2026-11-06 | **Lucy** | ✅ **in the bucket for B** (06:18 UTC 2026-11-08): `wiki/wiki_selection.parquet`, `wiki/wiki_entity_daily.parquet`, `wiki/cache/` (see "Wikipedia files for B" below). 1,761 entities with every day 2021-10-10 → 2026-11-06; names counted for every pulled day (2022-10-10 → 2026-11-06). Sections 9 and 10 are out of scope for now |
 | Wikipedia pageviews and edits for story entities not covered above (places, smaller names) | | | after tracking (step 6 above) |
 | *(add new data here)* | | | |
 
@@ -115,17 +115,53 @@ uv run python -m undercurrent.ingest.wiki_names --bucket gs://undercurrent-data-
 # 2. Fetch Wikipedia data for any name not fetched before:
 #    tier 1: daily pageviews in 8 languages + English edits; tier 2: English pageviews only.
 uv run python -m undercurrent.ingest.wiki_bulk fetch --no-top
-# 3. Back up to the bucket.
-gcloud storage rsync -r data/raw/wiki gs://undercurrent-data-cooper/wiki/raw
-gcloud storage cp data/processed/wiki_*.parquet gs://undercurrent-data-cooper/wiki/
+# 3. Rebuild every table. `fetch` doesn't rewrite wiki_selection.parquet, so without this the
+#    selection lags behind step 1's new picks.
+uv run python -m undercurrent.ingest.wiki_bulk build
+# 4. Upload the files B needs (overwrites the previous copy; see "Wikipedia files for B").
+gcloud storage cp data/processed/wiki_selection.parquet data/processed/wiki_entity_daily.parquet \
+    gs://undercurrent-data-cooper/wiki/
+gcloud storage cp data/cache/wiki_resolve.json data/cache/wiki_links.json \
+    gs://undercurrent-data-cooper/wiki/cache/
 ```
+
+Don't upload `data/processed/wiki_top.parquet` from Lucy's laptop. It only covers 2025-11-07 → 2026-11-06 and would overwrite the bucket's longer copy.
 
 - **Dates are fixed** at 2021-10-10 → 2026-11-06 (the defaults in `wiki_bulk.py`). Don't change them mid-run: the cache only counts as done for the exact range, so a different range refetches everything.
 - **`--no-top`:** the top-1000 lists are ControlThePancake's job (step 4 above), so this run doesn't fetch them.
 - **Weeks that are only partly pulled** get a provisional top 50. The next run corrects it. A name fetched early that later drops out stays in the cache but isn't in `wiki_selection.parquet`, so it does no harm.
 - **Speed:** Wikimedia allows about 190 requests a minute per IP address. Expect 5–10k names and a day or more from one laptop. **To help**, use a machine on a **different network**: a phone hotspot or home broadband, not the same wifi as Lucy. Write your name here first, and tell Lucy so she switches to `fetch --no-top --shard 0/2`. Copy `gs://undercurrent-data-cooper/wiki/raw` into your `data/raw/wiki` (so names Lucy already fetched are skipped), then run the same commands with `fetch --no-top --shard 1/2`. Send Lucy `data/wiki_shard-1-of-2.tar.gz` and she runs `wiki_bulk merge`.
-- **Bucket access:** Lucy's account (`mccluskeylucy30@gmail.com`) can write only under `gs://undercurrent-data-cooper/wiki/`. A folder-limited grant can't cover *listing* the bucket, so `gcloud storage rsync` (step 3's first line) needs read access to the whole bucket as well (`roles/storage.objectViewer`). Without it, use `gcloud storage cp -r data/raw/wiki gs://undercurrent-data-cooper/wiki/raw` instead.
+- **Bucket access:** Lucy's account (`mccluskeylucy30@gmail.com`) can write only under `gs://undercurrent-data-cooper/wiki/`. That's why step 4 uses `gcloud storage cp`: a folder-limited grant can't cover *listing* the bucket, which `rsync` needs. The raw per-article cache isn't uploaded (B doesn't need it). It's packed in `data/wiki_shard-0-of-1.tar.gz` on Lucy's laptop, which `wiki_bulk merge` can restore on any machine.
 - **Done when:** every section is pulled, `wiki_names` has counted every day, and a final `fetch` reports nothing new. Then `wiki_bulk build` writes the final `wiki_entity_daily.parquet` and `wiki_selection.parquet` to the bucket. The forecast should only use an entity from its `first_week` onwards (point-in-time).
+
+### Wikipedia files for B (and C)
+
+These four files are everything B needs from the Wikipedia run. They were checked on 2026-11-08 from a clean folder with the network blocked: `resolve_entities()` reproduces the selection's Wikidata ID for all 2,066 names, `forecast/panel.py`'s join runs, and a story's `pageviews_7d` adds up. `gs://undercurrent-data-cooper/wiki/MANIFEST.json` lists their row counts and checksums.
+
+| Bucket path | Put it in | Used for |
+|---|---|---|
+| `wiki/wiki_selection.parquet` | `data/processed/` | GDELT name → `qid`. Columns `name, kind, tier, first_week, mentions, title_en, qid`. `name` is GDELT's lowercase name; `kind` is `persons` or `orgs`, matching the article columns. 2,066 names, 1,773 with an article (1,679 entities) |
+| `wiki/wiki_entity_daily.parquet` | `data/processed/` | `qid, title_en, day, views, edits, n_langs, views_<lang>…, edits_<lang>…`. 1,761 entities, **every day 2021-10-10 → 2026-11-06**, complete rows only. `day` is a date, not a timestamp |
+| `wiki/cache/wiki_resolve.json`, `wiki/cache/wiki_links.json` | `data/cache/` | Lets `wiki_resolve.resolve_entities()` answer every name already looked up without the network, e.g. for the leftover fetch after tracking |
+
+```bash
+gcloud storage cp gs://undercurrent-data-cooper/wiki/wiki_selection.parquet \
+    gs://undercurrent-data-cooper/wiki/wiki_entity_daily.parquet data/processed/
+gcloud storage cp gs://undercurrent-data-cooper/wiki/cache/wiki_resolve.json \
+    gs://undercurrent-data-cooper/wiki/cache/wiki_links.json data/cache/
+```
+
+B's job with them (`PLAN.md`, C's "Needs from others"):
+
+1. Write `story_wiki_entities.parquet` (`story_id, qid`): count `persons`/`orgs` in each story's articles from its first ~3 days, join `wiki_selection` on `name` (and `kind`), keep entities whose `first_week` started by the story's `first_seen`, and drop countries, capitals and media or platform names. The top of the selection is `united states`, `instagram`, `facebook`, `reuters`, `white house`, `twitter`, `associated press`, `cnn`, `youtube`. There are a few bad matches too (`supreme court` → `Supreme_court`; `union european` duplicates `European_Union`). No exclusion list exists yet.
+2. In the export, fill `Entity.wikipedia_title` (`title_en`), `pageviews_7d` / `edits_7d` (sum over the 7 days ending on the snapshot day), and `TimelinePoint.wiki_pageviews`.
+3. `scripts/merge.sh` doesn't download these yet. For the forecast to get Wikipedia features, the merge has to copy `wiki_entity_daily.parquet` into `data/merged/` and write `story_wiki_entities.parquet` there. `forecast/panel.py` picks both up automatically.
+
+Not in these files:
+
+- **Names before 2022-10-10:** sections 9 and 10 are out of scope for now, so no names are picked before then. The pageviews themselves go back to 2021-10-10.
+- **Places:** GDELT locations aren't covered.
+- **Names that never made a weekly top 50.** For those, run `wiki --titles-file` after tracking. It needs the network.
 
 ## Bucket access
 
