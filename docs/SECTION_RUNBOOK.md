@@ -110,6 +110,26 @@ source ~/.bashrc
 - **Once:** `progress`.
 - **Refreshing every minute:** `while true; do clear; date -u; progress; sleep 60; done`. Ctrl-C stops it.
 - **`tracked` counts finished days only,** so it stays at 0 while the tracker is on its first day. That can take a few minutes.
+- **`tracked` can include days tracked before the cutoffs** on a server where `track-fresh` ran before it moved old tables aside. `newprogress` counts only the days written since the cutoffs were pushed. It also shows when the running tracker started (this should be after 03:45 UTC) and whether the code on disk has the new cutoffs:
+
+```bash
+cat >> ~/.bashrc <<'EOF'
+newprogress() {
+  ( cd ~/undercurrent && source ~/block.env || return 1
+    local n p t
+    n=$(( ($(date -ud "$OWN_END" +%s) - $(date -ud "$PULL_START" +%s)) / 86400 + 1 ))
+    p=$(pgrep -f "stories.track --start $PULL_START " | head -1)
+    echo "section $BLOCK, tracker started: $([ -n "$p" ] && ps -o lstart= -p "$p" || echo 'not running')"
+    grep -q '("news", "news"): 0.80' pipeline/undercurrent/vectors/thresholds.py &&
+      echo "code: new cutoffs (0.80)" || echo "code: OLD cutoffs: run track-fresh"
+    t=$(find data/processed/stories_daily -name '*.parquet' -newermt '2026-11-08 03:45:00 UTC' 2>/dev/null | wc -l)
+    echo "tracked $t $n" | awk '{b=sprintf("%*s", int(20*$2/$3), ""); gsub(/ /, "#", b); printf "tracked since the cutoffs %4d/%-4d %3d%%  [%-20s]\n", $2, $3, 100*$2/$3, b}' )
+}
+EOF
+source ~/.bashrc
+```
+
+For a second section started with `extra_section.sh`, run it as `HOME=/workspace/uc-home-10 newprogress`.
 
 ## 5. Commands
 
