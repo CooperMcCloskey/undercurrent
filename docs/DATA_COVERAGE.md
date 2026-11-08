@@ -18,7 +18,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 | 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | *free* | | | |
 | 5 | 2024-05-08 → 2024-11-06 | 2024-04-10 | *free* | | | |
 | 6a | 2023-11-07 → 2024-02-06 | 2023-10-10 | **ControlThePancake** (extra GPU server, `scripts/standalone/section.sh`) | ⏳ starting | | |
-| 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | *free* | | | |
+| 6b | 2024-02-07 → 2024-05-07 | 2024-01-10 | **ControlThePancake** (a GPU server outside Google Cloud, `scripts/standalone/section.sh`) | ⏳ starting | | |
 | 7 | 2023-05-08 → 2023-11-06 | 2023-04-10 | *free* | | | |
 | 8 | 2022-11-07 → 2023-05-07 | 2022-10-10 | *free* | | | |
 | 9 | 2022-05-08 → 2022-11-06 | 2022-04-10 | *free* | | | |
@@ -30,13 +30,13 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 - **Section 6 is split in two** (6a and 6b, three months each), because 6a runs on a server outside Google Cloud. Start 6a, 6b or 5 on any GPU server with `scripts/standalone/section.sh` (`docs/PREVIOUS_YEAR.md`); `create_vm.sh 6` would redo 6a, so don't use it.
 - **Own days never overlap.** The warm-up days (the 28 days before a section, used only to start its tracker) may overlap the next section's own days. That's expected.
 
-## Next, in order (as of 2026-11-08 01:30 UTC)
+## Next, in order (as of 2026-11-08 02:00 UTC)
 
 1. **Section 4 has no owner yet, and it finishes the two years** (section 3 is Lucy's). Take it now: `create_vm.sh 4` on Google Cloud, or `scripts/standalone/section.sh setup 4` on any other GPU server. It comes before 6a, 6b and 5.
 2. **Confirm that BigQuery has the translated feed.** It's about 73% of articles, and not checked yet for sections 1 and 2. On a section's VM: `bash ~/undercurrent/scripts/gcp/vm.sh feeds` (translated should be about 2× English). Or compare the bucket's 2026-11-05 (inside section 1) with the zip-file test day below: 276,486 articles, 73% translated.
 3. **Cooper: "cutoffs pushed"** once a week of section 1 is embedded. Then every running section starts tracking (`vm.sh track`, or `section.sh track`).
-4. **Wikipedia top-1000 for the whole range:** one laptop only (Wikimedia's limit is shared by everyone running our code), about an hour: `uv run python -m undercurrent.ingest.wiki_top --start 2024-10-10`. Put your name in its row below when you start.
-5. **Older data, once 1–4 are covered:** 6a (running), then 6b and 5 (`docs/PREVIOUS_YEAR.md`), then 7–10.
+4. **Wikipedia top-1000 for the whole range: running** on ControlThePancake's laptop (started about 01:10 UTC; 4 of 8 languages done at 01:55). **Nobody else run it:** Wikimedia's limit is shared by everyone running our code.
+5. **Older data, once 1–4 are covered:** 6a and 6b (ControlThePancake, starting), then 5 (`docs/PREVIOUS_YEAR.md`), then 7–10.
 6. **When every section is tracked:** Cooper merges, trains and exports (`docs/TWO_YEAR_RUN.md`, "Cooper only"). Then the Wikipedia pageviews and edits for the stories' top entities (`README.md`, "Wikipedia").
 
 **Check what's really in the bucket** (Cloud Shell). This prints each continuous range of pulled days; a gap is a section nobody has pulled. Swap `articles/` for `vectors/news/` (embedded days) or `stories_daily/` (tracked days).
@@ -51,6 +51,6 @@ gcloud storage ls gs://undercurrent-data-cooper/processed/articles/ | grep -oE '
 |---|---|---|---|
 | GDELT zip-file test days: articles, `gdelt_totals`, `gdelt_files` (1,232,548 articles, 237 MB; 71–77% translated) | 2026-11-01 → 2026-11-05 | ControlThePancake | that laptop, not the bucket. Inside section 1's days, so it's a cross-check for the BigQuery pull |
 | Wikipedia `wiki_top.parquet` (8 languages) | 2026-09-08 → 2026-11-06 | A (Ingest) | *(add where it is)* |
-| Wikipedia `wiki_top.parquet`, full range | 2024-10-10 → 2026-11-07 | *free* | not started (step 4 above) |
+| Wikipedia `wiki_top.parquet`, full range (8 languages) | 2024-10-10 → 2026-11-07 | **ControlThePancake** | ⏳ running on that laptop, started 2026-11-08 about 01:10 UTC (4 of 8 languages done at 01:55). Lands in `data/processed/wiki_top.parquet` there; not in the bucket yet |
 | Wikipedia pageviews and edits for story entities | | | after tracking (step 6 above) |
 | *(add new data here)* | | | |

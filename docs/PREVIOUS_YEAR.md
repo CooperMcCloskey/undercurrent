@@ -5,12 +5,12 @@ The two-year plan (sections 1–4 in `docs/DATA_COVERAGE.md`) covers 2024-11-07 
 | Piece | Own days | Warm-up from | Status |
 |---|---|---|---|
 | **6a** | 2023-11-07 → 2024-02-06 (the first quarter) | 2023-10-10 | **Running** on ControlThePancake's extra GPU server |
-| **6b** | 2024-02-07 → 2024-05-07 | 2024-01-10 | **Next step:** free |
+| **6b** | 2024-02-07 → 2024-05-07 | 2024-01-10 | **Starting** on another of ControlThePancake's GPU servers, outside Google Cloud |
 | **5** | 2024-05-08 → 2024-11-06 | 2024-04-10 | **Next step:** free |
 
 ## Next steps: get the rest of the year
 
-The first quarter (6a) is under way. **What's still needed is the rest of the year: 6b and section 5.**
+6a and 6b are under way. **What's still needed is the rest of the year: section 5.**
 
 1. **Claim it first.** Put your name and "started" in the piece's row in `docs/DATA_COVERAGE.md`, and push straight away, so nobody runs the same days twice.
 2. **Sections 3 and 4 come first if they're still free.** They complete the two-year plan for tonight, and newer data helps the forecast more than older data.
