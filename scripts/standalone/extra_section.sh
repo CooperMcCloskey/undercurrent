@@ -32,6 +32,11 @@ SEC=$HOME/undercurrent/scripts/standalone/section.sh
 
 case "$CMD" in
 go | track-only)
+  if [ "$CMD" = track-only ] && [ -s "$HOME/undercurrent/logs/pull.log" ] && [ ! -f "$HOME/undercurrent/logs/FETCHED" ]; then
+    echo "This server pulls and embeds section $S itself: track-only is for a DIFFERENT server."
+    echo "  To track it here instead: bash $0 $S track"
+    exit 1
+  fi
   if [ ! -d "$HOME/.config/gcloud" ] && [ -d "$OLD/.config/gcloud" ]; then
     mkdir -p "$HOME/.config" && cp -r "$OLD/.config/gcloud" "$HOME/.config/" # the same Google login
   fi

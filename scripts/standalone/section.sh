@@ -152,6 +152,11 @@ fetch)
   # A section pulled and embedded on another machine: copy its articles and vectors, from its first
   # warm-up day to its last day, out of the bucket. rsync, so a rerun only fetches what's missing or
   # incomplete; `track` reruns it while it waits for days that aren't in the bucket yet.
+  if [ ! -f "$L/FETCHED" ] && { [ -s "$L/pull.log" ] || running pull | grep -qv '^0$'; }; then
+    echo "This server pulls and embeds section $BLOCK itself, so there's nothing to fetch: to track it here, run 'track'."
+    echo "(fetch is for tracking a section on a different server from the one pulling it.)"
+    exit 1
+  fi
   bucket_ok || { echo "Can't reach gs://$BUCKET: gcloud auth login --no-launch-browser"; exit 1; }
   export CLOUDSDK_STORAGE_PROCESS_COUNT=4 CLOUDSDK_STORAGE_THREAD_COUNT=8 # nothing to starve here
   DATES=$(d=$PULL_START; while [[ ! "$d" > "$OWN_END" ]]; do printf '%s|' "$d"; d=$(date -ud "$d + 1 day" +%F); done)
