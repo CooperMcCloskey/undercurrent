@@ -57,8 +57,9 @@ It runs in tmux, so closing SSH doesn't stop it. Expect about **30–60 minutes*
 1. **Finished sections.** Lists `status/*.done` in the bucket. A section is in only once its owner has run `finish`.
 2. **Space check.** Stops if there isn't room for the articles.
 3. **Download** (only what changed since the last run): every finished section's story tables (`story_assignments`, `stories_daily`, `story_lineage`), plus all articles and daily totals, into `data/merged/`. It then prints the merged days as continuous stretches. Gaps are fine.
+   Then **Wikipedia:** it copies A's `wiki_selection.parquet` and `wiki_entity_daily.parquet` from `gs://…/wiki/` and links each story to its people and organisations (`stories.wiki_entities`). If this fails, the log says so and the forecast runs without Wikipedia features. `WIKI=0` skips it.
 4. **Train and backtest** (`forecast.run --source stories`):
-   - **Rows:** one per story and day, for stories with at least 20 articles in their last 7 days. Each row has 23 features (recent counts and growth, number of domains and countries, tone, age, category, and the day's total news volume) and the story's last 28 days.
+   - **Rows:** one per story and day, for stories with at least 20 articles in their last 7 days. Each row has 23 features (recent counts and growth, number of domains and countries, tone, age, category, and the day's total news volume, plus Wikipedia reading and editing trends for the story's people and organisations) and the story's last 28 days.
    - **Targets:** the change in the story's 7-day article count 1, 3, 7 and 14 days later, in log2 units ("2× bigger" = +1).
    - **Models:** gradient-boosted quantile trees (`hgb`), one set per horizon, giving a middle estimate and an 80% range. With `gru`, a neural net over the 28-day history as well, averaged with the trees.
    - **Backtest:** walk-forward, never training on the days it's scored on. The **final test** is the last 90 days, with up to 3 earlier quarterly windows. A 28-day calibration block before each test widens or narrows the range so that "80%" really holds about 80% of outcomes.

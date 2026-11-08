@@ -158,7 +158,7 @@ Things to know:
 - **The cutoffs are placeholders.** `vectors/thresholds.py` has 0.42 for news vs news (tuned on the demo), `assign_sim` is that + 0.05, and `merge_sim` is 0.85. Read 20 real stories and calibrate before trusting any of it.
 - **PyTorch and FAISS crash each other on macOS** if both run in one process (PyTorch must load first, and FAISS then runs on one thread). Embedding and tracking are separate processes, so this doesn't arise. The code guards the mixed case, but keep them apart. It was not seen on Linux, but that is untested.
 - **Merged stories:** rows already written keep the old id, and `story_lineage` maps old to surviving id. The forecast code doesn't apply the lineage yet.
-- **Still to do for B:** `story_wiki_entities.parquet`, and attaching posts and Wikipedia items (`post_count_7d` is 0 until then). Location, footprint, entities and the exporter are done (below).
+- **Still to do for B:** attaching posts and Wikipedia items. `story_wiki_entities.parquet` is done (`stories/wiki_entities.py`, run by `scripts/merge.sh`; `PLAN.md`, B's notes) (`post_count_7d` is 0 until then). Location, footprint, entities and the exporter are done (below).
 
 #### Export: `python -m undercurrent.stories.export`
 

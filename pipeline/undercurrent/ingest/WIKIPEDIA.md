@@ -226,7 +226,7 @@ What each machine fetches (`fetch --shard i/n`). The default range is five years
 **Extra outputs:**
 
 - `data/processed/wiki_names.parquet`: `week, kind, name, mentions, rank, tier`.
-- `data/processed/wiki_selection.parquet` (written by `merge` / `build`): `name, kind, tier, first_week, mentions, title_en, qid`.
+- `data/processed/wiki_selection.parquet` (written by `merge` / `build`): `name, kind, tier, first_week, tier1_week, mentions, title_en, qid`. `tier1_week` is the first week the name was tier 1 (empty if never). Its 8 languages and edits only count from the end of that week, because `tier` is the best over every week, including later ones.
 
 **Point-in-time (C):** a name is chosen by one week's mentions, never by what happened later. But its pageviews are fetched for the whole range, including weeks before it was chosen. So "this entity has data" quietly says "it got big at some point". For a forecast made on day t, use only entities whose `first_week` ended by t.
 

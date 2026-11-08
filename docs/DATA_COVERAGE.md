@@ -140,7 +140,7 @@ These four files are everything B needs from the Wikipedia run. They were checke
 
 | Bucket path | Put it in | Used for |
 |---|---|---|
-| `wiki/wiki_selection.parquet` | `data/processed/` | GDELT name → `qid`. Columns `name, kind, tier, first_week, mentions, title_en, qid`. `name` is GDELT's lowercase name; `kind` is `persons` or `orgs`, matching the article columns. 2,066 names, 1,773 with an article (1,679 entities) |
+| `wiki/wiki_selection.parquet` | `data/processed/` | GDELT name → `qid`. Columns `name, kind, tier, first_week, tier1_week, mentions, title_en, qid` (`tier1_week` added 2026-11-08). `name` is GDELT's lowercase name; `kind` is `persons` or `orgs`, matching the article columns. 2,066 names, 1,773 with an article (1,679 entities) |
 | `wiki/wiki_entity_daily.parquet` | `data/processed/` | `qid, title_en, day, views, edits, n_langs, views_<lang>…, edits_<lang>…`. 1,761 entities, **every day 2021-10-10 → 2026-11-06**, complete rows only. `day` is a date, not a timestamp |
 | `wiki/cache/wiki_resolve.json`, `wiki/cache/wiki_links.json` | `data/cache/` | Lets `wiki_resolve.resolve_entities()` answer every name already looked up without the network, e.g. for the leftover fetch after tracking |
 
@@ -153,9 +153,9 @@ gcloud storage cp gs://undercurrent-data-cooper/wiki/cache/wiki_resolve.json \
 
 B's job with them (`PLAN.md`, C's "Needs from others"):
 
-1. Write `story_wiki_entities.parquet` (`story_id, qid`): count `persons`/`orgs` in each story's articles from its first ~3 days, join `wiki_selection` on `name` (and `kind`), keep entities whose `first_week` started by the story's `first_seen`, and drop countries, capitals and media or platform names. The top of the selection is `united states`, `instagram`, `facebook`, `reuters`, `white house`, `twitter`, `associated press`, `cnn`, `youtube`. There are a few bad matches too (`supreme court` → `Supreme_court`; `union european` duplicates `European_Union`). No exclusion list exists yet.
+1. ✅ `story_wiki_entities.parquet` (`story_id, qid`): `uv run python -m undercurrent.stories.wiki_entities --processed <dir>` (`stories/wiki_entities.py`; how it stays point in time is in `PLAN.md`, B's notes). It joins names to `wiki_selection.name` (any kind), counts an entity only once its `first_week` has ended, and leaves out countries, capitals, media, platforms and bad matches. The exclusion list is `excluded()` in that module.
 2. In the export, fill `Entity.wikipedia_title` (`title_en`), `pageviews_7d` / `edits_7d` (sum over the 7 days ending on the snapshot day), and `TimelinePoint.wiki_pageviews`.
-3. `scripts/merge.sh` doesn't download these yet. For the forecast to get Wikipedia features, the merge has to copy `wiki_entity_daily.parquet` into `data/merged/` and write `story_wiki_entities.parquet` there. `forecast/panel.py` picks both up automatically.
+3. ✅ `scripts/merge.sh` copies `wiki_selection.parquet` and `wiki_entity_daily.parquet` into `data/merged/` and runs `stories.wiki_entities --processed data/merged` before the forecast. If that fails, the forecast runs without Wikipedia features. `WIKI=0` skips it. `forecast/panel.py` joins only the days around each story, and uses 8 languages and edits only from `full_from` (`PLAN.md`, C's notes).
 
 Not in these files:
 

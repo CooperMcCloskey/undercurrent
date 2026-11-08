@@ -30,7 +30,7 @@ overwrite what B's exporter reads. Add `--help` for the options (horizons, test 
 | `articles` | A | `id, domain, tone, locations[].country` | yes |
 | `stories_daily` | B | `story_id, day, category, first_seen` | optional (features) |
 | `daily_totals` | A | `day, total_articles` | optional (else counted from `articles`) |
-| `story_wiki_entities` | B | `story_id, qid` | optional (Wikipedia features) |
+| `story_wiki_entities` | B | `story_id, qid`, `full_from` (optional) | optional (Wikipedia features; `panel.wiki_sql`) |
 | `wiki_entity_daily` | A | `qid, day, views, edits, views_en` | optional (Wikipedia features) |
 
 Each is one file `name.parquet` or a folder `name/` of partitions. **Everything that knows these
