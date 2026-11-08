@@ -11,7 +11,6 @@ import { feature, mesh } from 'topojson-client'
 import {
   BufferAttribute,
   BufferGeometry,
-  Color,
   Group,
   LineBasicMaterial,
   LineSegments,
@@ -194,96 +193,63 @@ export function buildLandArrays(topo: CountriesTopology, altitude: number): Land
   }
 }
 
-// The land's colour: natural greens by latitude (rainforest, savanna, temperate green, northern
-// forest, tundra, ice), with the big deserts in tan so it isn't a set of flat bands. Dark enough that the story markers stay the brightest
-// things on the globe, and no more muted than it has to be: grey-olive earth looked dusty.
-const LAND_STOPS: [number, string][] = [
-  [0, '#2c6a3b'],
-  [12, '#3c7a3f'],
-  [22, '#6a8a45'],
-  [32, '#5f8444'],
-  [45, '#3b7a46'],
-  [58, '#2e5f48'],
-  [68, '#6c8878'],
-  [75, '#cddce6'],
-  [90, '#f0f6fa'],
-]
-const stopColors = LAND_STOPS.map(([lat, hex]) => ({ lat, color: new Color(hex) }))
-const DESERT = new Color('#b39b64')
+/** Whether a point is on land: a raster of the country polygons, so markers can be kept off the sea. */
+export interface LandMask {
+  isLand(lat: number, lng: number): boolean
+}
+const MASK_PER_DEG = 4 // a quarter-degree grid: about 28 km
 
-/** Smooth 2D value noise in 0..1, deterministic, for where the deserts are. */
-function noise2(x: number, y: number): number {
-  const hash = (i: number, j: number) => {
-    const h = Math.sin(i * 127.1 + j * 311.7) * 43758.5453
-    return h - Math.floor(h)
+/** Draw every country filled onto a canvas (equirectangular) and read it back. Needs a DOM. */
+export function buildLandMask(topo: CountriesTopology): LandMask {
+  const w = 360 * MASK_PER_DEG
+  const h = 180 * MASK_PER_DEG
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  ctx.fillStyle = '#fff'
+  for (const country of feature(topo, topo.objects.countries).features) {
+    const g = country.geometry
+    const polygons =
+      g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
+    for (const rings of polygons) {
+      // Drawn three times, a world apart, so what crosses the antimeridian (Russia, Fiji) shows
+      // on both sides.
+      for (const shift of [-360, 0, 360]) {
+        ctx.beginPath()
+        for (const ring of rings) {
+          unwrap(ring).pts.forEach(([lng, lat], i) => {
+            const x = (lng + shift + 180) * MASK_PER_DEG
+            const y = (90 - lat) * MASK_PER_DEG
+            if (i === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.closePath()
+        }
+        ctx.fill('evenodd')
+      }
+    }
   }
-  const [ix, iy] = [Math.floor(x), Math.floor(y)]
-  const [fx, fy] = [x - ix, y - iy]
-  const [u, v] = [fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)]
-  const top = hash(ix, iy) * (1 - u) + hash(ix + 1, iy) * u
-  const bottom = hash(ix, iy + 1) * (1 - u) + hash(ix + 1, iy + 1) * u
-  return top * (1 - v) + bottom * v
-}
-
-// The big deserts, as ellipses (centre, and half-width in degrees of latitude and longitude): the
-// colour is tan inside and fades out at the edge, broken up by noise so they aren't clean ovals.
-const DESERTS: { lat: number; lng: number; rLat: number; rLng: number }[] = [
-  { lat: 23, lng: 10, rLat: 8, rLng: 27 }, // Sahara
-  { lat: 24, lng: 45, rLat: 8, rLng: 10 }, // Arabia
-  { lat: 33, lng: 55, rLat: 5, rLng: 10 }, // Iran
-  { lat: 42, lng: 95, rLat: 6, rLng: 17 }, // Gobi and Taklamakan
-  { lat: 27, lng: 71, rLat: 4, rLng: 5 }, // Thar
-  { lat: -25, lng: 134, rLat: 9, rLng: 14 }, // Australian outback
-  { lat: -24, lng: 20, rLat: 7, rLng: 7 }, // Kalahari and Namib
-  { lat: 31, lng: -111, rLat: 6, rLng: 6 }, // Sonoran and Chihuahuan
-  { lat: -23, lng: -69, rLat: 6, rLng: 3 }, // Atacama
-]
-
-function desertAmount(lat: number, lng: number): number {
-  let best = 0
-  for (const d of DESERTS) {
-    const dist = Math.hypot((lat - d.lat) / d.rLat, (lng - d.lng) / d.rLng)
-    best = Math.max(best, 1 - Math.min(1, dist))
+  const alpha = ctx.getImageData(0, 0, w, h).data
+  return {
+    isLand: (lat, lng) => {
+      const x = Math.floor(((((lng + 180) % 360) + 360) % 360) * MASK_PER_DEG)
+      const y = Math.floor((90 - Math.max(-89.99, Math.min(89.99, lat))) * MASK_PER_DEG)
+      return alpha[(Math.min(h - 1, y) * w + Math.min(w - 1, x)) * 4 + 3] > 0
+    },
   }
-  const ragged = 0.6 + 0.8 * noise2(lng / 6, lat / 4) // breaks up the edge
-  return Math.min(1, Math.max(0, best * 1.6 * ragged))
 }
 
-/** The land colour (linear RGB) at a place: the latitude blend, with the deserts in tan. */
-export function landColorAt(lat: number, lng = 0): [number, number, number] {
-  const a = Math.min(90, Math.abs(lat))
-  let i = stopColors.findIndex((s) => s.lat >= a)
-  if (i <= 0) i = 1
-  const lo = stopColors[i - 1]
-  const hi = stopColors[i]
-  const k = (a - lo.lat) / (hi.lat - lo.lat)
-  const c = lo.color.clone().lerp(hi.color, Math.min(1, Math.max(0, k)))
-  c.lerp(DESERT, desertAmount(lat, lng) * 0.9)
-  return [c.r, c.g, c.b]
-}
-
-export function landObject(arrays: LandArrays, colors: { border: string }): Group {
+export function landObject(arrays: LandArrays, colors: { land: string; border: string }): Group {
   const fillGeometry = new BufferGeometry()
   fillGeometry.setAttribute('position', new BufferAttribute(arrays.fillPositions, 3))
-  const vertexColors = new Float32Array(arrays.fillPositions.length)
-  for (let i = 0; i < arrays.fillPositions.length; i += 3) {
-    const [x, y, z] = [
-      arrays.fillPositions[i],
-      arrays.fillPositions[i + 1],
-      arrays.fillPositions[i + 2],
-    ]
-    const lat = Math.asin(y / Math.hypot(x, y, z)) / DEG
-    const lng = 90 - Math.atan2(z, x) / DEG // the inverse of pushXYZ
-    vertexColors.set(landColorAt(lat, lng), i)
-  }
-  fillGeometry.setAttribute('color', new BufferAttribute(vertexColors, 3))
   fillGeometry.setAttribute('normal', new BufferAttribute(arrays.fillNormals, 3))
   fillGeometry.setIndex(new BufferAttribute(arrays.fillIndex, 1))
   // Push the fill back slightly in depth so borders always win and never flicker.
   const fill = new Mesh(
     fillGeometry,
     new MeshLambertMaterial({
-      vertexColors: true,
+      color: colors.land,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
