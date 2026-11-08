@@ -12,7 +12,7 @@ Results go to `gs://undercurrent-data-cooper`. Send Cooper your VM's service acc
 
 | Section | Own days | Warm-up from | Who | Pulled | Embedded | Tracked |
 |---|---|---|---|---|---|---|
-| **1** | 2026-05-08 → 2026-11-06 | 2026-04-10 | **Cooper** | ✅ done | ✅ done (211/211 at 01:52 UTC) | ⬜ waits for the cutoffs |
+| **1** | 2026-05-08 → 2026-11-06 | 2026-04-10 | **Cooper** (`uc-gpu`, us-central1-c) | ✅ done | ✅ done (211/211 at 01:52 UTC) | ⏳ tracking on the 0.80 cutoffs and the language filter: at 2026-06-11 (63/211 days) around 05:15 UTC, about 35 s a day, so done about 06:45 UTC |
 | 2 | 2025-11-07 → 2026-05-07 | 2025-10-10 | **ControlThePancake** (`uc-gpu`, us-central1-b, `1025880049110-compute@…`) | ✅ done (210/210) | ✅ done (210/210 at 03:00 UTC) | ⬜ waits for the cutoffs |
 | 3 | 2025-05-08 → 2025-11-06 | 2025-04-10 | **yeah-course** (RunPod GPU, `scripts/standalone/section.sh`, zip-file pull) | ⏳ started 2026-11-08 | | ⬜ waits for the cutoffs |
 | 4 | 2024-11-07 → 2025-05-07 | 2024-10-10 | **yeah-course** (`uc-gpu`, us-west1-a: no L4s in us-central1, `851470465448-compute@…`) | ⏳ started 2026-11-08 | ⏳ | ⬜ waits for the cutoffs |
