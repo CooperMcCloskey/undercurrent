@@ -71,18 +71,24 @@ def nearest_pairs(
 
 
 def sample_by_similarity(
-    sims: np.ndarray, per_bin: int, rng: np.random.Generator
+    sims: np.ndarray,
+    per_bin: int,
+    rng: np.random.Generator,
+    per_bin_top: int | None = None,
+    top_from: float = 0.75,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Up to per_bin pairs from each similarity band: (chosen indices, weights). A pair's weight
-    is how many pairs its band holds per pair sampled from it, so weighted counts estimate the
-    counts among all the neighbour pairs."""
+    """Up to per_bin pairs from each similarity band (per_bin_top from the bands at or above
+    top_from, where the precision of a cutoff is decided): (chosen indices, weights). A pair's
+    weight is how many pairs its band holds per pair sampled from it, so weighted counts estimate
+    the counts among all the neighbour pairs, however many were taken from each band."""
     band = np.digitize(sims, EDGES) - 1
     chosen, weights = [], []
     for b in range(len(EDGES) - 1):
         members = np.flatnonzero(band == b)
         if len(members) == 0:
             continue
-        take = min(per_bin, len(members))
+        wanted = per_bin_top if per_bin_top and EDGES[b] >= top_from - 1e-9 else per_bin
+        take = min(wanted, len(members))
         chosen.append(rng.choice(members, take, replace=False))
         weights.append(np.full(take, len(members) / take))
     if not chosen:
@@ -115,6 +121,8 @@ def build_sample(
     per_bin: int,
     k: int,
     seed: int,
+    per_bin_top: int | None = None,
+    top_from: float = 0.75,
 ) -> list[dict]:
     """The sampled pairs as rows for the CSV, in random order."""
     rng = np.random.default_rng(seed)
@@ -128,7 +136,9 @@ def build_sample(
         for a, b, s in zip(lo.tolist(), hi.tolist(), sims.tolist(), strict=True):
             if s >= EDGES[0] and texts[a].strip().lower() != texts[b].strip().lower():
                 pool.append((day, ids[a], ids[b], texts[a], texts[b], s))
-    picked, weights = sample_by_similarity(np.array([p[5] for p in pool]), per_bin, rng)
+    picked, weights = sample_by_similarity(
+        np.array([p[5] for p in pool]), per_bin, rng, per_bin_top, top_from
+    )
     order = rng.permutation(len(picked))  # shuffled: the order must not reveal the similarity
     rows = []
     for i in order:
@@ -153,6 +163,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--end", type=dt.date.fromisoformat, help="latest day to consider")
     p.add_argument("--anchors", type=int, default=1500, help="random headlines per day")
     p.add_argument("--per-bin", type=int, default=12, help="pairs to label per similarity band")
+    p.add_argument(
+        "--per-bin-top",
+        type=int,
+        help="pairs per band from --top-from up (default: the same as --per-bin). The top bands are "
+        "where a cutoff's precision is decided, and where pairs are rarest.",
+    )
+    p.add_argument("--top-from", type=float, default=0.75, help="the first 'top' band's similarity")
     p.add_argument("--k", type=int, default=10, help="neighbours per headline (the tracker's knn)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", type=Path, default=Path("pairs_unlabelled.csv"))
@@ -169,6 +186,8 @@ def main(argv: list[str] | None = None) -> None:
         per_bin=args.per_bin,
         k=args.k,
         seed=args.seed,
+        per_bin_top=args.per_bin_top,
+        top_from=args.top_from,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with open(args.out, "w", newline="") as f:

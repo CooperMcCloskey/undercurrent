@@ -25,7 +25,12 @@ import numpy as np
 
 from undercurrent.vectors.embed import Source, embed
 
-TABLE_CUTOFFS = np.arange(0.35, 0.851, 0.05)
+# The table runs up to 0.95: pairs are sampled all the way to 1.0, and a cutoff of 0.9 can be the
+# one that reaches the target when 0.85 doesn't. Finer steps where precision is decided.
+TABLE_CUTOFFS = np.r_[np.arange(0.35, 0.80, 0.05), np.arange(0.80, 0.951, 0.025)]
+# The similarity bands sample_pairs.py draws from. Copied, not imported: vm.sh sends this file to the
+# VM on its own, and the VM's copy of the repo may not have the newest sample_pairs.py.
+BAND_EDGES = np.r_[np.arange(0.30, 0.901, 0.05), 1.01]
 
 
 def pair_similarities(
@@ -89,6 +94,43 @@ def table(sims: np.ndarray, same: np.ndarray, weights: np.ndarray) -> list[dict]
     return rows
 
 
+def bands(sims: np.ndarray, same: np.ndarray, weights: np.ndarray) -> list[dict]:
+    """Per similarity band: the labelled pairs in it, how many are the same story, the weighted
+    share that is, and how many real neighbour pairs the band's sample stands for. The last column
+    is what shows a band dominated by one kind of pair (a template that thousands of headlines
+    follow): a few sampled pairs of it carry a huge weight."""
+    index = np.digitize(sims, BAND_EDGES) - 1
+    out = []
+    for b in range(len(BAND_EDGES) - 1):
+        inside = index == b
+        if not inside.any():
+            continue
+        w = weights[inside]
+        out.append(
+            {
+                "low": float(BAND_EDGES[b]),
+                "high": float(min(BAND_EDGES[b + 1], 1.0)),
+                "pairs": int(inside.sum()),
+                "same": int(same[inside].sum()),
+                "precision": float((w * same[inside]).sum() / w.sum()),
+                "stands_for": float(w.sum()),
+            }
+        )
+    return out
+
+
+def top_precision(sims: np.ndarray, same: np.ndarray, weights: np.ndarray, n: int = 12) -> dict:
+    """How precise the `n` most similar labelled pairs are: the best case any cutoff could reach."""
+    top = np.argsort(-sims, kind="stable")[:n]
+    w = weights[top]
+    return {
+        "n": len(top),
+        "same": int(same[top].sum()),
+        "precision": float((w * same[top]).sum() / w.sum()),
+        "lowest_sim": float(sims[top].min()),
+    }
+
+
 def bootstrap_cutoff(
     sims: np.ndarray,
     same: np.ndarray,
@@ -135,6 +177,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--a", default="news", help="source of text_a")
     p.add_argument("--b", default="news", help="source of text_b")
     p.add_argument("--precision", type=float, default=0.9)
+    p.add_argument(
+        "--min-pairs", type=int, default=10, help="a cutoff needs this many labelled pairs above it"
+    )
     args = p.parse_args(argv)
 
     with open(args.pairs, newline="") as f:
@@ -161,16 +206,48 @@ def main(argv: list[str] | None = None) -> None:
     print(f"{len(rows)} labelled pairs, {int(same.sum())} the same story")
     print(f"\n{'cutoff':>7} {'pairs above':>12} {'precision':>10} {'true links kept':>16}")
     for r in table(sims, same, weights):
-        print(f"{r['cutoff']:>7.2f} {r['pairs']:>12} {r['precision']:>10.2f} {r['recall']:>16.2f}")
+        print(f"{r['cutoff']:>7.3g} {r['pairs']:>12} {r['precision']:>10.2f} {r['recall']:>16.2f}")
     print(
         "(precision and links kept are weighted to stand for all neighbouring pairs, not just the sample)"
     )
 
+    print(f"\n{'band':>11} {'pairs':>6} {'same story':>11} {'precision':>10} {'stands for':>12}")
+    for r in bands(sims, same, weights):
+        print(
+            f"{r['low']:>5.2f}-{r['high']:<5.2f} {r['pairs']:>6} {r['same']:>11} "
+            f"{r['precision']:>10.2f} {r['stands_for']:>12,.0f}"
+        )
+    print(
+        "(precision here is within the band; 'stands for' is how many real neighbour pairs it holds)"
+    )
+    top = top_precision(sims, same, weights, n=max(args.min_pairs, 12))
+    print(
+        f"\nThe {top['n']} most similar pairs (down to {top['lowest_sim']:.2f}): {top['same']} are the "
+        f"same story, weighted precision {top['precision']:.2f}. That is the best any cutoff could do."
+    )
+
+    # What is wrong at the top: the most similar pairs labelled 0. Same format with a different
+    # place or company ("weather for X", "<company> stock up N%") is a template, which no cutoff
+    # can separate; a pair that really is the same story is a label to correct.
+    false_positives = [i for i in np.argsort(-sims, kind="stable") if same[i] == 0][:8]
+    print("\nThe most similar pairs you labelled 0 (templates, or labels to correct?):")
+    for i in false_positives:
+        a, b = rows[i]["text_a"].strip(), rows[i]["text_b"].strip()
+        print(f"  {sims[i]:.2f}  weight {weights[i]:,.0f}\n        {a[:110]}\n     || {b[:110]}")
+    missed = [i for i in np.argsort(sims, kind="stable") if same[i] == 1][:4]
+    if missed:
+        print("\nThe least similar pairs you labelled 1 (true links a cutoff will lose):")
+        for i in missed:
+            a, b = rows[i]["text_a"].strip(), rows[i]["text_b"].strip()
+            print(f"  {sims[i]:.2f}\n        {a[:110]}\n     || {b[:110]}")
+
     chosen = None
-    for target in (0.95, args.precision, 0.85):
-        found = best_cutoff(sims, same, target, weights=weights)
+    for target in (0.95, args.precision, 0.85, 0.80, 0.75):
+        found = best_cutoff(sims, same, target, min_pairs=args.min_pairs, weights=weights)
         if found["cutoff"] is None:
-            print(f"\nprecision {target:.0%}: no cutoff reaches it with 10+ pairs above")
+            print(
+                f"\nprecision {target:.0%}: no cutoff reaches it with {args.min_pairs}+ pairs above"
+            )
             continue
         spread = bootstrap_cutoff(sims, same, weights, target)
         note = (
@@ -184,7 +261,15 @@ def main(argv: list[str] | None = None) -> None:
         if target == args.precision:
             chosen = found
     if chosen is None:
-        raise SystemExit(f"No cutoff reaches {args.precision:.0%} precision. Label more pairs.")
+        raise SystemExit(
+            f"\nNo cutoff reaches {args.precision:.0%} precision, and the pairs above are the best case "
+            f"(see the line about the {top['n']} most similar). Two different problems look like this:\n"
+            "  - the 0s at the top are TEMPLATES (same format, another place or company): no cutoff can "
+            "separate them. The tracker needs a guard for them (distinct domains, shared entities);\n"
+            "  - the 0s at the top are borderline, or the top bands have too few pairs: relabel them, or "
+            "label more pairs there (vm.sh pairs 4 30 6 samples 30 per band from 0.75 up).\n"
+            "Either way, read stories made at a candidate cutoff before trusting it: vm.sh preview."
+        )
     print(
         f'\npaste into thresholds.py:  ("{args.a}", "{args.b}"): {chosen["cutoff"]},  and add the pair to CALIBRATED'
     )

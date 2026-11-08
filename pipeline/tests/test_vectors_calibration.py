@@ -242,3 +242,120 @@ def test_end_to_end_label_string_to_cutoff(processed, tmp_path: Path, capsys) ->
     assert f"precision 90%: cutoff {cutoff}" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="labels but the file has"):
         calibrate.main(["--pairs", str(out), "--labels", labels[:-1]])
+
+
+# ---- when no cutoff reaches the target: what the report says, and spending labels where it matters -----
+
+
+def test_the_top_bands_can_get_more_pairs_and_every_weight_still_restores_its_band() -> None:
+    rng = np.random.default_rng(5)
+    sims = np.r_[rng.uniform(0.3, 0.75, 4000), rng.uniform(0.75, 1.0, 400)]
+    chosen, weights = sample_pairs.sample_by_similarity(
+        sims, per_bin=6, rng=rng, per_bin_top=30, top_from=0.75
+    )
+    band = np.digitize(sims[chosen], sample_pairs.EDGES) - 1
+    population = np.digitize(sims, sample_pairs.EDGES) - 1
+    first_top = next(b for b, e in enumerate(sample_pairs.EDGES) if e >= 0.75 - 1e-9)
+    for b in set(band):
+        cap = 30 if b >= first_top else 6
+        assert (band == b).sum() == min(cap, (population == b).sum())
+        assert weights[band == b].sum() == pytest.approx((population == b).sum())
+    # Without the option every band is capped alike, as before.
+    plain, _ = sample_pairs.sample_by_similarity(sims, per_bin=6, rng=np.random.default_rng(5))
+    assert np.bincount(np.digitize(sims[plain], sample_pairs.EDGES) - 1).max() <= 6
+
+
+def test_the_table_reaches_the_top_of_the_scale() -> None:
+    assert calibrate.TABLE_CUTOFFS.max() == pytest.approx(0.95)
+    assert 0.875 in set(np.round(calibrate.TABLE_CUTOFFS, 3))
+    assert len(calibrate.TABLE_CUTOFFS) == len(set(np.round(calibrate.TABLE_CUTOFFS, 3)))
+
+
+def test_bands_and_the_top_pairs() -> None:
+    sims = np.array([0.37, 0.38, 0.62, 0.63, 0.91, 0.93, 0.95])
+    same = np.array([0, 0, 1, 0, 1, 0, 1])
+    weights = np.array([100.0, 100.0, 10.0, 10.0, 1.0, 1.0, 1.0])
+    rows = {round(r["low"], 2): r for r in calibrate.bands(sims, same, weights)}
+    assert rows[0.35]["pairs"] == 2 and rows[0.35]["same"] == 0 and rows[0.35]["stands_for"] == 200
+    assert rows[0.6]["precision"] == pytest.approx(0.5)
+    assert rows[0.9]["pairs"] == 3 and rows[0.9]["same"] == 2 and rows[0.9]["high"] == 1.0
+    top = calibrate.top_precision(sims, same, weights, n=3)
+    assert top["n"] == 3 and top["same"] == 2 and top["lowest_sim"] == 0.91
+    assert top["precision"] == pytest.approx(2 / 3)
+
+
+TEMPLATE_PAIRS = [
+    # (text_a, text_b, same, sim, weight): the top bands are full of a template, as in real GDELT
+    *[
+        (f"Weather today for city {i}", f"Weather today for town {i}", 0, 0.93 + i / 1000, 400)
+        for i in range(6)
+    ],
+    *[
+        (f"Real event {i} reported", f"Same real event {i} in other words", 1, 0.91 + i / 1000, 2)
+        for i in range(6)
+    ],
+    *[(f"Mid {i} a", f"Mid {i} b", int(i % 2 == 0), 0.6 + i / 100, 30) for i in range(10)],
+    *[(f"Low {i} a", f"Low {i} b", 0, 0.4 + i / 100, 500) for i in range(10)],
+]
+
+
+def write_pairs(path: Path, spec) -> None:
+    path.write_text(
+        "text_a,text_b,same,sim,weight,day,id_a,id_b\n"
+        + "\n".join(
+            f"{a},{b},,{sim},{w},2026-01-01,x{i},y{i}" for i, (a, b, _, sim, w) in enumerate(spec)
+        )
+        + "\n"
+    )
+
+
+def test_when_no_cutoff_reaches_the_target_the_report_names_the_pairs_that_spoil_it(
+    tmp_path: Path, capsys
+) -> None:
+    write_pairs(tmp_path / "t.csv", TEMPLATE_PAIRS)
+    labels = "".join(str(s[2]) for s in TEMPLATE_PAIRS)
+    with pytest.raises(SystemExit) as stop:
+        calibrate.main(["--pairs", str(tmp_path / "t.csv"), "--labels", labels])
+    report = capsys.readouterr().out
+    # the wider table, the bands, and the top pairs' precision are shown
+    assert "0.95" in report and "0.875" in report and "stands for" in report
+    assert (
+        "most similar pairs (down to" in report and "That is the best any cutoff could do" in report
+    )
+    # the most similar pairs labelled 0 are listed with their text, similarity and weight
+    assert "The most similar pairs you labelled 0" in report
+    assert "Weather today for city 5" in report and "|| Weather today for town 5" in report
+    assert "weight 400" in report
+    # ... and the lowest true link is shown, so the cost of a high cutoff is visible
+    assert "The least similar pairs you labelled 1" in report
+    # the failure says what to check instead of just "label more"
+    message = str(stop.value)
+    assert "TEMPLATES" in message and "vm.sh pairs 4 30 6" in message and "vm.sh preview" in message
+
+
+def test_a_run_that_succeeds_still_shows_the_diagnostics(processed, tmp_path: Path, capsys) -> None:
+    root, _ = processed
+    out = tmp_path / "pairs.csv"
+    sample_pairs.main(
+        ["--processed", str(root), "--days", "3", "--anchors", "600", "--per-bin", "12",
+         "--per-bin-top", "20", "--seed", "1", "--out", str(out)]
+    )  # fmt: skip
+    rows = list(__import__("csv").DictReader(out.open()))
+    labels = "".join("1" if topic_of(r["id_a"]) == topic_of(r["id_b"]) >= 0 else "0" for r in rows)
+    calibrate.main(["--pairs", str(out), "--labels", labels])
+    report = capsys.readouterr().out
+    assert "paste into thresholds.py" in report and "precision 90%: cutoff" in report
+    assert "stands for" in report and "most similar pairs (down to" in report
+
+
+def test_min_pairs_can_be_lowered_for_a_thin_top_band(tmp_path: Path, capsys) -> None:
+    spec = [(f"A{i}", f"B{i}", int(i < 5), 0.92 - i / 100, 3) for i in range(6)] + [
+        (f"C{i}", f"D{i}", 0, 0.5 - i / 100, 100) for i in range(30)
+    ]
+    write_pairs(tmp_path / "t.csv", spec)
+    labels = "".join(str(s[2]) for s in spec)
+    with pytest.raises(SystemExit):
+        calibrate.main(["--pairs", str(tmp_path / "t.csv"), "--labels", labels])
+    assert "with 10+ pairs above" in capsys.readouterr().out
+    calibrate.main(["--pairs", str(tmp_path / "t.csv"), "--labels", labels, "--min-pairs", "4"])
+    assert "paste into thresholds.py" in capsys.readouterr().out
