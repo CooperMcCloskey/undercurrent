@@ -117,6 +117,24 @@ WHERE d <= $end AND lang IS NULL AND title IS NOT NULL
 GROUP BY 1, 2
 """
 
+# GDELT names per story and day, only for stories with no English headline at all (they get a
+# names-and-place title). Built once, so each day's titles are a quick lookup.
+NAMES_DAILY_SQL = """
+CREATE TEMP TABLE names_daily AS
+WITH s AS (
+    SELECT DISTINCT story_id FROM joined WHERE d <= $end
+    EXCEPT SELECT story_id FROM english_daily
+), m AS (
+    SELECT story_id, d, article_id, persons, orgs FROM joined
+    WHERE d <= $end AND story_id IN (SELECT story_id FROM s)
+)
+SELECT story_id, d, name, count(DISTINCT article_id) AS k FROM (
+    SELECT story_id, d, article_id, unnest(list_distinct(list_concat(
+        coalesce(persons, CAST([] AS VARCHAR[])), coalesce(orgs, CAST([] AS VARCHAR[]))))) AS name
+    FROM m
+) WHERE name IS NOT NULL AND name <> '' GROUP BY 1, 2, 3
+"""
+
 # GDELT's translated feed gives ISO 639-2 codes; the web app expects two letters ("en", "fr").
 LANG = {
     "afr": "af", "ara": "ar", "aze": "az", "bel": "be", "ben": "bn", "bos": "bs", "bul": "bg",
@@ -236,6 +254,27 @@ class Source:
 
     def build_english(self, end: dt.date) -> None:
         self.con.execute(ENGLISH_DAILY_SQL, {"end": ordinal(end)})
+        self.con.execute(NAMES_DAILY_SQL, {"end": ordinal(end)})
+
+    def names_as_of(self, story_ids: list[str], hi: int, limit: int = 2) -> dict[str, list[str]]:
+        """Top GDELT names (named in 2+ articles) of each story up to day hi, for stories with no
+        English headline at all (names_daily holds only those)."""
+        if not story_ids:
+            return {}
+        self._pick(story_ids)
+        rows = self.con.execute(
+            """SELECT story_id, name FROM (
+                   SELECT story_id, name, sum(k) AS n FROM names_daily
+                   WHERE d <= $hi AND story_id IN (SELECT story_id FROM picked) GROUP BY 1, 2
+               ) WHERE n >= 2
+               QUALIFY row_number() OVER (PARTITION BY story_id ORDER BY n DESC, name) <= $limit
+               ORDER BY story_id, n DESC, name""",
+            {"hi": hi, "limit": limit},
+        ).fetchall()
+        out: dict[str, list[str]] = defaultdict(list)
+        for sid, name in rows:
+            out[sid].append(display_name(name))
+        return out
 
     def english_titles(self, story_ids: list[str], lo: int, hi: int) -> dict[str, str]:
         """Each story's most central English headline over days lo..hi (ordinals)."""
@@ -490,7 +529,7 @@ class Exporter:
         self.stats = defaultdict(int)
         self.quality = None if keep_all else source.story_quality(end, min_articles)
         self.dropped: set[str] = set()
-        self.names: dict[str, list[str]] = {}  # GDELT names, for stories with no English headline
+        self.names: dict[str, list[str]] = {}  # this day's GDELT names, for stories with no English
 
     def snapshots(self) -> dict[dt.date, c.Snapshot]:
         windows = {day: seven_day(self.counts, day) for day in self.days}
@@ -542,11 +581,8 @@ class Exporter:
         week = self.src.english_titles(story_ids, t - WINDOW + 1, t)
         rest = [s for s in story_ids if s not in week]
         earlier = self.src.english_titles(rest, 0, t)
-        none = [s for s in rest if s not in earlier and s not in self.names]
-        if none:
-            ents = self.src.entities(none, from_ordinal(t), 2)
-            for sid, g in ents.groupby("story_id"):
-                self.names[sid] = [display_name(n) for n in g["name"]]
+        none = [s for s in rest if s not in earlier]
+        self.names = self.src.names_as_of(none, t)
         self.stats["titles: this week's English headline"] += len(week)
         self.stats["titles: an earlier English headline"] += len(earlier)
         self.stats["titles: no English headline (names and place)"] += len(rest) - len(earlier)
