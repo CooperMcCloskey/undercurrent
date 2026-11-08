@@ -13,7 +13,7 @@ To share a dataset with teammates, upload the files (Google Drive or AirDrop), n
 
 ## On the cloud
 
-For the multi-year run (see "Scaling up" in the main `README.md`), the bucket is the source of truth and a machine's `data/` is a cache. **Mirror this layout under the bucket root**, so the same paths work locally and in the cloud (`gsutil rsync` or `aws s3 sync`).
+For the multi-year run, the bucket is the source of truth and a machine's `data/` is a cache. **Mirror this layout under the bucket root**, so the same paths work locally and in the cloud (`gsutil rsync` or `aws s3 sync`).
 
 | Path | Written by | Contents |
 |---|---|---|

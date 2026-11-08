@@ -59,7 +59,7 @@ How we pull it (from BigQuery, or from the 15-minute zip files) and what is kept
 - **No article text.** The headline is in `<PAGE_TITLE>` inside the Extras field. Don't scrape articles.
 - **Location format.** `V1Locations` entries look like `type#name#countrycode#adm1#lat#lon#featureid`, separated by `;`.
 - **Country codes are FIPS 10-4, not ISO.** Several codes clash: `UK`→`GB`, `GM`→`DE`, `CH`→China (ISO `CH` is Switzerland), `SZ`→Switzerland, `AS`→Australia, `RS`→Russia. Use a mapping table and convert everything to ISO alpha-2 at ingest time.
-- **Size.** GKG is large. Download one day and measure it before planning a backfill. The plan is full resolution (every file), extracted on the cloud machine: see "Scaling up" in `README.md`. Taking one 15-minute file per hour cuts the download by 4×, and growth ratios still hold on a consistent sample, but it makes small-story counts noisy, so it is a fallback only.
+- **Size.** GKG is large. Download one day and measure it before planning a backfill. The plan is full resolution (every file), extracted on the cloud machine. Taking one 15-minute file per hour cuts the download by 4×, and growth ratios still hold on a consistent sample, but it makes small-story counts noisy, so it is a fallback only.
 - Syndicated stories appear many times (the same wire copy on many domains). Deduplicate before counting volume, or count unique domains instead.
 - **Translated feed.**
   - It doubles the file count. Measure **both** feeds' file sizes for one day before planning a backfill.
@@ -106,9 +106,9 @@ You need an approved OAuth "script" app and you're rate limited. Pushshift is go
 
 ## Vectors (Vectors workstream)
 
-The interface is in `docs/WORKPLAN.md` section 3.4: `embed()`, `load()` and `threshold()` in `undercurrent.vectors`.
+The interface is `embed()`, `load()` and `threshold()` in `undercurrent.vectors`.
 
-- **One space for every source.** Headlines, posts and Wikipedia text are embedded by the same model (`config.EMBEDDING_MODEL`), L2-normalised, so cosine similarity is a dot product. Store them per source and day as float16, in cloud storage, not git or laptops (see "Vectors" in `README.md` for why we keep them).
+- **One space for every source.** Headlines, posts and Wikipedia text are embedded by the same model (`config.EMBEDDING_MODEL`), L2-normalised, so cosine similarity is a dot product. Store them per source and day as float16, in cloud storage, not git or laptops.
 - **Clean before embedding; this matters more than the choice of model.** GDELT titles carry site-name suffixes (" - BBC News") and boilerplate ("Home", "Subscribe to read") that would otherwise form their own clusters. Posts carry URLs, @mentions and hashtags.
 - **Cache by text hash.** Wire stories repeat the same headline on many sites and days, so identical text is embedded once.
 - **Thresholds are per source pair and per model.** A short post and a headline about the same event score lower than two headlines do, and models differ (e5 models put almost everything between 0.7 and 1.0). Calibrate each cutoff on about 50 labelled pairs. Everyone else calls `threshold()`.
@@ -199,7 +199,7 @@ uv run python -m undercurrent.stories.wiki_entities --processed data/merged   # 
 uv run python -m undercurrent.forecast.run --source stories --processed data/merged --out data/merged
 ```
 
-`scripts/merge.sh` does exactly this. If the Wikipedia step fails, the forecast still runs, without the Wikipedia features. `WIKI=0` skips the step. Where the files come from and how A keeps them up to date: `docs/DATA_COVERAGE.md`, "Wikipedia from Lucy's laptop". A's own guide: `pipeline/undercurrent/ingest/WIKIPEDIA.md`.
+`scripts/merge.sh` does exactly this. If the Wikipedia step fails, the forecast still runs, without the Wikipedia features. `WIKI=0` skips the step. The Wikipedia guide: `pipeline/undercurrent/ingest/WIKIPEDIA.md`.
 
 ## Forecast (Forecast workstream)
 

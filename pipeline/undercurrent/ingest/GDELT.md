@@ -1,6 +1,6 @@
 # GDELT from BigQuery
 
-`python -m undercurrent.ingest.gdelt_bq` pulls GDELT's Global Knowledge Graph (GKG) from Google BigQuery and writes the `articles` table everyone downstream reads (`docs/WORKPLAN.md` 3.1). One query covers up to a week of days. Only the columns we need are read, and the output is one compact Parquet file per day.
+`python -m undercurrent.ingest.gdelt_bq` pulls GDELT's Global Knowledge Graph (GKG) from Google BigQuery and writes the `articles` table everyone downstream reads. One query covers up to a week of days. Only the columns we need are read, and the output is one compact Parquet file per day.
 
 | Output | What |
 |---|---|
@@ -9,7 +9,7 @@
 
 The vector store (`vectors.store`), the story tracker (`stories.track`) and the forecast proxy (`forecast.run --source proxy`) read these files as they are. `pipeline/tests/test_ingest_gdelt.py` checks that.
 
-**No BigQuery?** `python -m undercurrent.ingest.gdelt_zip` (ControlThePancake's; **not on `main` yet**) writes the same files from GDELT's 15-minute zip files, through the same `gkg.py`. It's described in "From the zip files" below, and it's what `docs/ONE_YEAR_EACH.md` uses.
+**No BigQuery?** `python -m undercurrent.ingest.gdelt_zip` writes the same files from GDELT's 15-minute zip files, through the same `gkg.py`. It's described in "From the zip files" below.
 
 ## One-time setup
 
@@ -33,7 +33,7 @@ uv run python -m undercurrent.ingest.gdelt_bq --start 2026-11-01 --dry-run      
 uv run python -m undercurrent.ingest.gdelt_bq --start 2026-11-01                        # pull one day
 ```
 
-Then check the day and write the numbers in `PLAN.md` Notes (A):
+Then check the day:
 
 ```bash
 uv run python -c "
@@ -97,7 +97,7 @@ uv run python -m undercurrent.ingest.gdelt_zip --status                         
 - **Gaps.** A file GDELT lists but never serves (404) counts as missing. Missing files and days with fewer than 96 files are recorded in `data/processed/gdelt_files/<day>.json` and shown by `--status`. They are GDELT outages; the day is still written from the files that exist.
 - **Split records.** A few `Extras` fields contain raw newlines. A line that doesn't start with a record id is joined back onto the record before it.
 - **`--sync-to gs://BUCKET/processed`** runs `gcloud storage rsync` for `articles/`, `gdelt_totals/` and `gdelt_files/` after every finished day and every 10 minutes. It never deletes anything in the bucket. `--sync-to host:/path/` uses plain `rsync` instead.
-- **`--shard k/n`** splits the days across several machines, with the same rule as `vectors.store --shard`. **`--sample-per-hour N`** is the fallback from `PLAN.md`: N of the 4 files per hour, on both feeds alike, with `sampled` set.
+- **`--shard k/n`** splits the days across several machines, with the same rule as `vectors.store --shard`. **`--sample-per-hour N`** is the fallback: N of the 4 files per hour, on both feeds alike, with `sampled` set.
 
 **BigQuery or zips?** Both produce identical files, so blocks pulled either way can be mixed. Choose BigQuery if you have the free terabyte and want almost no CPU work. Choose zips if you want no bill, the translated feed guaranteed (it isn't yet confirmed that the BigQuery table has it), and no Google login on the pull machine.
 

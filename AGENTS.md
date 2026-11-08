@@ -10,10 +10,7 @@ Undercurrent is a hackathon project (Hack the Burgh). It does three things:
 2. Shows the stories on a 3D globe.
 3. **Forecasts** how big each story will be over the next days (HRT track), so the globe can be scrubbed into the future as well as the past, and makes that early signal visible (G-Research track).
 
-- Plan, owners and status: `PLAN.md`
 - Design, data sources and known pitfalls: `docs/ARCHITECTURE.md`. Read the section for your area before writing code.
-- **What data has been collected, and who is pulling which dates: `docs/DATA_COVERAGE.md`.** Before you pull, embed or track any GDELT days, claim them there and push, so no two machines do the same days.
-- **Running a GDELT section on a server** (setup, Google login, progress, tracking, finishing, and the messages that look like errors but aren't): **`docs/SECTION_RUNBOOK.md`**. Use its commands rather than improvising, and follow its "For agents" rules.
 
 ## Layout and ownership
 
@@ -28,7 +25,7 @@ Undercurrent is a hackathon project (Hack the Burgh). It does three things:
 | `pipeline/undercurrent/config.py` | Paths and shared constants | Everyone, small edits only |
 | `notebooks/<name>/` | Exploration | Each person has their own folder |
 
-- **Stay inside your workstream's folders.** If you need a change in someone else's area, don't make it. Write it under "Needs from others" in your section of `PLAN.md`, tell your human, and carry on with a stub.
+- **Stay inside your workstream's folders.** If you need a change in someone else's area, don't make it. Tell your human, and carry on with a stub.
 - New modules go in your workstream's package. Each one should run as `uv run python -m undercurrent.<area>.<module>` with `argparse` options.
 
 ## The contract (the most important rule)
@@ -103,10 +100,6 @@ Rules:
   - **Point-in-time correctness:** anything computed "as of day t" may only use data from day t or earlier. The forecast is worthless otherwise.
 - **TypeScript:** function components. All server data goes through `web/src/api/client.ts` and react-query. Style with Tailwind classes.
 - **Data:** `data/` is gitignored; see `data/README.md` for its layout. Share large files outside git.
-
-## Keeping PLAN.md current
-
-When you finish a task, tick it in **your own workstream's section** of `PLAN.md`, and add a line under "Notes" if something is worth knowing. Don't edit other sections; that keeps git merges clean. Add new decisions as rows at the end of the decisions table.
 
 ## Sandboxed agents
 

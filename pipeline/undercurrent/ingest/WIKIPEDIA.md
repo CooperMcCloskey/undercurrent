@@ -2,7 +2,7 @@
 
 **Owner:** A (Ingest) · **Code:** `pipeline/undercurrent/ingest/wiki*.py` · **Tests:** `pipeline/tests/test_wiki*.py`
 
-> **Scale-up:** this doc is sized for a few thousand entities and 60 days. For 12+ months of stories, per-entity calls are too slow. Follow "Wikipedia: what the data agent (A) should do now" in the main `README.md` (entity tiers, bulk pageviews, a long top-1000 history). Where it disagrees with this file, the README wins.
+> **Scale-up:** this doc is sized for a few thousand entities and 60 days. For 12+ months of stories, per-entity calls are too slow. At that scale use entity tiers, bulk pageviews (`wiki_bulk.py`) and a long top-1000 history (`wiki_top.py`).
 
 ## In one paragraph
 
@@ -240,7 +240,7 @@ What each machine fetches (`fetch --shard i/n`). The default range is five years
 
 **Done: `stories/wiki_entities.py`** links each story to its Wikipedia entities and writes `story_wiki_entities.parquet` (`story_id, qid, full_from`, plus columns for people). `scripts/merge.sh` runs it before the forecast. What it does and why each rule is there: `docs/ARCHITECTURE.md`, "Wikipedia features, end to end". In short:
 
-1. It reads `wiki_selection.parquet` and `wiki_entity_daily.parquet` from `gs://undercurrent-data-cooper/wiki/` (download commands: "Wikipedia files for B" in `docs/DATA_COVERAGE.md`). It needs no network.
+1. It reads `wiki_selection.parquet` and `wiki_entity_daily.parquet` from `gs://undercurrent-data-cooper/wiki/`. It needs no network.
 2. It matches the GDELT names in a story's first articles to `wiki_selection.name`, normalised the same way `wiki_names` counts them (`normalise_name`: lower case, single spaces).
 3. It keeps the 5 entities named in the most articles, each in at least 2. An entity counts only once its `first_week` has ended.
 4. It leaves out countries, capitals, dateline cities, seats of government, media and platforms, and generic or wrong matches (`excluded()`). They're read so much anyway (`United_States`, `Reuters`) that they drown out the story's own signal.

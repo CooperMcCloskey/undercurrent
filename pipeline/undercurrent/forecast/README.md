@@ -5,8 +5,8 @@ every story and every day it gives, for each horizon (1, 3, 7 and 14 days), a me
 range of the story's `article_count_7d` on that later day. `article_count_7d` is the number the
 globe draws the heat from, so a projected day is drawn by the same code as a real snapshot.
 
-Why this shape (a size, not a "will it double" probability) is in `PLAN.md` (Decisions) and
-`docs/ARCHITECTURE.md` (Forecast).
+Why this shape (a size, not a "will it double" probability) is in `docs/ARCHITECTURE.md`
+(Forecast).
 
 ## Try it now
 
@@ -100,8 +100,7 @@ else: each baseline, confidence intervals, results by category, size and age).
 | add a baseline | `baselines.py`, then list it in `backtest.baseline_table` |
 | use different data (Events, centroid PCA…) | add columns to the panel in `panel.py`, then features that read them |
 
-If you need something from this module that isn't here, add it under "Needs from others" in your
-section of `PLAN.md`, or just add it: the tests will say if you broke the no-lookahead guarantee.
+If you need something from this module that isn't here, add it: the tests will say if you broke the no-lookahead guarantee.
 
 ## Not done yet
 
