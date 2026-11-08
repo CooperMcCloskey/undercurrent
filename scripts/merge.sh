@@ -15,14 +15,16 @@
 # bucket). Sections still tracking are left out; run this again later to add them.
 # Options (environment): BUCKET, MODELS (default "hgb"; "hgb gru" adds the net, best on a GPU),
 # PRETRAIN=proxy (pretrain the net on theme x country series from every article first),
-# START (first day to export, default: the first merged day), TOP (stories a day, default 300),
+# START (first day to export, default: the first merged day), TOP (stories a day, default 750),
 # WIKI=0 (skip the Wikipedia features; default on, from gs://BUCKET/wiki/).
+# EXPORT_OPTS="--no-title-categories --no-episodes" turns off the two slowest export steps (the headline
+# classifier loads the embedding model; episodes split recurring stories), if time is short.
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 SELF=$R/scripts/merge.sh
 BUCKET=${BUCKET:-undercurrent-data-cooper}
 MODELS=${MODELS:-hgb}
-TOP=${TOP:-300}
+TOP=${TOP:-750}
 M=$R/data/merged
 L=$R/logs
 export PATH=$HOME/google-cloud-sdk/bin:$HOME/.local/bin:$PATH
@@ -38,7 +40,7 @@ start)
     { echo "Can't read gs://$BUCKET with this login. gcloud auth login, then ask Cooper for access."; exit 1; }
   tmux has-session -t merge 2>/dev/null && { echo "A merge is already running: bash $SELF status"; exit 1; }
   : >"$L/merge.log"
-  tmux new -d -s merge -c "$R" "MODELS='$MODELS' PRETRAIN='${PRETRAIN:-}' TOP='$TOP' START='${START:-}' BUCKET='$BUCKET' WIKI='${WIKI:-1}' bash $SELF _run >> $L/merge.log 2>&1"
+  tmux new -d -s merge -c "$R" "EXPORT_OPTS='${EXPORT_OPTS:-}' MODELS='$MODELS' PRETRAIN='${PRETRAIN:-}' TOP='$TOP' START='${START:-}' BUCKET='$BUCKET' WIKI='${WIKI:-1}' bash $SELF _run >> $L/merge.log 2>&1"
   echo "Merge started. Watch it: bash $SELF status   (or: tail -f $L/merge.log)"
   ;;
 _run)
@@ -100,7 +102,7 @@ PY
 
   step "export (top $TOP a day, English titles, theme categories, junk left out)"
   rm -rf "$R/data/export.tmp"
-  OPTS="--top $TOP"; [ -n "${START:-}" ] && OPTS="$OPTS --start $START"
+  OPTS="--top $TOP ${EXPORT_OPTS:-}"; [ -n "${START:-}" ] && OPTS="$OPTS --start $START"
   uv run python -m undercurrent.stories.export --processed "$M" --out "$R/data/export" --force $OPTS
   uv run pytest -q -p no:cacheprovider pipeline/tests/test_contracts.py
 

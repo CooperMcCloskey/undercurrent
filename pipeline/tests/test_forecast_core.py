@@ -140,3 +140,24 @@ def test_a_bad_panel_says_what_is_wrong() -> None:
     twice = pd.DataFrame({"story_id": ["s", "s"], "day": ["2026-01-01"] * 2, "n_articles": [1, 2]})
     with pytest.raises(ValueError, match="more than one row"):
         build_rows(twice, [1])
+
+
+def test_trees_train_when_a_feature_is_constant_or_missing() -> None:
+    """With no Wikipedia features (or when every story names one country), some columns have fewer
+    than 2 different values. scikit-learn 1.9 crashes on those; the trees must leave them out."""
+    from undercurrent.forecast.models import HGBQuantile
+
+    rng = np.random.default_rng(0)
+    n = 300
+    X = pd.DataFrame({name: rng.normal(size=n) for name in FEATURES})
+    X["category"] = rng.integers(0, 5, size=n)  # the one categorical column: small whole numbers
+    constant, missing = FEATURES[0], FEATURES[1]
+    X[constant] = 1.0
+    X[missing] = np.nan
+    other = next(f for f in FEATURES if f not in (constant, missing, "category"))
+    y = X[other].to_numpy() * 0.5 + rng.normal(scale=0.1, size=n)
+    model = HGBQuantile(interval=0.8, seed=0)
+    model.fit(X, y)
+    assert constant not in model.columns and missing not in model.columns
+    predicted = model.predict(X)
+    assert predicted.shape == (n, 3) and np.isfinite(predicted).all()

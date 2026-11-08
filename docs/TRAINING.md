@@ -99,5 +99,6 @@ Step 4 ends with a table like this (the numbers here are made up):
 | The process is killed (out of memory) | run with `MODELS=hgb` only, close other jobs, or use a machine with more RAM |
 | `pytest` fails after the export | paste the error to Cooper; the data is still in `data/export/` but not uploaded |
 | It takes too long for the 07:00 run | `MODELS=hgb` (no net) is the fast path; the net is optional |
+| The export step is slow | It now writes 750 stories a day (`TOP`), classifies each story's category from its headlines (loads the embedding model) and splits recurring stories into episodes. `EXPORT_OPTS="--no-title-categories --no-episodes" bash ~/undercurrent/scripts/merge.sh start` turns the last two off; `TOP=300` shrinks the output. If the classifier can't load, the export carries on with the tracker's categories and says so in the log. |
 
 **Then:** post "merge done" with the table. Cooper loads `export-final.tgz` on the demo laptops (`docs/DATA_COVERAGE.md`, "The final merge").

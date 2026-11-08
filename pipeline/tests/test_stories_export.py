@@ -383,3 +383,18 @@ def test_unsure_headlines_give_way_to_themes(processed: Path, tmp_path: Path) ->
         classify=stub_classifier({STRIKE: ("sport", export.TITLE_CONFIDENCE_MIN - 0.01)}),
     )
     assert snapshot(out, END)[STRIKE]["category"] == "society"  # the themes
+
+
+def test_a_failing_headline_classifier_does_not_lose_the_export(
+    processed: Path, tmp_path: Path
+) -> None:
+    """The classifier needs the embedding model, which a machine may not have. The export carries
+    on with the themes and the tracker's categories."""
+
+    def broken(headlines: dict[str, list[str]]) -> dict[str, tuple[str, float]]:
+        raise OSError("can't load the embedding model")
+
+    out = export.run(processed, tmp_path / "export", classify=broken)
+    last = snapshot(out, END)
+    assert last[STRIKE]["category"] == "society"  # the themes
+    assert last[QUAKE]["category"] == "disaster"  # the tracker's

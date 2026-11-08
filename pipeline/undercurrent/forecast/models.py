@@ -113,7 +113,11 @@ class HGBQuantile:
         self.medians = pd.Series(dtype=float)
 
     def fit(self, X: pd.DataFrame, y: np.ndarray, weight: np.ndarray | None = None) -> None:
-        self.columns = [c for c in FEATURES if c in X.columns]
+        # A column with fewer than 2 different values carries nothing, and scikit-learn 1.9's
+        # binning crashes on it (`window shape cannot be larger than input array shape`). It happens
+        # for real: with no Wikipedia features every wiki column is constant or all NaN, and so is a
+        # country count when every story names one country.
+        self.columns = [c for c in FEATURES if c in X.columns and X[c].nunique(dropna=True) >= 2]
         categorical = [c for c in CATEGORICAL if c in self.columns]
         p = self.params
         self.models = []

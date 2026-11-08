@@ -135,7 +135,7 @@ THEME_LIFT_MIN = 1.5
 # category decides; otherwise its best guess stands (better than "other", which was right for 1 in
 # 20 of the labelled stories); and a story with no English headline keeps the tracker's.
 TITLE_CONFIDENCE_MIN = 0.35
-TITLES_PER_STORY = 6
+TITLES_PER_STORY = 4  # 6 gave the same answers; 4 is a third less to embed at 100,000 stories
 Classifier = typing.Callable[[dict[str, list[str]]], dict[str, tuple[str, float]]]
 
 
@@ -719,6 +719,7 @@ class Exporter:
     ) -> None:
         self.classify = classify
         self.src, self.start, self.end = source, start, end
+        self.split_stories = set(source.origin.values())
         self.top, self.n_items, self.min_articles = top, items, min_articles
         self.forecasts, self.horizons, self.metrics = forecasts, horizons, metrics
         self.counts = source.counts(end)
@@ -810,7 +811,15 @@ class Exporter:
         by_title: dict[str, tuple[str, float]] = {}
         if self.classify is not None:
             headlines = self.src.category_titles(story_ids, ordinal(self.end), TITLES_PER_STORY)
-            by_title = self.classify(headlines)
+            try:
+                by_title = self.classify(headlines)
+            except Exception as error:  # e.g. the embedding model can't be loaded on this machine
+                # Hours of work stand behind this export: carry on with themes and the tracker's
+                # categories rather than lose it.
+                log.warning("headline categories skipped (%s: %s)", type(error).__name__, error)
+                self.stats[
+                    "headline classifier FAILED: used themes and the tracker's categories"
+                ] += 1
         best: dict[str, str] = {}
         for sid in story_ids:
             title, conf = by_title.get(sid, (None, 0.0))
@@ -862,7 +871,16 @@ class Exporter:
             if outcome and any(
                 theirs.get(h.days, h.articles_7d) != h.articles_7d for h in outcome.horizons
             ):
-                self.stats["forecast actuals that differ from the tracker (stale forecast?)"] += 1
+                # A split story's later days count under its later episodes, so its forecast (made
+                # for the whole story) is graded against the episode alone: expected, not stale.
+                if key[0] in self.split_stories:
+                    self.stats[
+                        "forecast actuals that differ because the story was split (expected)"
+                    ] += 1
+                else:
+                    self.stats[
+                        "forecast actuals that differ from the tracker (stale forecast?)"
+                    ] += 1
         return c.StorySummary(
             id=sid,
             title=title,
@@ -1095,12 +1113,17 @@ def main() -> None:
     if not args.no_wiki_topics and wiki.exists():
         from undercurrent.stories.wiki_topics import name_stories
 
-        named = name_stories(out, wiki)
-        specific = sum(n.specific for n in named.values())
-        print(
-            f"  Wikipedia topics: {specific} stories named after one, "
-            f"{len(named) - specific} filed under an umbrella topic"
-        )
+        try:
+            named = name_stories(out, wiki)
+        except Exception as error:  # the export is already written: don't fail the whole run
+            log.warning("Wikipedia topic names skipped (%s: %s)", type(error).__name__, error)
+            print(f"  Wikipedia topics: FAILED ({type(error).__name__}: {error}); titles unchanged")
+        else:
+            specific = sum(n.specific for n in named.values())
+            print(
+                f"  Wikipedia topics: {specific} stories named after one, "
+                f"{len(named) - specific} filed under an umbrella topic"
+            )
     elif not args.no_wiki_topics:
         print(f"  Wikipedia topics: skipped, no {wiki}")
 

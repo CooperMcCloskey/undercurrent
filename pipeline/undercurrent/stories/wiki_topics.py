@@ -136,10 +136,21 @@ def name_stories(
             if FALLBACK_MARK not in story.title and len(headlines[story.id]) < HEADLINES_PER_STORY:
                 if story.title not in headlines[story.id]:
                     headlines[story.id].append(story.title)
-    ids = [sid for sid, ts in headlines.items() if ts]
-
     topics = Topics(pq.read_table(wiki_events).to_pylist(), embed)
-    if not len(topics.rows) or not ids:
+    if not len(topics.rows):
+        return {}
+    # Only stories alive near a day Wikipedia has bullets for can match: on a two-year export that is
+    # a small part of the stories, and embedding the rest would take most of the time.
+    pad = dt.timedelta(WINDOW_DAYS)
+    wiki_lo = (dt.date.fromisoformat(min(topics.days)) - pad).isoformat()
+    wiki_hi = (dt.date.fromisoformat(max(topics.days)) + pad).isoformat()
+    ids = [
+        sid
+        for sid, ts in headlines.items()
+        if ts and max(active[sid]) >= wiki_lo and min(active[sid]) <= wiki_hi
+    ]
+
+    if not ids:
         return {}
     flat = embed([t for sid in ids for t in headlines[sid]])
     named: dict[str, tuple[str, str, float]] = {}  # story id -> (name, heading, similarity)
