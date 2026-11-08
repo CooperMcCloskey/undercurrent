@@ -36,9 +36,7 @@ import {
 import { ModelCard } from './story/ModelCard'
 import { StoryPanel } from './story/StoryPanel'
 import { useArticles } from './story/useArticles'
-import { formatLong, toDay, toIndex, yearsBefore, type DayIndex } from './timeline/days'
-import { historySnapshot } from './timeline/history'
-import { HISTORY_YEARS } from './timeline/source'
+import { formatLong, toDay, toIndex, type DayIndex } from './timeline/days'
 import { TimeBar } from './timeline/TimeBar'
 import { useEasedStories, type EasedStory } from './timeline/useEasedStories'
 
@@ -100,6 +98,7 @@ const MIN_NEAR = 0.05
 const OCEAN = new MeshLambertMaterial({ color: COLORS.ocean })
 const RENDERER_CONFIG = { powerPreference: 'high-performance' } as const // discrete GPU if present
 const NO_STORIES: StorySummary[] = []
+const alwaysPresent = () => 1
 
 const colorOf = (s: StorySummary) => CATEGORY_STYLE[s.category].color
 
@@ -260,10 +259,14 @@ export default function App() {
     // once it's up instead of staying on the error.
     refetchInterval: (query) => (query.state.status === 'error' ? 3000 : false),
   })
-  // The day on the time bar (null = the latest). Days the pipeline exported are real; the rest
-  // of the range comes from the illustrative archive (timeline/history.ts).
+  // The day on the time bar (null = the latest). The bar covers the days the pipeline exported
+  // (meta.dates), and the forecast horizons after the latest.
   const latest = meta.data ? toIndex(meta.data.latest) : null
-  const realDays = useMemo(() => new Set((meta.data?.dates ?? []).map(toIndex)), [meta.data])
+  const exportedDays = useMemo(
+    () => (meta.data?.dates ?? []).map(toIndex).sort((a, b) => a - b),
+    [meta.data],
+  )
+  const firstDay = exportedDays[0] ?? latest
   // The bar continues past the latest day by the forecast horizons: there, the latest snapshot is
   // drawn with each story at its forecast size.
   const reach = meta.data?.horizons.length ? Math.max(...meta.data.horizons) : 0
@@ -273,20 +276,20 @@ export default function App() {
   // smooths the change on screen.
   const shownDay = barDay
   const ahead = shownDay !== null && latest !== null ? Math.max(0, shownDay - latest) : 0
-  const isRealDay = shownDay !== null && (realDays.has(shownDay) || ahead > 0)
-  // The day whose snapshot is read: the bar's day, or the latest one when looking ahead.
-  const dataDay = ahead > 0 ? latest : shownDay
+  // The day whose snapshot is read: the bar's day, or the latest one when looking ahead. A day
+  // with no snapshot (a gap between exported sections) shows the last one before it.
+  const dataDay = useMemo(() => {
+    if (shownDay === null) return null
+    if (ahead > 0) return latest
+    return exportedDays.findLast((d) => d <= shownDay) ?? exportedDays[0] ?? shownDay
+  }, [shownDay, ahead, latest, exportedDays])
   const day = dataDay === null ? undefined : toDay(dataDay)
   const snapshot = useQuery({
     queryKey: ['snapshot', day],
     queryFn: () => api.snapshot(day!),
-    enabled: !!day && isRealDay,
+    enabled: !!day,
     placeholderData: keepPreviousData,
   })
-  const archive = useMemo(
-    () => (shownDay !== null && !isRealDay ? historySnapshot(shownDay) : null),
-    [shownDay, isRealDay],
-  )
   const land = useQuery({
     queryKey: ['land'],
     queryFn: loadLandLayer,
@@ -296,24 +299,17 @@ export default function App() {
   const model = meta.data?.model ?? null
   // The day's stories as read, keeping only the forecast horizons the model beat the baseline at.
   const dayStories = useMemo(() => {
-    const raw = (isRealDay ? snapshot.data?.stories : archive?.snapshot.stories) ?? NO_STORIES
+    const raw = snapshot.data?.stories ?? NO_STORIES
     return raw.some((s) => s.forecast)
       ? raw.map((s) => (s.forecast ? { ...s, forecast: trustedForecast(s.forecast, model) } : s))
       : raw
-  }, [isRealDay, snapshot.data, archive, model])
+  }, [snapshot.data, model])
   // Looking ahead: the same stories at their forecast size.
   const stories = useMemo(
     () => (ahead > 0 ? dayStories.map((s) => projectStory(s, ahead)) : dayStories),
     [dayStories, ahead],
   )
   const emerging = useMemo(() => emergingStories(dayStories), [dayStories])
-  // How present each story is (0..1) on this day: archive stories fade in and out around their
-  // threshold; pipeline stories are simply there.
-  const presenceOf = useCallback(
-    (s: StorySummary) => (isRealDay ? 1 : (archive?.presence.get(s.id) ?? 1)),
-    [isRealDay, archive],
-  )
-
   // Category filter: categories in `hidden` are left off the globe.
   const [hidden, setHidden] = useState<ReadonlySet<Category>>(() => new Set())
   const toggleCategory = (category: Category) =>
@@ -363,7 +359,7 @@ export default function App() {
 
   // What's drawn: the visible stories, with sizes and glows easing toward the day's values, so
   // stories grow in and fade out as the time bar moves instead of popping.
-  const eased = useEasedStories(shown, presenceOf)
+  const eased = useEasedStories(shown, alwaysPresent)
   const markerCache = useRef(new Map<string, Marker>())
   const markers = useMemo(() => placeMarkers(eased, markerCache.current), [eased])
   const glow = useMemo(() => createGlowLayer(), [])
@@ -541,7 +537,7 @@ export default function App() {
     [landItem, highlight, glowItem, constellation],
   )
 
-  const error = meta.error ?? (isRealDay ? snapshot.error : null) ?? land.error
+  const error = meta.error ?? snapshot.error ?? land.error
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -607,9 +603,9 @@ export default function App() {
           onClose={deselect}
         />
       )}
-      {latest !== null && barDay !== null && (
+      {latest !== null && firstDay !== null && barDay !== null && (
         <TimeBar
-          start={yearsBefore(latest, HISTORY_YEARS)}
+          start={firstDay}
           end={latest + reach}
           futureFrom={reach > 0 ? latest : undefined}
           value={barDay}
@@ -638,13 +634,13 @@ export default function App() {
                 ? stories.length
                 : `${shown.length} of ${stories.length}`}{' '}
               {stories.length === 1 ? 'story' : 'stories'}
-              {!isRealDay && (
+              {ahead === 0 && dataDay !== null && dataDay !== barDay && (
                 <span
                   className="text-amber-300/80"
-                  title="Real events with made-up coverage numbers, until the backfill reaches this date"
+                  title="No snapshot was exported for the day on the bar"
                 >
                   {' '}
-                  · illustrative archive
+                  · no data for this day: showing {formatLong(dataDay)}
                 </span>
               )}
             </p>

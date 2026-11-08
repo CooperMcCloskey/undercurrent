@@ -14,13 +14,6 @@ export function toDay(index: DayIndex): string {
   return new Date(index * MS_PER_DAY).toISOString().slice(0, 10)
 }
 
-/** The same calendar day `years` earlier (29 Feb falls back to 1 Mar). */
-export function yearsBefore(index: DayIndex, years: number): DayIndex {
-  const date = new Date(index * MS_PER_DAY)
-  date.setUTCFullYear(date.getUTCFullYear() - years)
-  return Math.round(date.getTime() / MS_PER_DAY)
-}
-
 // No weekday: while the bar plays or is dragged it flickers through every name and reads as noise.
 const LONG = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
