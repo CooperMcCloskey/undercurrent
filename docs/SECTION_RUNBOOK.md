@@ -192,6 +192,7 @@ source ~/.bashrc
 | `faiss … AVX512 / AVX2 … ModuleNotFoundError` | faiss tries its fastest builds first. `Successfully loaded faiss` means it works (with AVX2, through dynamic dispatch) |
 | `PLACEHOLDER cutoff …` in `track.log` | The tracker is running on code from before the cutoffs were pushed. Run `track-fresh` |
 | GPU at 0% while tracking | Normal: the tracker uses the GPU only for its two searches each day, for a few seconds; the rest of each day runs on the CPUs |
+| CPU at a few % on a big server while tracking | Normal: one tracker works through the days in order, and most of each day is single-threaded Python, so it keeps about one core busy. To use the rest of the machine, run another section's pull and embedding next to it (section 6) |
 
 ## 9. The order, start to finish
 

@@ -127,6 +127,7 @@ Everything below. No real data has been fetched yet, and there's no clustering o
 - [x] Story tracking (`stories/tracker.py`, run by `python -m undercurrent.stories.track`): match items to story centroids, start new stories from the leftovers, merge duplicates (lineage), retire the idle; resumable
 - [x] Story label (most central headline), category, primary location (most-mentioned GDELT place, or that country's top city) and top entities (GDELT names only, no Wikipedia titles yet), all in the exporter
 - [x] Footprint for the heatmap (`stories/footprint.py`): the story's location mentions over the last 7 days, weighted by share, with `radius_km` set from GDELT's location type
+- [x] Local tracking completion monitor (`stories/progress.py`): readable assignment and summary outputs per day, missing days, percentage and `--watch`; includes warm-up, excludes optional lineage and does not claim bucket upload completion.
 - [ ] Attach Bluesky/Reddit posts and Wikipedia items to the nearest story centroid, using V's per-source thresholds (`vectors.threshold()`)
 - [x] Exporter (`python -m undercurrent.stories.export`): writes `meta.json`, `snapshots/<day>.json` and `stories/<id>.json` to `data/export/`, merging C's forecasts, outcomes and model card. Then run `uv run pytest`. Tested on synthetic data only
 - [x] Point-in-time: stories as of day t use only data from day t or earlier (C depends on this). A test checks that earlier days' output doesn't change when later days are added
