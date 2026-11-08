@@ -340,3 +340,46 @@ def test_theme_categories_can_be_turned_off_by_rules(processed: Path, tmp_path: 
     finally:
         export.THEME_SHARE_MIN = old
     assert snapshot(out2, END)[STRIKE]["category"] == "economy"
+
+
+def stub_classifier(answers: dict[str, tuple[str, float]], seen: dict | None = None):
+    def classify(headlines: dict[str, list[str]]) -> dict[str, tuple[str, float]]:
+        if seen is not None:
+            seen.update(headlines)
+        return {sid: answers[sid] for sid in headlines if sid in answers}
+
+    return classify
+
+
+def test_categories_from_headlines(processed: Path, tmp_path: Path) -> None:
+    """A sure headline classifier beats the themes; an unsure one gives way to clear themes, and
+    where there are none its guess stands; a story with no English headline keeps the tracker's."""
+    seen: dict[str, list[str]] = {}
+    answers = {
+        STRIKE: ("sport", 0.9),  # themes say society: the headlines win
+        QUAKE: ("health", 0.2),  # unsure, and no themes: the guess stands
+        SUMMIT: ("conflict", 0.5),
+        FRENCH: ("sport", 0.99),  # never asked: it has no English headline
+    }
+    out = export.run(processed, tmp_path / "export", classify=stub_classifier(answers, seen))
+    last = snapshot(out, END)
+    assert last[STRIKE]["category"] == "sport"
+    assert last[QUAKE]["category"] == "health"
+    assert last[SUMMIT]["category"] == "conflict"
+    assert last[FRENCH]["category"] == "politics"
+    assert FRENCH not in seen
+    assert all(0 < len(titles) <= export.TITLES_PER_STORY for titles in seen.values())
+    assert all("headline" in t for titles in seen.values() for t in titles)  # English ones only
+    # one category per story, on every day it appears
+    for day in DAYS:
+        for sid, story in snapshot(out, day).items():
+            assert story["category"] == last.get(sid, story)["category"], (sid, day)
+
+
+def test_unsure_headlines_give_way_to_themes(processed: Path, tmp_path: Path) -> None:
+    out = export.run(
+        processed,
+        tmp_path / "export",
+        classify=stub_classifier({STRIKE: ("sport", export.TITLE_CONFIDENCE_MIN - 0.01)}),
+    )
+    assert snapshot(out, END)[STRIKE]["category"] == "society"  # the themes

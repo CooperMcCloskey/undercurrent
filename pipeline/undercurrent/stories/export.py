@@ -1,7 +1,7 @@
 """Tracker output + articles + forecasts -> data/export/: the JSON the API serves and the globe draws.
 
     uv run python -m undercurrent.stories.export                                 # every tracked day
-    uv run python -m undercurrent.stories.export --start 2026-10-01 --end 2026-11-06 --top 300
+    uv run python -m undercurrent.stories.export --start 2026-10-01 --end 2026-11-06 --top 750
 
 Reads, under data/processed/ (docs/WORKPLAN.md section 3):
 
@@ -30,6 +30,13 @@ serves half of it. It only replaces an export this command or the demo wrote (--
   and in the story panel the most central one overall. A story with no English headline gets
   its top GDELT names and main place ("Emmanuel Macron · Paris"), which GDELT gives in English.
   The tracker's own label is the headline the story started with, in any language.
+- **Categories** (`recategorize`): one per story, for all its days. From the story's own English
+  headlines (up to TITLES_PER_STORY of the most central), classified by `vectors/categories.py`,
+  when the classifier is sure (TITLE_CONFIDENCE_MIN); else from GDELT's theme tags when they are
+  clear (THEME_CATEGORIES); else the classifier's best guess; a story with no English headline
+  keeps the tracker's category. `--no-title-categories` skips the classifier (it loads the
+  embedding model). The tracker's own category (its centroid against hand-written prototypes) was
+  far too often "other", and had no sport or culture before 2026-11-08.
 - **Junk stories are left off the globe** (`--keep-all-stories` to keep them): a story is shown
   only if at least NAME_SHARE_MIN of its articles share a person or organisation, or at least
   COUNTRY_SHARE_MIN have the same first-named country. The tracker groups by embedding alone,
@@ -100,6 +107,16 @@ THEME_CATEGORIES: dict[str, tuple[str, ...]] = {
 }  # fmt: skip
 THEME_SHARE_MIN = 0.25
 THEME_LIFT_MIN = 1.5
+
+# Category from the story's own English headlines (vectors/categories.py, classify_titles): the
+# most central ones, each classified, their probabilities averaged. On 246 hand-labelled headlines
+# the classifier is right 80% of the time when its confidence is at least TITLE_CONFIDENCE_MIN
+# and 47% of the time below it. It decides the category when it is sure; otherwise a clear theme
+# category decides; otherwise its best guess stands (better than "other", which was right for 1 in
+# 20 of the labelled stories); and a story with no English headline keeps the tracker's.
+TITLE_CONFIDENCE_MIN = 0.35
+TITLES_PER_STORY = 6
+Classifier = typing.Callable[[dict[str, list[str]]], dict[str, tuple[str, float]]]
 
 
 def _theme_case(var: str) -> str:
@@ -327,6 +344,23 @@ class Source:
             {"lo": lo, "hi": hi},
         ).fetchall()
         return {sid: title for sid, title in rows}
+
+    def category_titles(self, story_ids: list[str], end: int, n: int) -> dict[str, list[str]]:
+        """Up to `n` English headlines per story, the most central of its days up to `end`."""
+        if not story_ids:
+            return {}
+        self._pick(story_ids)
+        rows = self.con.execute(
+            """SELECT story_id, title FROM english_daily
+               WHERE d <= $end AND story_id IN (SELECT story_id FROM picked)
+               QUALIFY row_number() OVER (PARTITION BY story_id ORDER BY sim DESC, d DESC) <= $n
+               ORDER BY story_id, sim DESC, d DESC""",
+            {"end": end, "n": n},
+        ).fetchall()
+        out: dict[str, list[str]] = defaultdict(list)
+        for sid, title in rows:
+            out[sid].append(title)
+        return out
 
     def _pick(self, story_ids: list[str]) -> None:
         self.con.register("picked", pd.DataFrame({"story_id": pd.Series(story_ids, dtype=str)}))
@@ -583,7 +617,9 @@ class Exporter:
         horizons: list[int],
         metrics: c.ModelMetrics | None,
         keep_all: bool = False,
+        classify: Classifier | None = None,
     ) -> None:
+        self.classify = classify
         self.src, self.start, self.end = source, start, end
         self.top, self.n_items, self.min_articles = top, items, min_articles
         self.forecasts, self.horizons, self.metrics = forecasts, horizons, metrics
@@ -658,26 +694,50 @@ class Exporter:
         return {**earlier, **week}
 
     def recategorize(self, snaps: dict[dt.date, c.Snapshot]) -> None:
-        """Replace each exported story's category with its GDELT-theme category where the themes
-        are clear (THEME_CATEGORIES); otherwise keep the tracker's."""
+        """Give each exported story one category for all its days: from its English headlines when
+        the classifier is sure (TITLE_CONFIDENCE_MIN), else from GDELT's themes where they are
+        clear (THEME_CATEGORIES), else the classifier's best guess; a story with no English
+        headline keeps the tracker's category."""
         story_ids = sorted({s.id for snap in snaps.values() for s in snap.stories})
         if not story_ids:
             return
         votes = self.src.theme_categories(story_ids, self.end)
         votes = votes[(votes["share"] >= THEME_SHARE_MIN) & (votes["lift"] >= THEME_LIFT_MIN)]
-        best = (
+        by_theme = (
             votes.sort_values(["story_id", "lift", "category"], ascending=[True, False, True])
             .drop_duplicates("story_id")
             .set_index("story_id")["category"]
             .to_dict()
         )
+        by_title: dict[str, tuple[str, float]] = {}
+        if self.classify is not None:
+            headlines = self.src.category_titles(story_ids, ordinal(self.end), TITLES_PER_STORY)
+            by_title = self.classify(headlines)
+        best: dict[str, str] = {}
+        for sid in story_ids:
+            title, conf = by_title.get(sid, (None, 0.0))
+            theme = by_theme.get(sid)
+            if title and conf >= TITLE_CONFIDENCE_MIN:
+                best[sid] = title
+                how = "titles"
+            elif theme:
+                best[sid] = theme
+                how = "themes"
+            elif title:
+                best[sid] = title
+                how = "titles, unsure"
+            else:
+                continue
+            self.stats[f"stories categorised by {how}"] += 1
+            if title and theme:
+                agree = "agree" if title == theme else "disagree"
+                self.stats[f"stories where titles and themes {agree}"] += 1
         for snap in snaps.values():
             for s in snap.stories:
                 new = best.get(s.id)
                 if new and new != s.category:
-                    self.stats[f"story-days recategorised by themes: {s.category} -> {new}"] += 1
+                    self.stats[f"story-days recategorised: {s.category} -> {new}"] += 1
                     s.category = new
-        self.stats["stories with a theme category"] = len(best)
         self.stats["stories keeping the tracker's category"] = len(story_ids) - len(best)
 
     def looks_like_news(self, sid: str) -> bool:
@@ -797,11 +857,12 @@ def run(
     out: Path = config.EXPORT,
     start: dt.date | None = None,
     end: dt.date | None = None,
-    top: int = 300,
+    top: int = 750,
     items: int = 25,
     min_articles: int = 3,
     force: bool = False,
     keep_all: bool = False,
+    classify: Classifier | None = None,
 ) -> Path:
     check_target(out, force)
     source = Source(processed)
@@ -815,7 +876,17 @@ def run(
         )
     forecasts, horizons, metrics = load_forecast_inputs(processed)
     ex = Exporter(
-        source, start, end, top, items, min_articles, forecasts, horizons, metrics, keep_all
+        source,
+        start,
+        end,
+        top,
+        items,
+        min_articles,
+        forecasts,
+        horizons,
+        metrics,
+        keep_all,
+        classify,
     )
 
     tmp = out.with_name(out.name + ".tmp")
@@ -867,7 +938,7 @@ def main() -> None:
     parser.add_argument(
         "--end", type=dt.date.fromisoformat, help="last day (default: last tracked)"
     )
-    parser.add_argument("--top", type=int, default=300, help="stories per snapshot, biggest first")
+    parser.add_argument("--top", type=int, default=750, help="stories per snapshot, biggest first")
     parser.add_argument("--items", type=int, default=25, help="articles per story detail")
     parser.add_argument(
         "--min-articles", type=int, default=3, help="smallest article_count_7d shown"
@@ -880,8 +951,19 @@ def main() -> None:
         action="store_true",
         help="don't leave out stories whose articles share no name or country",
     )
+    parser.add_argument(
+        "--no-title-categories",
+        action="store_true",
+        help="don't classify stories from their headlines (loads the embedding model): use GDELT "
+        "themes and the tracker's category only",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    classify = None
+    if not args.no_title_categories:
+        from undercurrent.vectors.categories import classify_titles
+
+        classify = classify_titles
     run(
         args.processed,
         args.out,
@@ -892,6 +974,7 @@ def main() -> None:
         args.min_articles,
         args.force,
         args.keep_all_stories,
+        classify,
     )
 
 
