@@ -95,64 +95,48 @@ Check the `days/h` figure at the end of `tail -1 ~/undercurrent/logs/pull.log`: 
 
 ## 4. Progress
 
-**Tracking, for every section on a server** (the main one and any `extra_section.sh` ones), counting only days tracked since the cutoffs were pushed:
+**One command for every section (job) on a server:** the main one and any started with `extra_section.sh`. It shows each one's pull, embedding and tracking, what's running for it right now, and what to run next:
 
 ```bash
-bash ~/undercurrent/scripts/standalone/tracking.sh
-watch -n 60 bash ~/undercurrent/scripts/standalone/tracking.sh     # refreshes every minute; Ctrl-C stops it
+git -C ~/undercurrent pull -q                                    # once, to get the script
+bash ~/undercurrent/scripts/standalone/progress.sh
+watch -n 60 bash ~/undercurrent/scripts/standalone/progress.sh   # refreshes every minute; Ctrl-C stops it
 ```
 
 ```
-tracking since the cutoffs (2026-11-08 03:45:00 UTC), 05:10 UTC
-6b     57/119   47% [#########           ]  last 2024-03-06, 24 s/day ~0.4 h left  running
-3b     12/120   10% [##                  ]  last 2025-07-21, 31 s/day ~0.9 h left  running
+progress of each section on a0fb64a8b64f, 05:10 UTC (cutoffs pushed 2026-11-08 03:45:00 UTC)
+8    pulled 210/210  embedded 210/210  tracked  57/210  27% [#####               ]
+     running: track | tracking since 04:20 UTC | last day 2022-12-05, 24 s/day, ~1.0 h left
+3b   pulled 120/120  embedded 120/120  tracked   0/120   0% [                    ]
+     running: nothing | not tracking yet | last day -, ? s/day
+     next: bash ~/undercurrent/scripts/standalone/extra_section.sh 3b track
 ```
 
-**The last column says one of:**
-- `running`, `done` or `not started`;
-- `stopped: <the log's last line>`. "No news vectors for …" just means it's waiting for that day;
-- `OLD RUN … track-fresh`: the tracker started before the cutoffs.
+**To make `progress` run it,** paste this once per server. It replaces the older `progress` function, which counted leftover files from runs before the cutoffs and so looked frozen:
+```bash
+echo 'progress() { bash ~/undercurrent/scripts/standalone/progress.sh; }' >> ~/.bashrc && source ~/.bashrc
+```
+
+**How to read it:**
+- **`tracked`** counts only the current timeline: the days written since its first day. An old run's leftover files, if they weren't moved aside, don't count.
+- **The speed** is from when the last 10 days' files were written.
+- **`running`** lists the processes this section has right now: `pull`, `embed xN`, `track`, `loops waiting` (section.sh's loops between tries), or `nothing`.
+- **The tracking state** is one of:
+  - `tracking since …`;
+  - `waiting …`: the loop retries every 2 minutes. "No news vectors for …" means that day isn't embedded or fetched yet;
+  - `tracking stopped: <the log's last line>`;
+  - `tracking done`;
+  - `not tracking yet`;
+  - `timeline began …, BEFORE the cutoffs`: needs `track-fresh`.
+- **`next:`** appears only when something needs doing. It's the exact command to run.
 
 **On a Google Cloud block VM,** run it from Cloud Shell, after `git -C ~/undercurrent pull -q`:
 ```bash
-gcloud compute ssh uc-gpu --zone=ZONE --command='sudo -u uc -H bash -s' < ~/undercurrent/scripts/standalone/tracking.sh
+Z=$(gcloud compute instances list --filter=name=uc-gpu --format='value(zone.basename())')
+gcloud compute ssh uc-gpu --zone=$Z --command='sudo -u uc -H bash -s' < ~/undercurrent/scripts/standalone/progress.sh
 ```
 
-**Pulled, embedded and tracked for the main section:** paste this once on each server:
-
-```bash
-cat >> ~/.bashrc <<'EOF'
-progress() {
-  bash ~/undercurrent/scripts/standalone/section.sh status | grep -oE '(pulled|embedded|tracked) [0-9]+/[0-9]+' |
-    awk -F'[ /]' '{b=sprintf("%*s", int(20*$2/$3), ""); gsub(/ /, "#", b); printf "%-9s %4d/%-4d %3d%%  [%-20s]\n", $1, $2, $3, 100*$2/$3, b}'
-}
-EOF
-source ~/.bashrc
-```
-
-- **Once:** `progress`.
-- **Refreshing every minute:** `while true; do clear; date -u; progress; sleep 60; done`. Ctrl-C stops it.
-- **`tracked` counts finished days only,** so it stays at 0 while the tracker is on its first day. That can take a few minutes.
-- **`tracked` can include days tracked before the cutoffs** on a server where `track-fresh` ran before it moved old tables aside. `newprogress` counts only the days written since the cutoffs were pushed. It also shows when the running tracker started (this should be after 03:45 UTC) and whether the code on disk has the new cutoffs:
-
-```bash
-cat >> ~/.bashrc <<'EOF'
-newprogress() {
-  ( cd ~/undercurrent && source ~/block.env || return 1
-    local n p t
-    n=$(( ($(date -ud "$OWN_END" +%s) - $(date -ud "$PULL_START" +%s)) / 86400 + 1 ))
-    p=$(pgrep -f "stories.track --start $PULL_START " | head -1)
-    echo "section $BLOCK, tracker started: $([ -n "$p" ] && ps -o lstart= -p "$p" || echo 'not running')"
-    grep -q '("news", "news"): 0.80' pipeline/undercurrent/vectors/thresholds.py &&
-      echo "code: new cutoffs (0.80)" || echo "code: OLD cutoffs: run track-fresh"
-    t=$(find data/processed/stories_daily -name '*.parquet' -newermt '2026-11-08 03:45:00 UTC' 2>/dev/null | wc -l)
-    echo "tracked $t $n" | awk '{b=sprintf("%*s", int(20*$2/$3), ""); gsub(/ /, "#", b); printf "tracked since the cutoffs %4d/%-4d %3d%%  [%-20s]\n", $2, $3, 100*$2/$3, b}' )
-}
-EOF
-source ~/.bashrc
-```
-
-For a second section started with `extra_section.sh`, run it as `HOME=/workspace/uc-home-10 newprogress`.
+`section.sh status` still shows the raw details: each embedder's titles a second, GPU use, bucket access, and the last line of every log. Its `tracked` count includes leftover files from older runs.
 
 ## 5. Commands
 
@@ -221,25 +205,10 @@ Run these from Cloud Shell. First update Cloud Shell's copy of the repo with `gi
 | `finish` | Uploads the block's own story days and marks it done |
 | `stop` | Stops the VM. Only after `finish` |
 
-**A progress function for Cloud Shell:** it counts the files on the VM. Paste it once:
+**A `progress` command for Cloud Shell:** it runs `progress.sh` on the VM. Paste it once:
 
 ```bash
-cat >> ~/.bashrc <<'EOF'
-progress() {
-  local z; z=$(gcloud compute instances list --filter=name=uc-gpu --format='value(zone.basename())' | head -1)
-  [ -n "$z" ] || { echo "No uc-gpu VM in project $(gcloud config get-value project 2>/dev/null)"; return 1; }
-  gcloud compute ssh uc-gpu --zone="$z" --command='sudo -u uc -H bash -s' <<'EOS'
-cd ~/undercurrent && source ~/block.env
-n=$(( ($(date -ud $OWN_END +%s) - $(date -ud $PULL_START +%s)) / 86400 + 1 ))
-c() { find "$1" -maxdepth 1 -name "$2" 2>/dev/null | wc -l; }
-{ echo "pulled $(c data/processed/articles 'day=*') $n"
-  echo "embedded $(c data/processed/vectors/news '*.parquet') $n"
-  echo "tracked $(c data/processed/stories_daily '*.parquet') $n"; } |
-  awk '{b=sprintf("%*s", int(20*$2/$3), ""); gsub(/ /, "#", b); printf "%-9s %4d/%-4d %3d%%  [%-20s]\n", $1, $2, $3, 100*$2/$3, b}'
-EOS
-}
-EOF
-source ~/.bashrc
+echo 'progress() { git -C ~/undercurrent pull -q; local z=$(gcloud compute instances list --filter=name=uc-gpu --format="value(zone.basename())" | head -1); gcloud compute ssh uc-gpu --zone="$z" --command="sudo -u uc -H bash -s" < ~/undercurrent/scripts/standalone/progress.sh; }' >> ~/.bashrc && source ~/.bashrc
 ```
 
 **Unlike `section.sh`, the VM's `track-fresh` leaves the old story tables in place,** so `tracked` counts them, and `finish` would accept them. After a `track-fresh` there, run `finish` only once `track.log` ends with a new `done: … items …` line.
